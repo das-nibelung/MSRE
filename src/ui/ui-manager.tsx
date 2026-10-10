@@ -482,6 +482,10 @@ export class UIManager {
     }
 
     public openFlashcardModal(reviewQueueLoader: ReviewQueueLoader): void {
+        if (Platform.isMobile || EmulatedPlatform().isMobile) {
+            void this.tabViewManager.openSRTabView(reviewQueueLoader);
+            return;
+        }
         this.setSRViewInFocus(true);
         this.focusObsidianWindow();
         new SRModalView(

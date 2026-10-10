@@ -1,7 +1,6 @@
 import "src/ui/card-browser/card-browser-view.css";
 import {
     ButtonComponent,
-    DropdownComponent,
     ItemView,
     Menu,
     Notice,
@@ -109,7 +108,6 @@ export class CardBrowserView extends ItemView {
 
         const header = this.contentEl.createDiv("sr-card-browser-header");
         const titleBlock = header.createDiv("sr-card-browser-title-block");
-        titleBlock.createEl("h2", { text: t("CARD_BROWSER") });
         titleBlock.createEl("p", {
             text: t("CARD_BROWSER_SUMMARY", {
                 total: records.length,
@@ -118,14 +116,20 @@ export class CardBrowserView extends ItemView {
         });
         const headerActions = header.createDiv("sr-card-browser-header-actions");
         const reviewButton = new ButtonComponent(headerActions)
-            .setIcon("play")
+            .setButtonText(t("START_REVIEW"))
             .setTooltip(this.notePath === null ? t("START_REVIEW") : t("REVIEW_CARDS_IN_NOTE"))
             .onClick(() => void this.startReview());
+        reviewButton.buttonEl.addClass("sr-card-browser-review-button");
+        const reviewIcon = activeDocument.createElement("span");
+        reviewIcon.addClass("sr-card-browser-review-icon");
+        setIcon(reviewIcon, "play");
+        reviewButton.buttonEl.prepend(reviewIcon);
         reviewButton.setDisabled(records.length === 0);
-        new ButtonComponent(headerActions)
+        const createButton = new ButtonComponent(headerActions)
             .setIcon("plus")
             .setTooltip(t("CREATE_CARD"))
             .onClick(() => void this.plugin.uiManager.createStarterCardNote());
+        createButton.buttonEl.addClass("sr-card-browser-create-button");
         if (!this.plugin.dataManager.isOsrCoreLoaded()) {
             this.renderEmpty(t("LOADING_CARDS"), "loader-circle", false);
             return;
@@ -145,43 +149,56 @@ export class CardBrowserView extends ItemView {
                 this.visibleLimit = PAGE_SIZE;
                 this.renderResults(records);
             });
-        new DropdownComponent(toolbar)
-            .addOptions({
+        const filterRow = toolbar.createDiv("sr-card-browser-filter-row");
+        this.createFilterButton(
+            filterRow,
+            {
                 all: t("ALL_CARDS"),
                 new: t("NEW_CARDS"),
                 due: t("DUE_CARDS"),
                 scheduled: t("SCHEDULED_CARDS"),
-            })
-            .setValue(this.filter)
-            .onChange((value) => {
+            },
+            this.filter,
+            (value) => {
                 this.filter = value as CardBrowserFilter;
                 this.visibleLimit = PAGE_SIZE;
-                this.renderResults(records);
-            });
+                this.render();
+            },
+            this.filter !== "all",
+        );
 
-        const deckDropdown = new DropdownComponent(toolbar).addOption("all", t("ALL_DECKS"));
+        const deckOptions: Record<string, string> = { all: t("ALL_DECKS") };
         for (const deckName of getCardBrowserDeckNames(records)) {
-            deckDropdown.addOption(deckName, deckName);
+            deckOptions[deckName] = deckName;
         }
-        deckDropdown.setValue(this.deck).onChange((value) => {
-            this.deck = value;
-            this.visibleLimit = PAGE_SIZE;
-            this.renderResults(records);
-        });
+        this.createFilterButton(
+            filterRow,
+            deckOptions,
+            this.deck,
+            (value) => {
+                this.deck = value;
+                this.visibleLimit = PAGE_SIZE;
+                this.render();
+            },
+            this.deck !== "all",
+        );
 
-        new DropdownComponent(toolbar)
-            .addOptions({
+        this.createFilterButton(
+            filterRow,
+            {
                 due: t("SORT_BY_DUE"),
                 front: t("SORT_BY_FRONT"),
                 note: t("SORT_BY_NOTE"),
                 interval: t("SORT_BY_INTERVAL"),
-            })
-            .setValue(this.sort)
-            .onChange((value) => {
+            },
+            this.sort,
+            (value) => {
                 this.sort = value as CardBrowserSort;
                 this.visibleLimit = PAGE_SIZE;
-                this.renderResults(records);
-            });
+                this.render();
+            },
+            this.sort !== "due",
+        );
 
         if (this.notePath !== null) {
             const scope = this.contentEl.createDiv("sr-card-browser-scope");
@@ -194,6 +211,41 @@ export class CardBrowserView extends ItemView {
 
         this.resultsEl = this.contentEl.createDiv("sr-card-browser-results");
         this.renderResults(records);
+    }
+
+    private createFilterButton(
+        parent: HTMLElement,
+        options: Record<string, string>,
+        value: string,
+        onChange: (value: string) => void,
+        isFiltered: boolean,
+    ): void {
+        const currentLabel = options[value] ?? value;
+        const button = new ButtonComponent(parent)
+            .setTooltip(currentLabel)
+            .setClass("sr-card-browser-filter");
+        button.buttonEl.toggleClass("is-filtered", isFiltered);
+        button.buttonEl.setAttribute("aria-haspopup", "menu");
+        button.buttonEl.createSpan({
+            cls: "sr-card-browser-filter-label",
+            text: currentLabel,
+        });
+
+        const icon = button.buttonEl.createSpan("sr-card-browser-filter-icon");
+        setIcon(icon, "chevron-down");
+
+        button.onClick((event) => {
+            const menu = new Menu();
+            for (const [optionValue, label] of Object.entries(options)) {
+                menu.addItem((item) =>
+                    item
+                        .setTitle(label)
+                        .setChecked(optionValue === value)
+                        .onClick(() => onChange(optionValue)),
+                );
+            }
+            menu.showAtMouseEvent(event);
+        });
     }
 
     private renderResults(records: CardBrowserRecord[]): void {
