@@ -4,7 +4,10 @@ export interface OcclusionMask {
     y: number;
     width: number;
     height: number;
+    label: string;
 }
+
+export type OcclusionMode = "hide-one" | "hide-all";
 
 export interface LoadedOcclusionImage {
     file: File;
@@ -94,6 +97,7 @@ function drawMask(
 export async function renderOcclusionAssets(
     source: LoadedOcclusionImage,
     masks: OcclusionMask[],
+    mode: OcclusionMode = "hide-all",
 ): Promise<RenderedOcclusionAsset[]> {
     const image = await loadImage(source.dataUrl);
     const scale = Math.min(1, 2400 / Math.max(source.width, source.height));
@@ -109,7 +113,8 @@ export async function renderOcclusionAssets(
     for (const mask of masks) {
         context.clearRect(0, 0, width, height);
         context.drawImage(image, 0, 0, width, height);
-        for (const candidate of masks) {
+        const questionMasks = mode === "hide-one" ? [mask] : masks;
+        for (const candidate of questionMasks) {
             drawMask(
                 context,
                 candidate,

@@ -459,6 +459,10 @@ export class UIManager {
         await this.tabViewManager.openNativeCreator({ mode: "card", deckPath });
     }
 
+    public async openNativeMediaManager(): Promise<void> {
+        await this.tabViewManager.openNativeCreator({ mode: "media" });
+    }
+
     public async openNativeCardEditor(card: Card, deckPath?: string): Promise<void> {
         await this.tabViewManager.openNativeCreator({ mode: "card", deckPath, card });
     }

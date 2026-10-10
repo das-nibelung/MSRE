@@ -1,3 +1,4 @@
+import { IMAGE_OCCLUSION_NOTE_TYPE_ID } from "src/data/collection/builtin-note-types";
 import {
     CollectionStorage,
     CollectionStore,
@@ -112,6 +113,31 @@ describe("Anki-style collection store", () => {
         expect(cards.map((card) => card.ordinal)).toEqual([0, 1]);
         expect(note.tags).toEqual(["exam", "medicine"]);
         expect(snapshot.deckOptions["builtin-default-options"].desiredRetention).toBe(0.9);
+    });
+
+    it("keeps image occlusion siblings under one parent note", async () => {
+        const store = new CollectionStore(new MemoryStorage(), () => 175, idFactory);
+        const note = await store.createNote({
+            noteTypeId: IMAGE_OCCLUSION_NOTE_TYPE_ID,
+            fields: {
+                source: "Media/anatomy.png",
+                masks: JSON.stringify([
+                    { id: "heart", x: 0.1, y: 0.2, width: 0.2, height: 0.1, label: "Heart" },
+                    { id: "lung", x: 0.5, y: 0.2, width: 0.2, height: 0.2, label: "Lung" },
+                ]),
+                assets: "[]",
+                mode: "hide-all",
+            },
+            deckPath: "Medicine/Anatomy",
+            source: { kind: "managed", path: "Cards/anatomy.md", questionId: "^anatomy" },
+            legacyQuestionIds: { 0: "^anatomy-1", 1: "^anatomy-2" },
+        });
+
+        const cards = Object.values(store.getCollectionSnapshot().cards).filter(
+            (card) => card.noteId === note.id && !card.deletedAt,
+        );
+        expect(cards).toHaveLength(2);
+        expect(cards.map((card) => card.legacyStableId)).toEqual(["^anatomy-1:0", "^anatomy-2:0"]);
     });
 
     it("keeps review history linked to stable note and card ids", async () => {
@@ -450,7 +476,7 @@ describe("Anki-style collection store", () => {
         newer.notes.n1.updatedAt = 2;
 
         const merged = mergeCollections(older, newer);
-        expect(merged.schemaVersion).toBe(3);
+        expect(merged.schemaVersion).toBe(4);
         expect(merged.notes.n1.fields.front).toBe("new");
         expect(merged.cards.c1.buriedUntil).toBeNull();
         expect(merged.cards.c1.flag).toBe(0);

@@ -158,6 +158,11 @@ export class CardBrowserView extends ItemView {
             }),
         });
         const headerActions = header.createDiv("sr-card-browser-header-actions");
+        const mediaButton = new ButtonComponent(headerActions)
+            .setIcon("images")
+            .setTooltip(t("MEDIA_LIBRARY"))
+            .onClick(() => void this.plugin.uiManager.openNativeMediaManager());
+        mediaButton.buttonEl.addClass("sr-card-browser-create-button");
         const reviewButton = new ButtonComponent(headerActions)
             .setButtonText(t("START_REVIEW"))
             .setTooltip(this.notePath === null ? t("START_REVIEW") : t("REVIEW_CARDS_IN_NOTE"))

@@ -4,6 +4,11 @@ import { ButtonComponent, ItemView, Menu, Notice, setIcon, TFile, WorkspaceLeaf 
 import {
     BASIC_NOTE_TYPE_ID,
     CLOZE_NOTE_TYPE_ID,
+    IMAGE_OCCLUSION_NOTE_TYPE_ID,
+    OCCLUSION_ASSETS_FIELD_ID,
+    OCCLUSION_MASKS_FIELD_ID,
+    OCCLUSION_MODE_FIELD_ID,
+    OCCLUSION_SOURCE_FIELD_ID,
     REVERSED_NOTE_TYPE_ID,
 } from "src/data/collection/builtin-note-types";
 import { DEFAULT_DECK_OPTIONS_ID } from "src/data/collection/collection-store";
@@ -33,12 +38,13 @@ import {
     LoadedOcclusionImage,
     loadOcclusionImage,
     OcclusionMask,
+    OcclusionMode,
     renderOcclusionAssets,
 } from "src/ui/native-creator/image-occlusion";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
 
 export type NativeCreatorMode =
-    "card" | "image-occlusion" | "deck" | "deck-options" | "area" | "note-type";
+    "card" | "image-occlusion" | "media" | "deck" | "deck-options" | "area" | "note-type";
 
 type MediaTarget = "front" | "back" | `field:${string}`;
 
@@ -77,6 +83,7 @@ export class NativeCreatorView extends ItemView {
     private readonly store: NativeCardStore;
     private selectedDeck = "";
     private cardType: NativeCardType = "basic";
+    private cardVariants = new Set<NativeCardType>(["basic"]);
     private front = "";
     private back = "";
     private busy = false;
@@ -95,8 +102,15 @@ export class NativeCreatorView extends ItemView {
     private pendingMedia: PendingMediaAttachment[] = [];
     private existingMedia: ExistingMediaAttachment[] = [];
     private occlusionSource: LoadedOcclusionImage | null = null;
+    private occlusionSourcePath: string | null = null;
     private occlusionMasks: OcclusionMask[] = [];
     private activeOcclusionMask: OcclusionMask | null = null;
+    private selectedOcclusionMaskId: string | null = null;
+    private occlusionMode: OcclusionMode = "hide-all";
+    private editingOcclusionNote: CollectionNote | null = null;
+    private mediaRecorder: MediaRecorder | null = null;
+    private mediaRecordingChunks: Blob[] = [];
+    private isRecordingMedia = false;
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -112,8 +126,9 @@ export class NativeCreatorView extends ItemView {
     }
 
     getDisplayText(): string {
-        if (this.editingCard) return t("EDIT_CARD");
         if (this.request.mode === "image-occlusion") return t("IMAGE_OCCLUSION");
+        if (this.request.mode === "media") return t("MEDIA_LIBRARY");
+        if (this.editingCard) return t("EDIT_CARD");
         if (this.request.mode === "area") {
             return this.editingAreaId ? t("EDIT_KNOWLEDGE_AREA") : t("NEW_KNOWLEDGE_AREA");
         }
@@ -124,6 +139,7 @@ export class NativeCreatorView extends ItemView {
 
     getIcon(): string {
         if (this.request.mode === "image-occlusion") return "scan";
+        if (this.request.mode === "media") return "images";
         if (this.request.mode === "area") return "library-big";
         if (this.request.mode === "deck-options") return "sliders-horizontal";
         if (this.request.mode === "note-type") return "shapes";
@@ -149,6 +165,7 @@ export class NativeCreatorView extends ItemView {
         this.selectedDeck = request.deckPath ?? this.selectedDeck;
         this.editingCard = request.card ?? null;
         this.editingStructuredNote = null;
+        this.editingOcclusionNote = null;
         this.editingAreaId = request.editAreaId ?? null;
         if (request.mode !== "note-type") this.noteTypeDraft = null;
         this.areaName = this.editingAreaId
@@ -163,7 +180,15 @@ export class NativeCreatorView extends ItemView {
                 this.editingCard.storageInfo?.questionId,
             );
             this.tagsText = structuredNote?.tags.join(", ") ?? "";
-            if (structuredNote && !structuredNote.noteTypeId.startsWith("builtin-")) {
+            if (structuredNote?.noteTypeId === IMAGE_OCCLUSION_NOTE_TYPE_ID) {
+                this.editingOcclusionNote = structuredNote;
+                this.request = { ...request, mode: "image-occlusion" };
+                const structuredCard = Object.values(
+                    this.plugin.dataManager.collectionStore.getCollectionSnapshot().cards,
+                ).find((card) => !card.deletedAt && card.noteId === structuredNote.id);
+                if (structuredCard) this.selectedDeck = structuredCard.deckPath;
+                void this.loadImageOcclusionForEditing(structuredNote);
+            } else if (structuredNote && !structuredNote.noteTypeId.startsWith("builtin-")) {
                 this.editingStructuredNote = structuredNote;
                 this.selectedNoteTypeId = structuredNote.noteTypeId;
                 this.customFieldValues = { ...structuredNote.fields };
@@ -206,38 +231,44 @@ export class NativeCreatorView extends ItemView {
 
         const heading = top.createDiv("sr-native-creator-heading");
         heading.createEl("h1", {
-            text: this.editingCard
-                ? t("EDIT_CARD")
-                : this.request.mode === "image-occlusion"
-                  ? t("IMAGE_OCCLUSION")
-                  : this.request.mode === "area"
-                    ? this.editingAreaId
-                        ? t("EDIT_KNOWLEDGE_AREA")
-                        : t("NEW_KNOWLEDGE_AREA")
-                    : this.request.mode === "note-type"
-                      ? this.noteTypeDraft
-                          ? t("EDIT_NOTE_TYPE")
-                          : t("NOTE_TYPES")
-                      : this.request.mode === "deck-options"
-                        ? t("DECK_OPTIONS")
-                        : this.request.mode === "deck"
-                          ? t("NEW_DECK")
-                          : t("NEW_CARD"),
+            text:
+                this.request.mode === "image-occlusion"
+                    ? t("IMAGE_OCCLUSION")
+                    : this.editingCard
+                      ? t("EDIT_CARD")
+                      : this.request.mode === "media"
+                        ? t("MEDIA_LIBRARY")
+                        : this.request.mode === "area"
+                          ? this.editingAreaId
+                              ? t("EDIT_KNOWLEDGE_AREA")
+                              : t("NEW_KNOWLEDGE_AREA")
+                          : this.request.mode === "note-type"
+                            ? this.noteTypeDraft
+                                ? t("EDIT_NOTE_TYPE")
+                                : t("NOTE_TYPES")
+                            : this.request.mode === "deck-options"
+                              ? t("DECK_OPTIONS")
+                              : this.request.mode === "deck"
+                                ? t("NEW_DECK")
+                                : t("NEW_CARD"),
         });
         heading.createEl("p", {
-            text: this.editingCard
-                ? t("EDIT_CARD_DESCRIPTION")
-                : this.request.mode === "image-occlusion"
-                  ? t("IMAGE_OCCLUSION_DESCRIPTION")
-                  : this.request.mode === "area"
-                    ? t("KNOWLEDGE_AREA_DESCRIPTION")
-                    : this.request.mode === "note-type"
-                      ? t("NOTE_TYPES_DESCRIPTION")
-                      : this.request.mode === "deck-options"
-                        ? t("DECK_OPTIONS_DESCRIPTION")
-                        : this.request.mode === "deck"
-                          ? t("NEW_DECK_DESCRIPTION")
-                          : t("NEW_CARD_DESCRIPTION"),
+            text:
+                this.request.mode === "image-occlusion"
+                    ? t("IMAGE_OCCLUSION_DESCRIPTION")
+                    : this.editingCard
+                      ? t("EDIT_CARD_DESCRIPTION")
+                      : this.request.mode === "media"
+                        ? t("MEDIA_LIBRARY_DESCRIPTION")
+                        : this.request.mode === "area"
+                          ? t("KNOWLEDGE_AREA_DESCRIPTION")
+                          : this.request.mode === "note-type"
+                            ? t("NOTE_TYPES_DESCRIPTION")
+                            : this.request.mode === "deck-options"
+                              ? t("DECK_OPTIONS_DESCRIPTION")
+                              : this.request.mode === "deck"
+                                ? t("NEW_DECK_DESCRIPTION")
+                                : t("NEW_CARD_DESCRIPTION"),
         });
 
         if (
@@ -251,10 +282,12 @@ export class NativeCreatorView extends ItemView {
             this.createModeButton(switcher, "deck", "layers-3", t("DECK"));
             this.createModeButton(switcher, "area", "library-big", t("KNOWLEDGE_AREAS"));
             this.createModeButton(switcher, "note-type", "shapes", t("NOTE_TYPES"));
+            this.createModeButton(switcher, "media", "images", t("MEDIA_LIBRARY"));
         }
 
         const surface = page.createDiv("sr-native-creator-surface");
         if (this.request.mode === "image-occlusion") this.renderImageOcclusionForm(surface);
+        else if (this.request.mode === "media") this.renderMediaManager(surface);
         else if (this.request.mode === "deck") this.renderDeckForm(surface);
         else if (this.request.mode === "deck-options") this.renderDeckOptionsForm(surface);
         else if (this.request.mode === "area") this.renderAreaForm(surface);
@@ -352,6 +385,37 @@ export class NativeCreatorView extends ItemView {
                 this.error = "";
                 this.render();
             });
+
+            const variants = this.createFieldGroup(
+                surface,
+                t("CARD_VARIANTS"),
+                t("CARD_VARIANTS_HELP"),
+            );
+            const variantPicker = variants.createDiv(
+                "sr-native-card-type-switcher sr-native-variant-picker",
+            );
+            for (const [type, label] of [
+                ["basic", t("CARD_VARIANT_FORWARD")],
+                ["reversed", t("CARD_VARIANT_REVERSE")],
+                ["cloze", t("CARD_TYPE_CLOZE")],
+            ] as const) {
+                const button = new ButtonComponent(variantPicker).setButtonText(label);
+                button.buttonEl.toggleClass("is-active", this.cardVariants.has(type));
+                button.buttonEl.setAttribute("aria-pressed", String(this.cardVariants.has(type)));
+                button.onClick(() => {
+                    if (this.cardVariants.has(type)) {
+                        if (this.cardVariants.size > 1) this.cardVariants.delete(type);
+                    } else {
+                        this.cardVariants.add(type);
+                    }
+                    this.cardType =
+                        this.cardVariants.size === 1 && this.cardVariants.has("cloze")
+                            ? "cloze"
+                            : "basic";
+                    this.error = "";
+                    this.render();
+                });
+            }
         }
 
         const frontLabel = this.cardType === "cloze" ? t("CLOZE_TEXT") : t("CARD_FRONT");
@@ -616,6 +680,23 @@ export class NativeCreatorView extends ItemView {
                 if (file) void this.setOcclusionSource(file);
             });
         } else {
+            const modeGroup = this.createFieldGroup(
+                surface,
+                t("OCCLUSION_MODE"),
+                t("OCCLUSION_MODE_HELP"),
+            );
+            const modePicker = modeGroup.createDiv("sr-native-card-type-switcher");
+            for (const [mode, label] of [
+                ["hide-one", t("OCCLUSION_HIDE_ONE")],
+                ["hide-all", t("OCCLUSION_HIDE_ALL")],
+            ] as const) {
+                const button = new ButtonComponent(modePicker).setButtonText(label);
+                button.buttonEl.toggleClass("is-active", this.occlusionMode === mode);
+                button.onClick(() => {
+                    this.occlusionMode = mode;
+                    this.render();
+                });
+            }
             const toolbar = surface.createDiv("sr-native-occlusion-toolbar");
             const copy = toolbar.createDiv();
             copy.createEl("strong", { text: t("DRAW_MASKS") });
@@ -656,6 +737,43 @@ export class NativeCreatorView extends ItemView {
                 text: t("OCCLUSION_CARD_COUNT", { count: this.occlusionMasks.length }),
             });
             count.createSpan({ text: t("OCCLUSION_CARD_COUNT_HELP") });
+            const maskList = surface.createDiv("sr-native-occlusion-mask-list");
+            this.occlusionMasks.forEach((mask, index) => {
+                const row = maskList.createDiv("sr-native-occlusion-mask-row");
+                row.toggleClass("is-selected", mask.id === this.selectedOcclusionMaskId);
+                const select = row.createEl("button", {
+                    cls: "sr-native-occlusion-mask-select",
+                    text: String(index + 1),
+                    attr: { type: "button", "aria-label": t("SELECT_OCCLUSION_MASK") },
+                });
+                select.addEventListener("click", () => {
+                    this.selectedOcclusionMaskId = mask.id;
+                    this.render();
+                });
+                const label = row.createEl("input", {
+                    cls: "sr-native-input",
+                    attr: {
+                        type: "text",
+                        placeholder: t("OCCLUSION_LABEL_PLACEHOLDER"),
+                        "aria-label": t("OCCLUSION_LABEL"),
+                    },
+                });
+                label.value = mask.label;
+                label.addEventListener("input", () => (mask.label = label.value));
+                const remove = new ButtonComponent(row)
+                    .setIcon("trash-2")
+                    .setTooltip(t("REMOVE_OCCLUSION_MASK"))
+                    .onClick(() => {
+                        this.occlusionMasks = this.occlusionMasks.filter(
+                            (candidate) => candidate.id !== mask.id,
+                        );
+                        if (this.selectedOcclusionMaskId === mask.id) {
+                            this.selectedOcclusionMaskId = null;
+                        }
+                        this.render();
+                    });
+                remove.buttonEl.addClass("sr-native-icon-button");
+            });
             this.renderTagsField(surface);
         }
 
@@ -671,6 +789,10 @@ export class NativeCreatorView extends ItemView {
             .setButtonText(t("CANCEL"))
             .setDisabled(this.busy)
             .onClick(() => {
+                if (this.editingOcclusionNote) {
+                    void this.returnToCards();
+                    return;
+                }
                 this.request = { mode: "card", deckPath: this.selectedDeck };
                 this.occlusionSource = null;
                 this.occlusionMasks = [];
@@ -678,7 +800,13 @@ export class NativeCreatorView extends ItemView {
             });
         cancel.buttonEl.addClass("sr-native-secondary-action");
         new ButtonComponent(actions)
-            .setButtonText(this.busy ? t("SAVING") : t("CREATE_OCCLUSION_CARDS"))
+            .setButtonText(
+                this.busy
+                    ? t("SAVING")
+                    : this.editingOcclusionNote
+                      ? t("SAVE_CHANGES")
+                      : t("CREATE_OCCLUSION_CARDS"),
+            )
             .setCta()
             .setDisabled(this.busy || !this.occlusionSource || this.occlusionMasks.length === 0)
             .onClick(() => void this.saveImageOcclusion());
@@ -687,12 +815,59 @@ export class NativeCreatorView extends ItemView {
     private async setOcclusionSource(file: File): Promise<void> {
         try {
             this.occlusionSource = await loadOcclusionImage(file);
+            this.occlusionSourcePath = null;
             this.occlusionMasks = [];
+            this.selectedOcclusionMaskId = null;
             this.error = "";
         } catch {
             this.error = t("OCCLUSION_IMAGE_FAILED");
         }
         this.render();
+    }
+
+    private async loadImageOcclusionForEditing(note: CollectionNote): Promise<void> {
+        try {
+            const sourcePath = note.fields[OCCLUSION_SOURCE_FIELD_ID];
+            const sourceFile = this.plugin.app.vault.getAbstractFileByPath(sourcePath);
+            if (!(sourceFile instanceof TFile)) throw new Error("occlusion-source-not-found");
+            const data = await this.plugin.app.vault.readBinary(sourceFile);
+            const mime: Record<string, string> = {
+                png: "image/png",
+                jpg: "image/jpeg",
+                jpeg: "image/jpeg",
+                webp: "image/webp",
+                gif: "image/gif",
+                svg: "image/svg+xml",
+                avif: "image/avif",
+                heic: "image/heic",
+                heif: "image/heif",
+            };
+            this.occlusionSource = await loadOcclusionImage(
+                new File([data], sourceFile.name, {
+                    type: mime[sourceFile.extension.toLocaleLowerCase()] ?? "image/*",
+                }),
+            );
+            this.occlusionSourcePath = sourcePath;
+            const parsed = JSON.parse(note.fields[OCCLUSION_MASKS_FIELD_ID] ?? "[]") as Array<
+                Partial<OcclusionMask>
+            >;
+            this.occlusionMasks = parsed.map((mask, index) => ({
+                id: mask.id ?? `mask-${index + 1}`,
+                x: mask.x ?? 0,
+                y: mask.y ?? 0,
+                width: mask.width ?? 0.1,
+                height: mask.height ?? 0.1,
+                label: mask.label ?? "",
+            }));
+            this.occlusionMode =
+                note.fields[OCCLUSION_MODE_FIELD_ID] === "hide-one" ? "hide-one" : "hide-all";
+            this.selectedOcclusionMaskId = this.occlusionMasks[0]?.id ?? null;
+            this.error = "";
+        } catch (error) {
+            console.error("Spaced Repetition: image occlusion edit load failed", error);
+            this.error = t("OCCLUSION_IMAGE_FAILED");
+        }
+        if (this.contentEl.isShown()) this.render();
     }
 
     private initializeOcclusionCanvas(canvas: HTMLCanvasElement): void {
@@ -711,8 +886,9 @@ export class NativeCreatorView extends ItemView {
                 ? [...this.occlusionMasks, this.activeOcclusionMask]
                 : this.occlusionMasks;
             for (const mask of masks) {
-                context.fillStyle = "rgba(28, 28, 30, 0.9)";
-                context.strokeStyle = "rgba(255, 255, 255, 0.95)";
+                const selected = mask.id === this.selectedOcclusionMaskId;
+                context.fillStyle = selected ? "rgba(124, 58, 237, 0.78)" : "rgba(28, 28, 30, 0.9)";
+                context.strokeStyle = selected ? "#a78bfa" : "rgba(255, 255, 255, 0.95)";
                 context.lineWidth = Math.max(2, canvas.width * 0.003);
                 context.fillRect(
                     mask.x * canvas.width,
@@ -726,6 +902,16 @@ export class NativeCreatorView extends ItemView {
                     mask.width * canvas.width,
                     mask.height * canvas.height,
                 );
+                if (selected) {
+                    const size = Math.max(10, canvas.width * 0.016);
+                    context.fillStyle = "#ffffff";
+                    context.fillRect(
+                        (mask.x + mask.width) * canvas.width - size / 2,
+                        (mask.y + mask.height) * canvas.height - size / 2,
+                        size,
+                        size,
+                    );
+                }
             }
         };
         image.addEventListener("load", redraw);
@@ -739,33 +925,81 @@ export class NativeCreatorView extends ItemView {
             };
         };
         let start: { x: number; y: number } | null = null;
+        let origin: OcclusionMask | null = null;
+        let interaction: "create" | "move" | "resize" = "create";
+        const hitMask = (position: { x: number; y: number }): OcclusionMask | null =>
+            [...this.occlusionMasks]
+                .reverse()
+                .find(
+                    (mask) =>
+                        position.x >= mask.x &&
+                        position.x <= mask.x + mask.width &&
+                        position.y >= mask.y &&
+                        position.y <= mask.y + mask.height,
+                ) ?? null;
         canvas.addEventListener("pointerdown", (event) => {
             event.preventDefault();
             canvas.setPointerCapture(event.pointerId);
             start = point(event);
-            this.activeOcclusionMask = {
-                id: `mask-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                x: start.x,
-                y: start.y,
-                width: 0,
-                height: 0,
-            };
+            const hit = hitMask(start);
+            if (hit) {
+                this.selectedOcclusionMaskId = hit.id;
+                origin = { ...hit };
+                const nearHandle =
+                    Math.abs(start.x - (hit.x + hit.width)) < 0.035 &&
+                    Math.abs(start.y - (hit.y + hit.height)) < 0.035;
+                interaction = nearHandle ? "resize" : "move";
+                this.activeOcclusionMask = hit;
+            } else {
+                interaction = "create";
+                origin = null;
+                this.activeOcclusionMask = {
+                    id: `mask-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    x: start.x,
+                    y: start.y,
+                    width: 0,
+                    height: 0,
+                    label: "",
+                };
+                this.selectedOcclusionMaskId = this.activeOcclusionMask.id;
+            }
             redraw();
         });
         canvas.addEventListener("pointermove", (event) => {
             if (!start || !this.activeOcclusionMask) return;
             event.preventDefault();
             const current = point(event);
-            this.activeOcclusionMask.x = Math.min(start.x, current.x);
-            this.activeOcclusionMask.y = Math.min(start.y, current.y);
-            this.activeOcclusionMask.width = Math.abs(current.x - start.x);
-            this.activeOcclusionMask.height = Math.abs(current.y - start.y);
+            if (interaction === "move" && origin) {
+                this.activeOcclusionMask.x = Math.max(
+                    0,
+                    Math.min(1 - origin.width, origin.x + current.x - start.x),
+                );
+                this.activeOcclusionMask.y = Math.max(
+                    0,
+                    Math.min(1 - origin.height, origin.y + current.y - start.y),
+                );
+            } else if (interaction === "resize" && origin) {
+                this.activeOcclusionMask.width = Math.max(
+                    0.012,
+                    Math.min(1 - origin.x, origin.width + current.x - start.x),
+                );
+                this.activeOcclusionMask.height = Math.max(
+                    0.012,
+                    Math.min(1 - origin.y, origin.height + current.y - start.y),
+                );
+            } else {
+                this.activeOcclusionMask.x = Math.min(start.x, current.x);
+                this.activeOcclusionMask.y = Math.min(start.y, current.y);
+                this.activeOcclusionMask.width = Math.abs(current.x - start.x);
+                this.activeOcclusionMask.height = Math.abs(current.y - start.y);
+            }
             redraw();
         });
         const finish = (event: PointerEvent): void => {
             if (!start || !this.activeOcclusionMask) return;
             event.preventDefault();
             if (
+                interaction === "create" &&
                 this.activeOcclusionMask.width >= 0.012 &&
                 this.activeOcclusionMask.height >= 0.012
             ) {
@@ -786,13 +1020,19 @@ export class NativeCreatorView extends ItemView {
         this.error = "";
         this.render();
         try {
-            const sourcePath = await this.store.saveMediaAsset(
-                source.file.name,
-                await source.file.arrayBuffer(),
+            const sourcePath =
+                this.occlusionSourcePath ??
+                (await this.store.saveMediaAsset(
+                    source.file.name,
+                    await source.file.arrayBuffer(),
+                ));
+            const assets = await renderOcclusionAssets(
+                source,
+                this.occlusionMasks,
+                this.occlusionMode,
             );
-            const assets = await renderOcclusionAssets(source, this.occlusionMasks);
             const stem = source.file.name.replace(/\.[^.]+$/, "") || "occlusion";
-            const drafts: NativeCardDraft[] = [];
+            const storedAssets = [];
             for (const [index, asset] of assets.entries()) {
                 const questionPath = await this.store.saveMediaAsset(
                     `${stem}-occlusion-${index + 1}.png`,
@@ -802,17 +1042,31 @@ export class NativeCreatorView extends ItemView {
                     `${stem}-answer-${index + 1}.png`,
                     asset.answer,
                 );
-                drafts.push({
-                    deckPath: this.selectedDeck,
-                    type: "basic",
-                    front: `![[${questionPath}]]`,
-                    back: `![[${answerPath}]]\n<!-- sr-occlusion-source: ${sourcePath} -->`,
-                    tags: [...new Set([...this.getTags(), "image-occlusion"])],
+                storedAssets.push({
+                    maskId: asset.maskId,
+                    questionPath,
+                    answerPath,
+                    label: this.occlusionMasks[index]?.label ?? "",
                 });
             }
-            await this.store.createCards(drafts);
-            new Notice(t("OCCLUSION_CARDS_CREATED", { count: drafts.length }));
+            const draft = {
+                deckPath: this.selectedDeck,
+                sourcePath,
+                masksJson: JSON.stringify(this.occlusionMasks),
+                mode: this.occlusionMode,
+                assets: storedAssets,
+                tags: [...new Set([...this.getTags(), "image-occlusion"])],
+            };
+            if (this.editingOcclusionNote) {
+                const oldAssets = this.getOcclusionAssetPaths(this.editingOcclusionNote);
+                await this.store.updateImageOcclusionNote(this.editingOcclusionNote, draft);
+                await this.trashGeneratedAssets(oldAssets);
+            } else {
+                await this.store.createImageOcclusionNote(draft);
+            }
+            new Notice(t("OCCLUSION_CARDS_CREATED", { count: storedAssets.length }));
             this.occlusionSource = null;
+            this.occlusionSourcePath = null;
             this.occlusionMasks = [];
             await this.returnToCards();
         } catch (error) {
@@ -821,6 +1075,243 @@ export class NativeCreatorView extends ItemView {
             this.error = t("OCCLUSION_SAVE_FAILED");
             this.render();
         }
+    }
+
+    private getOcclusionAssetPaths(note: CollectionNote): string[] {
+        try {
+            const assets = JSON.parse(note.fields[OCCLUSION_ASSETS_FIELD_ID] ?? "[]") as Array<{
+                questionPath?: string;
+                answerPath?: string;
+            }>;
+            return assets
+                .flatMap((asset) => [asset.questionPath, asset.answerPath])
+                .filter((path): path is string => Boolean(path));
+        } catch {
+            return [];
+        }
+    }
+
+    private async trashGeneratedAssets(paths: string[]): Promise<void> {
+        for (const path of new Set(paths)) {
+            const file = this.plugin.app.vault.getAbstractFileByPath(path);
+            if (file instanceof TFile) await this.plugin.app.fileManager.trashFile(file);
+        }
+    }
+
+    private renderMediaManager(surface: HTMLElement): void {
+        surface.addClass("sr-native-media-manager");
+        const actions = surface.createDiv("sr-media-manager-actions");
+        this.createMediaImportButton(
+            actions,
+            "paperclip",
+            t("IMPORT_MEDIA"),
+            "image/*,audio/*,video/*",
+        );
+        this.createMediaImportButton(actions, "camera", t("TAKE_PHOTO"), "image/*", true);
+        const record = new ButtonComponent(actions)
+            .setIcon(this.isRecordingMedia ? "square" : "mic")
+            .setButtonText(this.isRecordingMedia ? t("STOP_RECORDING") : t("RECORD_AUDIO"))
+            .onClick(() => void this.toggleAudioRecording());
+        record.buttonEl.toggleClass("is-recording", this.isRecordingMedia);
+        const list = surface.createDiv("sr-media-manager-list");
+        list.createDiv({ cls: "sr-media-manager-loading", text: t("SCANNING_MEDIA") });
+        void this.populateMediaManager(list);
+    }
+
+    private createMediaImportButton(
+        parent: HTMLElement,
+        icon: string,
+        label: string,
+        accept: string,
+        capture = false,
+    ): void {
+        const wrapper = parent.createDiv("sr-media-import-control");
+        const button = new ButtonComponent(wrapper).setIcon(icon).setButtonText(label);
+        const input = wrapper.createEl("input", {
+            cls: "sr-native-media-input",
+            attr: {
+                type: "file",
+                accept,
+                ...(capture ? { capture: "environment" } : {}),
+            },
+        });
+        button.onClick(() => input.click());
+        input.addEventListener("change", () => {
+            const file = input.files?.[0];
+            if (!file) return;
+            void file
+                .arrayBuffer()
+                .then((data) => this.store.saveMediaAsset(file.name, data))
+                .then(() => {
+                    new Notice(t("MEDIA_IMPORTED"));
+                    this.render();
+                })
+                .catch(() => new Notice(t("MEDIA_IMPORT_FAILED")));
+        });
+    }
+
+    private async toggleAudioRecording(): Promise<void> {
+        if (this.mediaRecorder?.state === "recording") {
+            this.mediaRecorder.stop();
+            return;
+        }
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            this.mediaRecordingChunks = [];
+            this.mediaRecorder = new MediaRecorder(stream);
+            this.mediaRecorder.addEventListener("dataavailable", (event) => {
+                if (event.data.size > 0) this.mediaRecordingChunks.push(event.data);
+            });
+            this.mediaRecorder.addEventListener("stop", () => {
+                stream.getTracks().forEach((track) => track.stop());
+                const type = this.mediaRecordingChunks[0]?.type || "audio/webm";
+                const extension = type.includes("mp4")
+                    ? "m4a"
+                    : type.includes("ogg")
+                      ? "ogg"
+                      : "webm";
+                const blob = new Blob(this.mediaRecordingChunks, { type });
+                void blob
+                    .arrayBuffer()
+                    .then((data) =>
+                        this.store.saveMediaAsset(`recording-${Date.now()}.${extension}`, data),
+                    )
+                    .then(() => new Notice(t("AUDIO_RECORDED")))
+                    .catch(() => new Notice(t("MEDIA_IMPORT_FAILED")))
+                    .finally(() => {
+                        this.isRecordingMedia = false;
+                        this.mediaRecorder = null;
+                        this.render();
+                    });
+            });
+            this.mediaRecorder.start();
+            this.isRecordingMedia = true;
+            this.render();
+        } catch {
+            new Notice(t("MICROPHONE_UNAVAILABLE"));
+        }
+    }
+
+    private async populateMediaManager(parent: HTMLElement): Promise<void> {
+        const settings = this.plugin.dataManager.data.settings;
+        const mediaPrefix = `${settings.scheduleDataVaultLocation}/Media/`;
+        const files = this.plugin.app.vault
+            .getFiles()
+            .filter((file) => file.path.startsWith(mediaPrefix));
+        const referenced = new Set<string>();
+        const markdownFiles = this.plugin.app.vault.getMarkdownFiles();
+        const contents = await Promise.all(
+            markdownFiles.map((file) => this.plugin.app.vault.cachedRead(file)),
+        );
+        for (const content of contents) {
+            for (const match of content.matchAll(/!\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)) {
+                referenced.add(match[1].trim());
+            }
+        }
+        const snapshot = this.plugin.dataManager.collectionStore.getCollectionSnapshot();
+        for (const note of Object.values(snapshot.notes)) {
+            if (note.deletedAt) continue;
+            const value = JSON.stringify(note.fields);
+            for (const file of files) if (value.includes(file.path)) referenced.add(file.path);
+        }
+
+        const hashGroups = new Map<string, TFile[]>();
+        for (const file of files) {
+            const data = await this.plugin.app.vault.readBinary(file);
+            const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", data)))
+                .map((byte) => byte.toString(16).padStart(2, "0"))
+                .join("");
+            const group = hashGroups.get(hash) ?? [];
+            group.push(file);
+            hashGroups.set(hash, group);
+        }
+        const duplicates = new Set(
+            [...hashGroups.values()].filter((group) => group.length > 1).flatMap((group) => group),
+        );
+        const orphans = files.filter((file) => !referenced.has(file.path));
+        if (!parent.isConnected) return;
+        parent.empty();
+
+        const summary = parent.createDiv("sr-media-manager-summary");
+        this.createMediaStat(summary, files.length, t("MEDIA_FILES"));
+        this.createMediaStat(summary, orphans.length, t("UNUSED_MEDIA"));
+        this.createMediaStat(summary, duplicates.size, t("DUPLICATE_MEDIA"));
+        if (orphans.length > 0) {
+            new ButtonComponent(summary)
+                .setIcon("trash-2")
+                .setButtonText(t("CLEAN_UNUSED_MEDIA"))
+                .onClick(() => this.confirmTrashMedia(orphans));
+        }
+        if (files.length === 0) {
+            parent.createDiv({ cls: "sr-media-manager-empty", text: t("NO_MEDIA_FILES") });
+            return;
+        }
+        for (const file of files) {
+            const row = parent.createDiv("sr-media-manager-row");
+            const preview = row.createDiv("sr-media-manager-preview");
+            if (/^(png|jpe?g|gif|webp|svg|bmp|avif|heic|heif)$/i.test(file.extension)) {
+                preview.createEl("img", {
+                    attr: { src: this.plugin.app.vault.getResourcePath(file), alt: file.name },
+                });
+            } else {
+                setIcon(
+                    preview,
+                    /^(mp3|wav|m4a|ogg|flac|aac|webm)$/i.test(file.extension)
+                        ? "audio-lines"
+                        : "film",
+                );
+            }
+            const copy = row.createDiv("sr-media-manager-copy");
+            copy.createEl("strong", { text: file.name });
+            copy.createSpan({ text: this.formatFileSize(file.stat.size) });
+            const badges = copy.createDiv("sr-media-manager-badges");
+            if (!referenced.has(file.path)) badges.createSpan({ text: t("UNUSED") });
+            if (duplicates.has(file)) badges.createSpan({ text: t("DUPLICATE") });
+            const rowActions = row.createDiv("sr-media-manager-row-actions");
+            const replace = new ButtonComponent(rowActions)
+                .setIcon("replace")
+                .setTooltip(t("REPLACE_MEDIA"));
+            const replaceInput = rowActions.createEl("input", {
+                cls: "sr-native-media-input",
+                attr: { type: "file", accept: "image/*,audio/*,video/*" },
+            });
+            replace.onClick(() => replaceInput.click());
+            replaceInput.addEventListener("change", () => {
+                const replacement = replaceInput.files?.[0];
+                if (!replacement) return;
+                void replacement
+                    .arrayBuffer()
+                    .then((data) => this.plugin.app.vault.modifyBinary(file, data))
+                    .then(() => {
+                        new Notice(t("MEDIA_REPLACED"));
+                        this.render();
+                    });
+            });
+            new ButtonComponent(rowActions)
+                .setIcon("trash-2")
+                .setTooltip(t("DELETE_MEDIA"))
+                .onClick(() => this.confirmTrashMedia([file]));
+        }
+    }
+
+    private createMediaStat(parent: HTMLElement, value: number, label: string): void {
+        const stat = parent.createDiv("sr-media-manager-stat");
+        stat.createEl("strong", { text: String(value) });
+        stat.createSpan({ text: label });
+    }
+
+    private confirmTrashMedia(files: TFile[]): void {
+        new ConfirmationModal(
+            this.plugin.app,
+            t("DELETE_MEDIA"),
+            t("DELETE_MEDIA_CONFIRMATION", { count: files.length }),
+            t("CANCEL"),
+            async () => {
+                for (const file of files) await this.plugin.app.fileManager.trashFile(file);
+                new Notice(t("MEDIA_MOVED_TO_TRASH", { count: files.length }));
+                this.render();
+            },
+        ).open();
     }
 
     private renderDeckForm(surface: HTMLElement): void {
@@ -1167,6 +1658,7 @@ export class NativeCreatorView extends ItemView {
 
         const list = surface.createDiv("sr-note-type-list");
         for (const noteType of this.plugin.dataManager.collectionStore.getNoteTypes()) {
+            if (noteType.id === IMAGE_OCCLUSION_NOTE_TYPE_ID) continue;
             this.renderNoteTypeRow(list, noteType);
         }
     }
@@ -1696,6 +2188,12 @@ export class NativeCreatorView extends ItemView {
                         if (noteType.id === BASIC_NOTE_TYPE_ID) this.cardType = "basic";
                         else if (noteType.id === REVERSED_NOTE_TYPE_ID) this.cardType = "reversed";
                         else if (noteType.id === CLOZE_NOTE_TYPE_ID) this.cardType = "cloze";
+                        if (noteType.id === BASIC_NOTE_TYPE_ID)
+                            this.cardVariants = new Set(["basic"]);
+                        else if (noteType.id === REVERSED_NOTE_TYPE_ID)
+                            this.cardVariants = new Set(["reversed"]);
+                        else if (noteType.id === CLOZE_NOTE_TYPE_ID)
+                            this.cardVariants = new Set(["cloze"]);
                         this.error = "";
                         this.render();
                     }),
@@ -1841,17 +2339,19 @@ export class NativeCreatorView extends ItemView {
     }
 
     private async saveCard(addAnother: boolean): Promise<void> {
-        const fieldsMissing =
-            this.cardType === "cloze"
-                ? !this.front.trim() || !this.back.trim()
-                : (!this.front.trim() && !this.hasPendingMedia("front")) ||
-                  (!this.back.trim() && !this.hasPendingMedia("back"));
+        const includesCloze = this.editingCard
+            ? this.cardType === "cloze"
+            : this.cardVariants.has("cloze");
+        const fieldsMissing = includesCloze
+            ? !this.front.trim() || !this.back.trim()
+            : (!this.front.trim() && !this.hasPendingMedia("front")) ||
+              (!this.back.trim() && !this.hasPendingMedia("back"));
         if (fieldsMissing) {
             this.error = t("CARD_FIELDS_REQUIRED");
             this.render();
             return;
         }
-        if (this.cardType === "cloze" && !this.front.includes(this.back.trim())) {
+        if (includesCloze && !this.front.includes(this.back.trim())) {
             this.error = t("CLOZE_ANSWER_NOT_FOUND");
             this.render();
             return;
@@ -1870,7 +2370,15 @@ export class NativeCreatorView extends ItemView {
                 tags: this.getTags(),
             };
             if (this.editingCard) await this.saveEditedCard(draft);
-            else await this.store.createCard(draft);
+            else {
+                const types = [...this.cardVariants];
+                await this.store.createCards(
+                    types.map((type) => ({
+                        ...draft,
+                        type,
+                    })),
+                );
+            }
             new Notice(this.editingCard ? t("CARD_UPDATED") : t("CARD_SAVED"));
             if (addAnother) {
                 this.front = "";

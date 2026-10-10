@@ -1,5 +1,12 @@
 import { App, normalizePath, TFile } from "obsidian";
 
+import {
+    IMAGE_OCCLUSION_NOTE_TYPE_ID,
+    OCCLUSION_ASSETS_FIELD_ID,
+    OCCLUSION_MASKS_FIELD_ID,
+    OCCLUSION_MODE_FIELD_ID,
+    OCCLUSION_SOURCE_FIELD_ID,
+} from "src/data/collection/builtin-note-types";
 import { CollectionNote, NoteTypeDefinition } from "src/data/collection/collection-types";
 import { Deck } from "src/data/data-structures/deck/deck";
 import { KnowledgeArea } from "src/data/plugin-data";
@@ -20,6 +27,22 @@ export interface StructuredNoteDraft {
     deckPath: string;
     noteTypeId: string;
     fields: Record<string, string>;
+    tags?: string[];
+}
+
+export interface ImageOcclusionAssetDraft {
+    maskId: string;
+    questionPath: string;
+    answerPath: string;
+    label: string;
+}
+
+export interface ImageOcclusionNoteDraft {
+    deckPath: string;
+    sourcePath: string;
+    masksJson: string;
+    mode: "hide-one" | "hide-all";
+    assets: ImageOcclusionAssetDraft[];
     tags?: string[];
 }
 
@@ -405,6 +428,103 @@ export class NativeCardStore {
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
         return file;
+    }
+
+    async createImageOcclusionNote(draft: ImageOcclusionNoteDraft): Promise<TFile> {
+        const collection = this.plugin.dataManager.collectionStore;
+        const normalizedDeck = normalizeManagedDeckPath(draft.deckPath);
+        if (normalizedDeck) await this.createDeck(normalizedDeck);
+        const noteId = collection.createId("note");
+        const baseQuestionId = `^sr-data-id-${noteId}`;
+        const { body, legacyQuestionIds } = this.serializeImageOcclusionBody(
+            draft.assets,
+            baseQuestionId,
+        );
+        const settings = this.plugin.dataManager.data.settings;
+        const rootTag = (settings.flashcardTags[0] ?? FALLBACK_ROOT_TAG).replace(/\/+$/g, "");
+        const tag = normalizedDeck ? `${rootTag}/${normalizedDeck}` : rootTag;
+        const rootFolder = normalizePath(`${settings.scheduleDataVaultLocation}/Cards`);
+        const deckFolder = normalizedDeck
+            ? `${rootFolder}/${normalizedDeck}`
+            : `${rootFolder}/Inbox`;
+        await this.ensureFolder(deckFolder);
+        let path = normalizePath(`${deckFolder}/image-occlusion-${Date.now()}.md`);
+        let suffix = 2;
+        while (this.plugin.app.vault.getAbstractFileByPath(path)) {
+            path = normalizePath(`${deckFolder}/image-occlusion-${Date.now()}-${suffix}.md`);
+            suffix++;
+        }
+        const file = await this.plugin.app.vault.create(path, `${tag}\n\n${body}\n`);
+        await collection.createNote({
+            id: noteId,
+            noteTypeId: IMAGE_OCCLUSION_NOTE_TYPE_ID,
+            fields: {
+                [OCCLUSION_SOURCE_FIELD_ID]: draft.sourcePath,
+                [OCCLUSION_MASKS_FIELD_ID]: draft.masksJson,
+                [OCCLUSION_ASSETS_FIELD_ID]: JSON.stringify(draft.assets),
+                [OCCLUSION_MODE_FIELD_ID]: draft.mode,
+            },
+            tags: draft.tags,
+            deckPath: normalizedDeck,
+            source: { kind: "managed", path: file.path, questionId: baseQuestionId },
+            legacyQuestionIds,
+        });
+        await this.waitForMetadata(this.plugin.app, file);
+        await this.plugin.dataManager.sync();
+        this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+        return file;
+    }
+
+    async updateImageOcclusionNote(
+        note: CollectionNote,
+        draft: ImageOcclusionNoteDraft,
+    ): Promise<TFile> {
+        const file = this.plugin.app.vault.getAbstractFileByPath(note.source.path);
+        if (!(file instanceof TFile)) throw new Error("note-source-not-found");
+        const normalizedDeck = normalizeManagedDeckPath(draft.deckPath);
+        if (normalizedDeck) await this.createDeck(normalizedDeck);
+        const baseQuestionId = note.source.questionId ?? `^sr-data-id-${note.id}`;
+        const { body, legacyQuestionIds } = this.serializeImageOcclusionBody(
+            draft.assets,
+            baseQuestionId,
+        );
+        const settings = this.plugin.dataManager.data.settings;
+        const rootTag = (settings.flashcardTags[0] ?? FALLBACK_ROOT_TAG).replace(/\/+$/g, "");
+        const tag = normalizedDeck ? `${rootTag}/${normalizedDeck}` : rootTag;
+        await this.plugin.app.vault.modify(file, `${tag}\n\n${body}\n`);
+        await this.plugin.dataManager.collectionStore.updateNote(note.id, {
+            fields: {
+                [OCCLUSION_SOURCE_FIELD_ID]: draft.sourcePath,
+                [OCCLUSION_MASKS_FIELD_ID]: draft.masksJson,
+                [OCCLUSION_ASSETS_FIELD_ID]: JSON.stringify(draft.assets),
+                [OCCLUSION_MODE_FIELD_ID]: draft.mode,
+            },
+            tags: draft.tags,
+            deckPath: normalizedDeck,
+            source: { ...note.source, questionId: baseQuestionId },
+            legacyQuestionIds,
+        });
+        await this.waitForMetadata(this.plugin.app, file);
+        await this.plugin.dataManager.sync();
+        this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+        return file;
+    }
+
+    private serializeImageOcclusionBody(
+        assets: ImageOcclusionAssetDraft[],
+        baseQuestionId: string,
+    ): { body: string; legacyQuestionIds: Record<number, string> } {
+        const separator = this.plugin.dataManager.data.settings.multilineCardSeparator;
+        const legacyQuestionIds: Record<number, string> = {};
+        const cards = assets.map((asset, index) => {
+            const questionId = `${baseQuestionId}-${index + 1}`;
+            legacyQuestionIds[index] = questionId;
+            const label = asset.label.trim();
+            const marker = label ? `\n<!-- sr-typed-answer: ${encodeURIComponent(label)} -->` : "";
+            const answer = [`![[${asset.answerPath}]]`, label].filter(Boolean).join("\n\n");
+            return `![[${asset.questionPath}]]\n${separator}\n${answer}${marker} ${questionId}`;
+        });
+        return { body: cards.join("\n\n"), legacyQuestionIds };
     }
 
     async updateStructuredNote(note: CollectionNote, draft: StructuredNoteDraft): Promise<TFile> {

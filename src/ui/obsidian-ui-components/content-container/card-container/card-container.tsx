@@ -43,6 +43,7 @@ export class CardContainer {
 
     private clozeInputs: NodeListOf<HTMLInputElement> | null = null;
     private clozeAnswers: NodeListOf<Element> | null = null;
+    private typedAnswer = "";
 
     private processReviewHandler: (response: ReviewResponse) => Promise<void>;
     private skipCardHandler: () => void;
@@ -201,6 +202,7 @@ export class CardContainer {
     }
 
     public async drawCardFront(sessionData: SessionData, settings: SRSettings) {
+        this.typedAnswer = "";
         this.toolbar.setResetButtonDisabled(true);
         this.content.removeClass("sr-session-complete-screen");
         this.content.removeAttribute("aria-live");
@@ -273,6 +275,40 @@ export class CardContainer {
             sessionData.currentQuestion.questionText.textDirection,
             // sessionData.cardData.currentCardState
         );
+
+        if (allowTapToReveal && cardFace.querySelector(".cloze-input") === null) {
+            const composer = cardSurface.createDiv("sr-typed-answer-composer");
+            const input = composer.createEl("input", {
+                cls: "sr-typed-answer-input",
+                attr: {
+                    type: "text",
+                    autocomplete: "off",
+                    autocapitalize: "sentences",
+                    placeholder: t("TYPE_YOUR_ANSWER"),
+                    "aria-label": t("TYPE_YOUR_ANSWER"),
+                },
+            });
+            input.value = this.typedAnswer;
+            input.addEventListener("input", () => (this.typedAnswer = input.value));
+            input.addEventListener("keydown", (event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                event.stopPropagation();
+                this.typedAnswer = input.value;
+                input.blur();
+                void this.showAnswerHandler();
+            });
+            const submit = composer.createEl("button", {
+                cls: "sr-typed-answer-submit",
+                attr: { type: "button", "aria-label": t("CHECK_ANSWER") },
+            });
+            setIcon(submit, "arrow-up");
+            submit.addEventListener("click", (event) => {
+                event.stopPropagation();
+                this.typedAnswer = input.value;
+                void this.showAnswerHandler();
+            });
+        }
 
         const isMobile = Platform.isMobile || EmulatedPlatform().isMobile;
         this.content.toggleClass("sr-can-reveal-answer", allowTapToReveal && isMobile);
@@ -445,6 +481,29 @@ export class CardContainer {
             sessionData.currentQuestion.questionText.textDirection,
             // sessionData.cardData.currentCardState,
         );
+
+        if (this.typedAnswer.trim()) {
+            const marker = sessionData.cardData.currentCard.back.match(
+                /<!--\s*sr-typed-answer:\s*([^]*?)\s*-->/i,
+            );
+            const expected = marker
+                ? decodeURIComponent(marker[1].trim())
+                : answerFace.innerText.trim();
+            const comparison = cardSurface.createDiv("sr-typed-answer-result");
+            comparison.createSpan({ text: t("YOUR_ANSWER") });
+            comparison.createEl("strong", { text: this.typedAnswer.trim() });
+            if (expected) {
+                const matches =
+                    this.typedAnswer.trim().localeCompare(expected, undefined, {
+                        sensitivity: "base",
+                    }) === 0;
+                comparison.toggleClass("is-correct", matches);
+                comparison.toggleClass("is-different", !matches);
+                if (!matches && marker) {
+                    comparison.createSpan({ text: `${t("EXPECTED_ANSWER")}: ${expected}` });
+                }
+            }
+        }
 
         if (Platform.isMobile || EmulatedPlatform().isMobile) {
             const guide = cardSurface.createDiv("sr-swipe-guide");

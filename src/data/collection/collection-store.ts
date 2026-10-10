@@ -887,7 +887,11 @@ export class CollectionStore {
                 ? this.getClozeOrdinals(note).flatMap((ordinal) =>
                       templates.map((template) => ({ template, ordinal })),
                   )
-                : templates.map((template) => ({ template, ordinal: template.ordinal }));
+                : noteType.kind === "image-occlusion"
+                  ? this.getImageOcclusionOrdinals(note).flatMap((ordinal) =>
+                        templates.map((template) => ({ template, ordinal })),
+                    )
+                  : templates.map((template) => ({ template, ordinal: template.ordinal }));
         for (const card of existing) {
             if (
                 !specs.some(
@@ -938,6 +942,15 @@ export class CollectionStore {
                 updatedAt: timestamp,
             };
             this.collection.cards[card.id] = card;
+        }
+    }
+
+    private getImageOcclusionOrdinals(note: CollectionNote): number[] {
+        try {
+            const masks = JSON.parse(note.fields.masks ?? "[]") as unknown[];
+            return masks.map((_mask, index) => index);
+        } catch {
+            return [];
         }
     }
 

@@ -7,11 +7,16 @@ import {
 export const BASIC_NOTE_TYPE_ID = "builtin-basic";
 export const REVERSED_NOTE_TYPE_ID = "builtin-basic-and-reversed";
 export const CLOZE_NOTE_TYPE_ID = "builtin-cloze";
+export const IMAGE_OCCLUSION_NOTE_TYPE_ID = "builtin-image-occlusion";
 
 export const FRONT_FIELD_ID = "front";
 export const BACK_FIELD_ID = "back";
 export const TEXT_FIELD_ID = "text";
 export const EXTRA_FIELD_ID = "extra";
+export const OCCLUSION_SOURCE_FIELD_ID = "source";
+export const OCCLUSION_MASKS_FIELD_ID = "masks";
+export const OCCLUSION_ASSETS_FIELD_ID = "assets";
+export const OCCLUSION_MODE_FIELD_ID = "mode";
 
 const createdAt = 0;
 
@@ -94,6 +99,29 @@ export function getBuiltinNoteTypes(): NoteTypeDefinition[] {
                     0,
                     "{{cloze:Text}}",
                     "{{cloze:Text}}\n<hr>\n{{Extra}}",
+                ),
+            ],
+            css: "",
+            createdAt,
+            updatedAt: createdAt,
+        },
+        {
+            id: IMAGE_OCCLUSION_NOTE_TYPE_ID,
+            name: "Image Occlusion",
+            kind: "image-occlusion",
+            fields: [
+                { ...field(OCCLUSION_SOURCE_FIELD_ID, "Source", 0), kind: "media" },
+                field(OCCLUSION_MASKS_FIELD_ID, "Masks", 1),
+                field(OCCLUSION_ASSETS_FIELD_ID, "Assets", 2),
+                field(OCCLUSION_MODE_FIELD_ID, "Mode", 3),
+            ],
+            templates: [
+                template(
+                    "builtin-image-occlusion-card",
+                    "Occlusion",
+                    0,
+                    "{{Source}}",
+                    "{{Source}}",
                 ),
             ],
             css: "",

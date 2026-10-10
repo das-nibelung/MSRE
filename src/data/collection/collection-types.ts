@@ -1,9 +1,9 @@
 import { ISerializedScheduleEntry } from "src/data/plugin-data";
 
-export const COLLECTION_SCHEMA_VERSION = 3;
+export const COLLECTION_SCHEMA_VERSION = 4;
 export const REVIEW_LOG_SCHEMA_VERSION = 1;
 
-export type NoteTypeKind = "standard" | "cloze";
+export type NoteTypeKind = "standard" | "cloze" | "image-occlusion";
 export type FieldKind = "text" | "rich-text" | "media" | "number" | "formula";
 export type CardLifecycleState = "active" | "suspended" | "buried";
 export type CardFlag = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
