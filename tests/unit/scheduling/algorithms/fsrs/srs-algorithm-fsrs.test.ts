@@ -41,6 +41,28 @@ test("imports legacy schedules into FSRS state on update", () => {
     expect((result as RepItemScheduleInfoFsrs).state).toEqual(State.Review);
 });
 
+test("applies a deck-specific desired retention before scheduling", () => {
+    const legacySchedule = RepItemScheduleInfoOsr.fromDueDateStr("2023-09-01", 30, 250);
+    const lowRetention = new SrsAlgorithmFsrs(DEFAULT_SETTINGS);
+    lowRetention.configureCardScheduling({ desiredRetention: 0.8 });
+    lowRetention.configureCardScheduling({ desiredRetention: 0.8 });
+    const lowResult = lowRetention.cardCalcUpdatedSchedule(
+        ReviewResponse.Good,
+        legacySchedule,
+        new CardDueDateHistogram(),
+    );
+
+    const highRetention = new SrsAlgorithmFsrs(DEFAULT_SETTINGS);
+    highRetention.configureCardScheduling({ desiredRetention: 0.97 });
+    const highResult = highRetention.cardCalcUpdatedSchedule(
+        ReviewResponse.Good,
+        legacySchedule,
+        new CardDueDateHistogram(),
+    );
+
+    expect(highResult.interval).toBeLessThanOrEqual(lowResult.interval);
+});
+
 test("reset schedule returns an immediate FSRS reset state", () => {
     const algorithm = new SrsAlgorithmFsrs(DEFAULT_SETTINGS);
     const result = algorithm.cardGetResetSchedule() as RepItemScheduleInfoFsrs;

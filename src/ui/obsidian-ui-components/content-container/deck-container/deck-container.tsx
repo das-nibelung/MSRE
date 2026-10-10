@@ -25,6 +25,7 @@ export class DeckContainer {
         openCardBrowser: () => void | Promise<void>,
         createCard: (deckPath?: string) => void,
         createDeck: (deckPath?: string) => void,
+        editDeckOptions: (deckPath: string) => void,
         createKnowledgeArea: (areaId?: string) => void,
         closeModal?: () => void,
     ) {
@@ -48,6 +49,7 @@ export class DeckContainer {
             openCardBrowser,
             createCard,
             createDeck,
+            editDeckOptions,
             createKnowledgeArea,
             plugin,
         );

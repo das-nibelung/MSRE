@@ -539,6 +539,160 @@
     white-space: nowrap;
 }
 
+.sr-native-options-identity {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    padding: 15px 16px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 16px;
+    background: var(--background-primary);
+}
+
+.sr-native-options-identity-icon {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    place-items: center;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+    color: var(--interactive-accent);
+}
+
+.sr-native-options-identity-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.sr-native-options-identity > div:last-child {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sr-native-options-identity span,
+.sr-native-options-usage {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}
+
+.sr-native-options-identity strong {
+    overflow: hidden;
+    font-size: var(--font-ui-medium);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sr-native-preset-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 48px;
+    gap: 8px;
+}
+
+.sr-native-options-usage {
+    padding-left: 2px;
+}
+
+.sr-native-options-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 4px;
+}
+
+.sr-native-options-section h2,
+.sr-native-options-section p {
+    margin: 0;
+}
+
+.sr-native-options-section h2 {
+    font-size: var(--font-ui-medium);
+}
+
+.sr-native-options-section p {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    line-height: 1.4;
+}
+
+.sr-native-options-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+}
+
+.sr-native-options-heading strong {
+    color: var(--interactive-accent);
+    font-size: var(--font-ui-medium);
+    font-variant-numeric: tabular-nums;
+}
+
+.sr-native-options-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.sr-native-number-control {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 14px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 16px;
+    background: var(--background-primary);
+}
+
+.sr-native-number-control label {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}
+
+.sr-native-number-control .sr-native-input {
+    min-height: 40px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    font-size: 24px;
+    font-weight: var(--font-semibold);
+    font-variant-numeric: tabular-nums;
+}
+
+.sr-native-range {
+    width: 100%;
+    accent-color: var(--interactive-accent);
+}
+
+.sr-native-order-switcher {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    padding: 4px;
+    border-radius: 15px;
+    background: var(--background-primary);
+}
+
+.sr-native-order-switcher button {
+    min-height: 42px;
+    border: 0;
+    border-radius: 11px;
+    background: transparent;
+    color: var(--text-muted);
+    box-shadow: none;
+}
+
+.sr-native-order-switcher button.is-active {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.sr-native-description-input {
+    min-height: 92px;
+}
+
 @media (max-width: 600px) {
     .sr-native-creator-page {
         padding-top: 16px;
@@ -563,6 +717,10 @@
         gap: 19px;
         padding: 18px;
         border-radius: 20px;
+    }
+
+    .sr-native-options-grid {
+        grid-template-columns: 1fr;
     }
 
     .sr-native-card-type-switcher {

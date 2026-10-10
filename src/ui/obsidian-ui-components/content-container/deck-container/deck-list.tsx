@@ -32,6 +32,7 @@ export default class DeckListComponent {
     private readonly openCardBrowser: () => void | Promise<void>;
     private readonly createCard: (deckPath?: string) => void;
     private readonly createDeck: (deckPath?: string, areaId?: string) => void;
+    private readonly editDeckOptions: (deckPath: string) => void;
     private readonly editKnowledgeArea: (areaId?: string) => void;
 
     public constructor(
@@ -40,6 +41,7 @@ export default class DeckListComponent {
         openCardBrowser: () => void | Promise<void>,
         createCard: (deckPath?: string) => void,
         createDeck: (deckPath?: string, areaId?: string) => void,
+        editDeckOptions: (deckPath: string) => void,
         editKnowledgeArea: (areaId?: string) => void,
         plugin: SRPlugin,
     ) {
@@ -47,6 +49,7 @@ export default class DeckListComponent {
         this.openCardBrowser = openCardBrowser;
         this.createCard = createCard;
         this.createDeck = createDeck;
+        this.editDeckOptions = editDeckOptions;
         this.editKnowledgeArea = editKnowledgeArea;
         this.store = new NativeCardStore(plugin);
 
@@ -329,6 +332,12 @@ export default class DeckListComponent {
                 .setTitle(t("NEW_DECK"))
                 .setIcon("folder-plus")
                 .onClick(() => this.createDeck(`${deckPath}/`, currentArea?.id)),
+        );
+        menu.addItem((item) =>
+            item
+                .setTitle(t("DECK_OPTIONS"))
+                .setIcon("sliders-horizontal")
+                .onClick(() => this.editDeckOptions(deckPath)),
         );
         if (allowAreaMove) {
             menu.addSeparator();

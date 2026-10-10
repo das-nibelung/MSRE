@@ -144,6 +144,7 @@ export default class ContentManager {
             openCardBrowser,
             this.uiManager.openNativeCardCreator.bind(this.uiManager),
             this.uiManager.openNativeDeckCreator.bind(this.uiManager),
+            (deckPath: string) => void this.uiManager.openNativeDeckOptions(deckPath),
             this.uiManager.openNativeKnowledgeAreaCreator.bind(this.uiManager),
             closeModal,
         );

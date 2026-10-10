@@ -482,6 +482,32 @@ const ru: IBaseLocale = {
     CREATE_NEW_DECK: "Создать новую колоду",
     DECK_CREATED: "Колода создана. Добавьте первую карточку.",
     DECK_SAVE_FAILED: "Не удалось создать колоду. Попробуйте ещё раз.",
+    DECK_OPTIONS: "Параметры колоды",
+    DECK_OPTIONS_DESCRIPTION:
+        "Настройте дневную нагрузку и поведение планировщика для этой колоды.",
+    DECK_OPTIONS_FOR: "Параметры для",
+    OPTIONS_PRESET: "Пресет",
+    OPTIONS_PRESET_HELP:
+        "Используйте один пресет для нескольких колод или создайте отдельную копию.",
+    DUPLICATE_PRESET: "Дублировать пресет",
+    PRESET_USAGE: "Используется колодами: ${count}",
+    PRESET_NAME: "Название пресета",
+    PRESET_COPY_NAME: "${name} — копия",
+    PRESET_NAME_REQUIRED: "Введите название пресета.",
+    DECK_DESCRIPTION: "Описание колоды",
+    DECK_DESCRIPTION_HELP: "Кратко укажите назначение колоды или правила её изучения.",
+    DAILY_LIMITS: "Дневные лимиты",
+    DAILY_LIMITS_HELP: "Ограничьте объём новых и запланированных карточек на день.",
+    NEW_CARDS_PER_DAY: "Новых в день",
+    DESIRED_RETENTION: "Целевая запоминаемость",
+    DESIRED_RETENTION_HELP: "Чем выше значение, тем короче интервалы и больше повторений.",
+    NEW_CARD_ORDER: "Порядок новых карточек",
+    NEW_CARD_ORDER_HELP: "Показывать новые карточки по порядку или перемешивать.",
+    ORDER_SEQUENTIAL: "По порядку",
+    ORDER_RANDOM: "Случайно",
+    SAVE_DECK_OPTIONS: "Сохранить параметры",
+    DECK_OPTIONS_SAVED: "Параметры колоды сохранены.",
+    DECK_OPTIONS_SAVE_FAILED: "Не удалось сохранить параметры колоды.",
 };
 
 export default ru;

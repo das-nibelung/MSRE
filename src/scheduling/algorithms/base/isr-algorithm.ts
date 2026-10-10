@@ -10,6 +10,10 @@ export enum SRAlgorithmType {
     FSRS = "FSRS",
 }
 
+export interface CardSchedulingOptions {
+    desiredRetention: number;
+}
+
 export interface ISRAlgorithm {
     algorithmType: SRAlgorithmType;
     noteOnLoadedNote(path: string, note: Note | null, noteEase: number | null): void;
@@ -26,6 +30,7 @@ export interface ISRAlgorithm {
         dueDateNoteHistogram: DueDateHistogram,
     ): RepItemScheduleInfo;
     noteStats(): INoteEaseList;
+    configureCardScheduling?(options: CardSchedulingOptions): void;
 
     cardGetResetSchedule(): RepItemScheduleInfo;
     cardGetNewSchedule(

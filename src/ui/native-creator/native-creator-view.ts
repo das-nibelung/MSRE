@@ -6,9 +6,11 @@ import {
     CLOZE_NOTE_TYPE_ID,
     REVERSED_NOTE_TYPE_ID,
 } from "src/data/collection/builtin-note-types";
+import { DEFAULT_DECK_OPTIONS_ID } from "src/data/collection/collection-store";
 import {
     CardTemplateDefinition,
     CollectionNote,
+    DeckOptionsDefinition,
     FieldKind,
     NoteFieldDefinition,
     NoteTypeDefinition,
@@ -29,7 +31,7 @@ import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
 
-export type NativeCreatorMode = "card" | "deck" | "area" | "note-type";
+export type NativeCreatorMode = "card" | "deck" | "deck-options" | "area" | "note-type";
 
 interface NoteTypeEditorDraft {
     id: string;
@@ -64,6 +66,9 @@ export class NativeCreatorView extends ItemView {
     private selectedNoteTypeId = BASIC_NOTE_TYPE_ID;
     private customFieldValues: Record<string, string> = {};
     private editingStructuredNote: CollectionNote | null = null;
+    private selectedDeckOptionsId = DEFAULT_DECK_OPTIONS_ID;
+    private deckOptionsDraft: DeckOptionsDefinition | null = null;
+    private deckDescription = "";
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -84,11 +89,13 @@ export class NativeCreatorView extends ItemView {
             return this.editingAreaId ? t("EDIT_KNOWLEDGE_AREA") : t("NEW_KNOWLEDGE_AREA");
         }
         if (this.request.mode === "note-type") return t("NOTE_TYPES");
+        if (this.request.mode === "deck-options") return t("DECK_OPTIONS");
         return this.request.mode === "deck" ? t("NEW_DECK") : t("NEW_CARD");
     }
 
     getIcon(): string {
         if (this.request.mode === "area") return "library-big";
+        if (this.request.mode === "deck-options") return "sliders-horizontal";
         if (this.request.mode === "note-type") return "shapes";
         return this.request.mode === "deck" ? "layers-3" : "square-pen";
     }
@@ -111,6 +118,7 @@ export class NativeCreatorView extends ItemView {
             ? (this.store.getKnowledgeAreas().find((area) => area.id === this.editingAreaId)
                   ?.name ?? "")
             : "";
+        if (request.mode === "deck-options") this.loadDeckOptionsDraft();
         if (this.editingCard) {
             const sourcePath = this.editingCard.storageInfo?.notePath ?? "";
             const structuredNote = this.plugin.dataManager.collectionStore.findNoteBySource(
@@ -160,9 +168,11 @@ export class NativeCreatorView extends ItemView {
                     ? this.noteTypeDraft
                         ? t("EDIT_NOTE_TYPE")
                         : t("NOTE_TYPES")
-                    : this.request.mode === "deck"
-                      ? t("NEW_DECK")
-                      : t("NEW_CARD"),
+                    : this.request.mode === "deck-options"
+                      ? t("DECK_OPTIONS")
+                      : this.request.mode === "deck"
+                        ? t("NEW_DECK")
+                        : t("NEW_CARD"),
         });
         heading.createEl("p", {
             text: this.editingCard
@@ -171,12 +181,14 @@ export class NativeCreatorView extends ItemView {
                   ? t("KNOWLEDGE_AREA_DESCRIPTION")
                   : this.request.mode === "note-type"
                     ? t("NOTE_TYPES_DESCRIPTION")
-                    : this.request.mode === "deck"
-                      ? t("NEW_DECK_DESCRIPTION")
-                      : t("NEW_CARD_DESCRIPTION"),
+                    : this.request.mode === "deck-options"
+                      ? t("DECK_OPTIONS_DESCRIPTION")
+                      : this.request.mode === "deck"
+                        ? t("NEW_DECK_DESCRIPTION")
+                        : t("NEW_CARD_DESCRIPTION"),
         });
 
-        if (!this.editingCard && !this.editingAreaId) {
+        if (!this.editingCard && !this.editingAreaId && this.request.mode !== "deck-options") {
             const switcher = top.createDiv("sr-native-creator-switcher");
             this.createModeButton(switcher, "card", "square-pen", t("CARD"));
             this.createModeButton(switcher, "deck", "layers-3", t("DECK"));
@@ -186,6 +198,7 @@ export class NativeCreatorView extends ItemView {
 
         const surface = page.createDiv("sr-native-creator-surface");
         if (this.request.mode === "deck") this.renderDeckForm(surface);
+        else if (this.request.mode === "deck-options") this.renderDeckOptionsForm(surface);
         else if (this.request.mode === "area") this.renderAreaForm(surface);
         else if (this.request.mode === "note-type") this.renderNoteTypeManager(surface);
         else this.renderCardForm(surface);
@@ -380,6 +393,218 @@ export class NativeCreatorView extends ItemView {
             .setDisabled(this.busy)
             .onClick(() => void this.saveDeck());
         window.setTimeout(() => input.focus(), 0);
+    }
+
+    private loadDeckOptionsDraft(optionsId?: string): void {
+        const collection = this.plugin.dataManager.collectionStore;
+        const deck = collection.getDeck(this.selectedDeck);
+        const options = optionsId
+            ? collection.getDeckOptionsById(optionsId)
+            : collection.getDeckOptionsForPath(this.selectedDeck);
+        if (!options) return;
+        this.selectedDeckOptionsId = options.id;
+        this.deckOptionsDraft = { ...options };
+        this.deckDescription = deck?.description ?? "";
+    }
+
+    private renderDeckOptionsForm(surface: HTMLElement): void {
+        if (!this.deckOptionsDraft) this.loadDeckOptionsDraft();
+        const draft = this.deckOptionsDraft;
+        if (!draft) return;
+        const collection = this.plugin.dataManager.collectionStore;
+
+        const identity = surface.createDiv("sr-native-options-identity");
+        const identityIcon = identity.createDiv("sr-native-options-identity-icon");
+        setIcon(identityIcon, "folder-cog");
+        const identityCopy = identity.createDiv();
+        identityCopy.createSpan({ text: t("DECK_OPTIONS_FOR") });
+        identityCopy.createEl("strong", { text: this.selectedDeck || t("DEFAULT_DECK") });
+
+        const presetGroup = this.createFieldGroup(
+            surface,
+            t("OPTIONS_PRESET"),
+            t("OPTIONS_PRESET_HELP"),
+        );
+        const presetRow = presetGroup.createDiv("sr-native-preset-row");
+        const presetPicker = new ButtonComponent(presetRow)
+            .setButtonText(draft.name)
+            .setClass("sr-native-picker")
+            .onClick((event) => this.openDeckOptionsMenu(event));
+        presetPicker.buttonEl.setAttribute("aria-haspopup", "menu");
+        const chevron = presetPicker.buttonEl.createSpan("sr-native-picker-chevron");
+        setIcon(chevron, "chevron-down");
+        const duplicate = new ButtonComponent(presetRow)
+            .setIcon("copy-plus")
+            .setTooltip(t("DUPLICATE_PRESET"))
+            .onClick(() => this.duplicateDeckOptionsDraft());
+        duplicate.buttonEl.addClass("sr-native-icon-button");
+        presetGroup.createDiv({
+            cls: "sr-native-options-usage",
+            text: t("PRESET_USAGE", {
+                count: collection.countDecksForOptions(this.selectedDeckOptionsId),
+            }),
+        });
+
+        const nameGroup = this.createFieldGroup(surface, t("PRESET_NAME"));
+        const nameInput = nameGroup.createEl("input", {
+            cls: "sr-native-input",
+            attr: { type: "text", autocomplete: "off", "aria-label": t("PRESET_NAME") },
+        });
+        nameInput.value = draft.name;
+        nameInput.addEventListener("input", () => {
+            draft.name = nameInput.value;
+            this.clearError();
+        });
+
+        const descriptionGroup = this.createFieldGroup(
+            surface,
+            t("DECK_DESCRIPTION"),
+            t("DECK_DESCRIPTION_HELP"),
+        );
+        const description = descriptionGroup.createEl("textarea", {
+            cls: "sr-native-textarea sr-native-description-input",
+            attr: { rows: "3", "aria-label": t("DECK_DESCRIPTION") },
+        });
+        description.value = this.deckDescription;
+        description.addEventListener("input", () => {
+            this.deckDescription = description.value;
+        });
+
+        const limits = surface.createDiv("sr-native-options-section");
+        limits.createEl("h2", { text: t("DAILY_LIMITS") });
+        limits.createEl("p", { text: t("DAILY_LIMITS_HELP") });
+        const limitGrid = limits.createDiv("sr-native-options-grid");
+        this.createNumberControl(
+            limitGrid,
+            t("NEW_CARDS_PER_DAY"),
+            draft.newCardsPerDay,
+            0,
+            9999,
+            (value) => (draft.newCardsPerDay = value),
+        );
+        this.createNumberControl(
+            limitGrid,
+            t("REVIEWS_PER_DAY"),
+            draft.reviewsPerDay,
+            0,
+            99999,
+            (value) => (draft.reviewsPerDay = value),
+        );
+
+        const retention = surface.createDiv("sr-native-options-section");
+        const retentionHeading = retention.createDiv("sr-native-options-heading");
+        retentionHeading.createEl("h2", { text: t("DESIRED_RETENTION") });
+        const retentionValue = retentionHeading.createEl("strong", {
+            text: `${Math.round(draft.desiredRetention * 100)}%`,
+        });
+        retention.createEl("p", { text: t("DESIRED_RETENTION_HELP") });
+        const slider = retention.createEl("input", {
+            cls: "sr-native-range",
+            attr: {
+                type: "range",
+                min: "70",
+                max: "99",
+                step: "1",
+                "aria-label": t("DESIRED_RETENTION"),
+            },
+        });
+        slider.value = String(Math.round(draft.desiredRetention * 100));
+        slider.addEventListener("input", () => {
+            draft.desiredRetention = Number(slider.value) / 100;
+            retentionValue.setText(`${slider.value}%`);
+        });
+
+        const orderGroup = this.createFieldGroup(
+            surface,
+            t("NEW_CARD_ORDER"),
+            t("NEW_CARD_ORDER_HELP"),
+        );
+        const order = orderGroup.createDiv("sr-native-order-switcher");
+        for (const value of ["sequential", "random"] as const) {
+            const button = new ButtonComponent(order)
+                .setButtonText(value === "sequential" ? t("ORDER_SEQUENTIAL") : t("ORDER_RANDOM"))
+                .onClick(() => {
+                    draft.newCardOrder = value;
+                    this.render();
+                });
+            button.buttonEl.toggleClass("is-active", draft.newCardOrder === value);
+            button.buttonEl.setAttribute("aria-pressed", String(draft.newCardOrder === value));
+        }
+
+        if (this.error) {
+            surface.createDiv({
+                cls: "sr-native-form-error",
+                text: this.error,
+                attr: { role: "alert" },
+            });
+        }
+        const actions = surface.createDiv("sr-native-form-actions");
+        new ButtonComponent(actions)
+            .setButtonText(this.busy ? t("SAVING") : t("SAVE_DECK_OPTIONS"))
+            .setCta()
+            .setDisabled(this.busy)
+            .onClick(() => void this.saveDeckOptions());
+    }
+
+    private createNumberControl(
+        parent: HTMLElement,
+        label: string,
+        value: number,
+        min: number,
+        max: number,
+        onChange: (value: number) => void,
+    ): void {
+        const wrapper = parent.createDiv("sr-native-number-control");
+        wrapper.createEl("label", { text: label });
+        const input = wrapper.createEl("input", {
+            cls: "sr-native-input",
+            attr: {
+                type: "number",
+                min: String(min),
+                max: String(max),
+                inputmode: "numeric",
+                "aria-label": label,
+            },
+        });
+        input.value = String(value);
+        input.addEventListener("input", () => {
+            const next = Math.max(min, Math.min(max, Number(input.value)));
+            onChange(Number.isFinite(next) ? Math.round(next) : min);
+            this.clearError();
+        });
+    }
+
+    private openDeckOptionsMenu(event: MouseEvent): void {
+        const menu = new Menu();
+        const collection = this.plugin.dataManager.collectionStore;
+        for (const options of collection.getDeckOptions()) {
+            menu.addItem((item) =>
+                item
+                    .setTitle(options.name)
+                    .setIcon(
+                        options.id === this.selectedDeckOptionsId ? "check" : "sliders-horizontal",
+                    )
+                    .setChecked(options.id === this.selectedDeckOptionsId)
+                    .onClick(() => {
+                        this.loadDeckOptionsDraft(options.id);
+                        this.render();
+                    }),
+            );
+        }
+        menu.showAtMouseEvent(event);
+    }
+
+    private duplicateDeckOptionsDraft(): void {
+        if (!this.deckOptionsDraft) return;
+        this.deckOptionsDraft = {
+            ...this.deckOptionsDraft,
+            id: this.plugin.dataManager.collectionStore.createId("deck-options"),
+            name: t("PRESET_COPY_NAME", { name: this.deckOptionsDraft.name }),
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+        };
+        this.selectedDeckOptionsId = this.deckOptionsDraft.id;
+        this.render();
     }
 
     private renderAreaForm(surface: HTMLElement): void {
@@ -1163,6 +1388,35 @@ export class NativeCreatorView extends ItemView {
         } catch {
             this.busy = false;
             this.error = t("DECK_SAVE_FAILED");
+            this.render();
+        }
+    }
+
+    private async saveDeckOptions(): Promise<void> {
+        const draft = this.deckOptionsDraft;
+        if (!draft || !draft.name.trim()) {
+            this.error = t("PRESET_NAME_REQUIRED");
+            this.render();
+            return;
+        }
+        this.busy = true;
+        this.error = "";
+        this.render();
+        try {
+            const collection = this.plugin.dataManager.collectionStore;
+            const saved = await collection.saveDeckOptions(draft);
+            await collection.updateDeck(this.selectedDeck, {
+                description: this.deckDescription,
+                optionsId: saved.id,
+            });
+            this.selectedDeckOptionsId = saved.id;
+            this.deckOptionsDraft = saved;
+            this.busy = false;
+            new Notice(t("DECK_OPTIONS_SAVED"));
+            await this.returnToCards();
+        } catch {
+            this.busy = false;
+            this.error = t("DECK_OPTIONS_SAVE_FAILED");
             this.render();
         }
     }

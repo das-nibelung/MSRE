@@ -14,7 +14,7 @@ import { IDeckTreeIterator } from "src/data/data-structures/deck/deck-tree-itera
 import { TopicPath } from "src/data/data-structures/deck/topic-path";
 import { SRSettings } from "src/data/settings";
 import { Note } from "src/note/note";
-import { ISRAlgorithm } from "src/scheduling/algorithms/base/isr-algorithm";
+import { CardSchedulingOptions, ISRAlgorithm } from "src/scheduling/algorithms/base/isr-algorithm";
 import { RepItemScheduleInfo } from "src/scheduling/algorithms/base/rep-item-schedule-info";
 import { RepItemState, ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
 import { DueDateHistogram } from "src/scheduling/due-date-histogram";
@@ -125,6 +125,7 @@ export class FlashcardReviewSequencer implements IFlashcardReviewSequencer {
     private srsAlgorithm: ISRAlgorithm;
     private questionPostponementList: IQuestionPostponementList;
     private dueDateFlashcardHistogram: DueDateHistogram;
+    private cardSchedulingOptionsProvider: ((card: Card) => CardSchedulingOptions) | null;
     private pendingCards: PendingCard[] = [];
     private currentTopicPath: TopicPath = TopicPath.emptyPath;
 
@@ -135,6 +136,7 @@ export class FlashcardReviewSequencer implements IFlashcardReviewSequencer {
         srsAlgorithm: ISRAlgorithm,
         questionPostponementList: IQuestionPostponementList,
         dueDateFlashcardHistogram: DueDateHistogram,
+        cardSchedulingOptionsProvider: ((card: Card) => CardSchedulingOptions) | null = null,
     ) {
         this.reviewMode = reviewMode;
         this.cardSequencer = cardSequencer;
@@ -142,6 +144,7 @@ export class FlashcardReviewSequencer implements IFlashcardReviewSequencer {
         this.srsAlgorithm = srsAlgorithm;
         this.questionPostponementList = questionPostponementList;
         this.dueDateFlashcardHistogram = dueDateFlashcardHistogram;
+        this.cardSchedulingOptionsProvider = cardSchedulingOptionsProvider;
     }
 
     get hasCurrentCard(): boolean {
@@ -415,6 +418,9 @@ export class FlashcardReviewSequencer implements IFlashcardReviewSequencer {
 
     determineCardSchedule(response: ReviewResponse, card: Card): RepItemScheduleInfo {
         let result: RepItemScheduleInfo;
+
+        const schedulingOptions = this.cardSchedulingOptionsProvider?.(card);
+        if (schedulingOptions) this.srsAlgorithm.configureCardScheduling?.(schedulingOptions);
 
         if (response === ReviewResponse.Reset) {
             // Resetting the card schedule

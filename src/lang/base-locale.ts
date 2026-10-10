@@ -533,4 +533,28 @@ export interface IBaseLocale {
     CREATE_NEW_DECK: string;
     DECK_CREATED: string;
     DECK_SAVE_FAILED: string;
+    DECK_OPTIONS: string;
+    DECK_OPTIONS_DESCRIPTION: string;
+    DECK_OPTIONS_FOR: string;
+    OPTIONS_PRESET: string;
+    OPTIONS_PRESET_HELP: string;
+    DUPLICATE_PRESET: string;
+    PRESET_USAGE: string;
+    PRESET_NAME: string;
+    PRESET_COPY_NAME: string;
+    PRESET_NAME_REQUIRED: string;
+    DECK_DESCRIPTION: string;
+    DECK_DESCRIPTION_HELP: string;
+    DAILY_LIMITS: string;
+    DAILY_LIMITS_HELP: string;
+    NEW_CARDS_PER_DAY: string;
+    DESIRED_RETENTION: string;
+    DESIRED_RETENTION_HELP: string;
+    NEW_CARD_ORDER: string;
+    NEW_CARD_ORDER_HELP: string;
+    ORDER_SEQUENTIAL: string;
+    ORDER_RANDOM: string;
+    SAVE_DECK_OPTIONS: string;
+    DECK_OPTIONS_SAVED: string;
+    DECK_OPTIONS_SAVE_FAILED: string;
 }

@@ -3,7 +3,11 @@ import { CardInput, createEmptyCard, FSRS, fsrs, State } from "ts-fsrs";
 import { SRSettings } from "src/data/settings";
 import { Note } from "src/note/note";
 import { INoteEaseList } from "src/note/note-ease-list";
-import { ISRAlgorithm, SRAlgorithmType } from "src/scheduling/algorithms/base/isr-algorithm";
+import {
+    CardSchedulingOptions,
+    ISRAlgorithm,
+    SRAlgorithmType,
+} from "src/scheduling/algorithms/base/isr-algorithm";
 import { RepItemScheduleInfo } from "src/scheduling/algorithms/base/rep-item-schedule-info";
 import { ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
 import {
@@ -30,10 +34,23 @@ export class SrsAlgorithmFsrs implements ISRAlgorithm {
     public readonly algorithmType: SRAlgorithmType = SRAlgorithmType.FSRS;
     private noteDelegate: SRAlgorithmOsr;
     private scheduler: FSRS;
+    private readonly settings: SRSettings;
+    private activeDesiredRetention: number;
 
     constructor(settings: SRSettings) {
+        this.settings = settings;
+        this.activeDesiredRetention = settings.fsrsDesiredRetention;
         this.noteDelegate = new SRAlgorithmOsr(settings);
         this.scheduler = fsrs(buildFsrsParameters(settings));
+    }
+
+    configureCardScheduling(options: CardSchedulingOptions): void {
+        if (options.desiredRetention === this.activeDesiredRetention) return;
+        this.activeDesiredRetention = options.desiredRetention;
+        this.scheduler = fsrs({
+            ...buildFsrsParameters(this.settings),
+            ["request_retention"]: options.desiredRetention,
+        });
     }
 
     noteOnLoadedNote(path: string, note: Note, noteEase: number): void {

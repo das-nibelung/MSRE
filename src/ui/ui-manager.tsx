@@ -471,6 +471,10 @@ export class UIManager {
         });
     }
 
+    public async openNativeDeckOptions(deckPath: string): Promise<void> {
+        await this.tabViewManager.openNativeCreator({ mode: "deck-options", deckPath });
+    }
+
     public async openNativeKnowledgeAreaCreator(areaId?: string): Promise<void> {
         await this.tabViewManager.openNativeCreator({ mode: "area", editAreaId: areaId });
     }

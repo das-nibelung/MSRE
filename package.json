@@ -1,6 +1,6 @@
 {
     "name": "personal-spaced-repetition",
-    "version": "1.15.4-personal.25",
+    "version": "1.15.4-personal.26",
     "description": "A personal, mobile-compatible fork of the Obsidian Spaced Repetition plugin.",
     "main": "main.js",
     "scripts": {

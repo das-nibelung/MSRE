@@ -31,8 +31,8 @@ export const COLLECTION_PATH = `${COLLECTION_FOLDER}/collection-data.sr.md`;
 export const REVIEW_LOG_PATH = `${COLLECTION_FOLDER}/review-history.sr.md`;
 
 const JSON_BLOCK = /```json\s*([\s\S]*?)\s*```/i;
-const DEFAULT_DECK_ID = "builtin-default-deck";
-const DEFAULT_DECK_OPTIONS_ID = "builtin-default-options";
+export const DEFAULT_DECK_ID = "builtin-default-deck";
+export const DEFAULT_DECK_OPTIONS_ID = "builtin-default-options";
 
 export interface CollectionStorage {
     readCollection(): Promise<string | null>;
@@ -379,6 +379,50 @@ export class CollectionStore {
         ).length;
     }
 
+    getDecks(): CollectionDeck[] {
+        return Object.values(this.collection.decks)
+            .filter((deck) => !deck.deletedAt && deck.id !== DEFAULT_DECK_ID)
+            .map((deck) => cloneJson(deck))
+            .sort((left, right) => left.name.localeCompare(right.name));
+    }
+
+    getDeck(deckPath: string): CollectionDeck | null {
+        const normalized = this.normalizeDeckPath(deckPath);
+        const deck = Object.values(this.collection.decks).find(
+            (candidate) => !candidate.deletedAt && candidate.name === normalized,
+        );
+        return deck ? cloneJson(deck) : null;
+    }
+
+    getDeckOptions(): DeckOptionsDefinition[] {
+        return Object.values(this.collection.deckOptions)
+            .filter((options) => !options.deletedAt)
+            .map((options) => cloneJson(options))
+            .sort((left, right) => left.name.localeCompare(right.name));
+    }
+
+    getDeckOptionsById(optionsId: string): DeckOptionsDefinition | null {
+        const options = this.collection.deckOptions[optionsId];
+        return options && !options.deletedAt ? cloneJson(options) : null;
+    }
+
+    getDeckOptionsForPath(deckPath: string): DeckOptionsDefinition {
+        const deck = this.getDeck(deckPath);
+        const options = deck ? this.collection.deckOptions[deck.optionsId] : null;
+        return cloneJson(
+            options && !options.deletedAt
+                ? options
+                : this.collection.deckOptions[DEFAULT_DECK_OPTIONS_ID],
+        );
+    }
+
+    countDecksForOptions(optionsId: string): number {
+        return Object.values(this.collection.decks).filter(
+            (deck) =>
+                !deck.deletedAt && deck.id !== DEFAULT_DECK_ID && deck.optionsId === optionsId,
+        ).length;
+    }
+
     findNoteBySource(sourcePath: string, questionId?: string | null): CollectionNote | null {
         const notes = Object.values(this.collection.notes).filter((note) => !note.deletedAt);
         if (questionId) {
@@ -439,6 +483,63 @@ export class CollectionStore {
         const timestamp = this.now();
         noteType.deletedAt = timestamp;
         noteType.updatedAt = timestamp;
+        await this.persistCollection();
+    }
+
+    async saveDeckOptions(
+        definition: Omit<DeckOptionsDefinition, "createdAt" | "updatedAt"> &
+            Partial<Pick<DeckOptionsDefinition, "createdAt">>,
+    ): Promise<DeckOptionsDefinition> {
+        await this.initialize();
+        if (!definition.name.trim()) throw new Error("deck-options-name-required");
+        if (!Number.isInteger(definition.newCardsPerDay) || definition.newCardsPerDay < 0) {
+            throw new Error("invalid-new-card-limit");
+        }
+        if (!Number.isInteger(definition.reviewsPerDay) || definition.reviewsPerDay < 0) {
+            throw new Error("invalid-review-limit");
+        }
+        if (definition.desiredRetention < 0.7 || definition.desiredRetention > 0.99) {
+            throw new Error("invalid-desired-retention");
+        }
+        const timestamp = this.now();
+        const existing = this.collection.deckOptions[definition.id];
+        const options: DeckOptionsDefinition = {
+            ...definition,
+            name: definition.name.trim(),
+            createdAt: existing?.createdAt ?? definition.createdAt ?? timestamp,
+            updatedAt: timestamp,
+        };
+        this.collection.deckOptions[options.id] = options;
+        await this.persistCollection();
+        return cloneJson(options);
+    }
+
+    async updateDeck(
+        deckPath: string,
+        changes: { description?: string; optionsId?: string },
+    ): Promise<CollectionDeck> {
+        await this.initialize();
+        const deck = this.ensureDeckPathInMemory(deckPath, this.now());
+        if (changes.optionsId) {
+            const options = this.collection.deckOptions[changes.optionsId];
+            if (!options || options.deletedAt) throw new Error("deck-options-not-found");
+            deck.optionsId = options.id;
+        }
+        if (changes.description !== undefined) deck.description = changes.description.trim();
+        deck.updatedAt = this.now();
+        await this.persistCollection();
+        return cloneJson(deck);
+    }
+
+    async deleteDeckOptions(optionsId: string): Promise<void> {
+        await this.initialize();
+        if (optionsId === DEFAULT_DECK_OPTIONS_ID) throw new Error("builtin-deck-options");
+        const options = this.collection.deckOptions[optionsId];
+        if (!options || options.deletedAt) return;
+        if (this.countDecksForOptions(optionsId) > 0) throw new Error("deck-options-in-use");
+        const timestamp = this.now();
+        options.deletedAt = timestamp;
+        options.updatedAt = timestamp;
         await this.persistCollection();
     }
 
@@ -768,11 +869,7 @@ export class CollectionStore {
     }
 
     private ensureDeckPathInMemory(deckPath: string, timestamp: number): CollectionDeck {
-        const normalized = deckPath
-            .split("/")
-            .map((segment) => segment.trim())
-            .filter(Boolean)
-            .join("/");
+        const normalized = this.normalizeDeckPath(deckPath);
         if (!normalized) return this.collection.decks[DEFAULT_DECK_ID];
 
         let parent = this.collection.decks[DEFAULT_DECK_ID];
@@ -797,6 +894,14 @@ export class CollectionStore {
             parent = deck;
         }
         return parent;
+    }
+
+    private normalizeDeckPath(deckPath: string): string {
+        return deckPath
+            .split("/")
+            .map((segment) => segment.trim())
+            .filter(Boolean)
+            .join("/");
     }
 
     private async persistCollection(): Promise<void> {

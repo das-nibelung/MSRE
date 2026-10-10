@@ -1,6 +1,7 @@
 import {
     CollectionStorage,
     CollectionStore,
+    DEFAULT_DECK_OPTIONS_ID,
     formatCollection,
     mergeCollections,
     migrateCollection,
@@ -254,6 +255,129 @@ describe("Anki-style collection store", () => {
         });
         expect(store.getCollectionSnapshot().notes[note.id].fields.term).toBe("proportion");
         await expect(store.deleteNoteType("custom-two-card")).rejects.toThrow("note-type-in-use");
+    });
+
+    it("shares validated option presets across decks", async () => {
+        const store = new CollectionStore(new MemoryStorage(), () => 390, idFactory);
+        await store.ensureDeckPath("Medicine/Cardiology");
+        await store.ensureDeckPath("Medicine/Neurology");
+        const preset = await store.saveDeckOptions({
+            id: "deck-options-intensive",
+            name: " Intensive ",
+            newCardsPerDay: 35,
+            reviewsPerDay: 350,
+            desiredRetention: 0.94,
+            newCardOrder: "random",
+        });
+        await store.updateDeck("Medicine/Cardiology", {
+            description: " High-yield cases ",
+            optionsId: preset.id,
+        });
+        await store.updateDeck("Medicine/Neurology", { optionsId: preset.id });
+
+        expect(store.getDeckOptionsForPath("Medicine/Cardiology")).toEqual(
+            expect.objectContaining({
+                name: "Intensive",
+                newCardsPerDay: 35,
+                desiredRetention: 0.94,
+                newCardOrder: "random",
+            }),
+        );
+        expect(store.getDeck("Medicine/Cardiology")?.description).toBe("High-yield cases");
+        expect(store.countDecksForOptions(preset.id)).toBe(2);
+        await expect(store.deleteDeckOptions(preset.id)).rejects.toThrow("deck-options-in-use");
+
+        await store.updateDeck("Medicine/Cardiology", { optionsId: DEFAULT_DECK_OPTIONS_ID });
+        await store.updateDeck("Medicine/Neurology", { optionsId: DEFAULT_DECK_OPTIONS_ID });
+        await store.deleteDeckOptions(preset.id);
+        expect(store.getDeckOptionsById(preset.id)).toBeNull();
+    });
+
+    it("rejects invalid deck option limits", async () => {
+        const store = new CollectionStore(new MemoryStorage(), () => 395, idFactory);
+        expect(store.getDeck("Missing")).toBeNull();
+        expect(store.getDeckOptionsById("missing")).toBeNull();
+        expect(store.getDeckOptionsForPath("Missing").id).toBe(DEFAULT_DECK_OPTIONS_ID);
+        await expect(
+            store.saveDeckOptions({
+                id: "invalid-options",
+                name: "Invalid",
+                newCardsPerDay: -1,
+                reviewsPerDay: 100,
+                desiredRetention: 0.9,
+                newCardOrder: "sequential",
+            }),
+        ).rejects.toThrow("invalid-new-card-limit");
+        await expect(
+            store.saveDeckOptions({
+                id: "invalid-reviews",
+                name: "Invalid",
+                newCardsPerDay: 10,
+                reviewsPerDay: -1,
+                desiredRetention: 0.9,
+                newCardOrder: "sequential",
+            }),
+        ).rejects.toThrow("invalid-review-limit");
+        await expect(
+            store.saveDeckOptions({
+                id: "invalid-retention",
+                name: "Invalid",
+                newCardsPerDay: 10,
+                reviewsPerDay: 100,
+                desiredRetention: 0.5,
+                newCardOrder: "sequential",
+            }),
+        ).rejects.toThrow("invalid-desired-retention");
+        await expect(
+            store.saveDeckOptions({
+                id: "empty-name",
+                name: " ",
+                newCardsPerDay: 10,
+                reviewsPerDay: 100,
+                desiredRetention: 0.9,
+                newCardOrder: "sequential",
+            }),
+        ).rejects.toThrow("deck-options-name-required");
+        await expect(store.updateDeck("Medicine", { optionsId: "missing" })).rejects.toThrow(
+            "deck-options-not-found",
+        );
+        await expect(store.deleteDeckOptions(DEFAULT_DECK_OPTIONS_ID)).rejects.toThrow(
+            "builtin-deck-options",
+        );
+        await expect(store.deleteDeckOptions("missing")).resolves.toBeUndefined();
+    });
+
+    it("updates an existing preset without changing its creation timestamp", async () => {
+        let timestamp = 400;
+        const store = new CollectionStore(new MemoryStorage(), () => timestamp, idFactory);
+        const original = await store.saveDeckOptions({
+            id: "deck-options-shared",
+            name: "Shared",
+            newCardsPerDay: 20,
+            reviewsPerDay: 200,
+            desiredRetention: 0.9,
+            newCardOrder: "sequential",
+        });
+        timestamp = 410;
+        const updated = await store.saveDeckOptions({
+            ...original,
+            name: "Shared updated",
+            reviewsPerDay: 250,
+        });
+
+        expect(updated.createdAt).toBe(400);
+        expect(updated.updatedAt).toBe(410);
+        expect(store.getDeckOptions().map((options) => options.name)).toEqual([
+            "Default",
+            "Shared updated",
+        ]);
+        await store.ensureDeckPath("Zoology");
+        await store.ensureDeckPath("Anatomy");
+        expect(store.getDecks().map((deck) => deck.name)).toEqual(["Anatomy", "Zoology"]);
+        await store.updateDeck("Anatomy", { description: "Body structures" });
+        expect(store.getDeck("Anatomy")?.optionsId).toBe(DEFAULT_DECK_OPTIONS_ID);
+        await store.deleteDeckOptions(updated.id);
+        expect(store.getDeckOptionsById(updated.id)).toBeNull();
     });
 
     it("migrates preview data and resolves sync conflicts per entity", () => {
