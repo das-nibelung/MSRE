@@ -2,6 +2,12 @@ import { Notice, TFile } from "obsidian";
 
 import { createCardIndexStorage } from "src/data/card-index/card-index-storage";
 import { IncrementalCardIndex } from "src/data/card-index/incremental-card-index";
+import {
+    COLLECTION_PATH,
+    CollectionStore,
+    REVIEW_LOG_PATH,
+    VaultCollectionStorage,
+} from "src/data/collection/collection-store";
 import { OsrCore } from "src/data/core";
 import { DataStore, StorageType } from "src/data/data-store/base/data-store";
 import { DataStoreAlgorithm } from "src/data/data-store/base/data-store-algorithm";
@@ -45,6 +51,7 @@ export class DataManager {
     private _syncLock = false;
     private cardIndex: IncrementalCardIndex;
     private scheduleLedger: ScheduleLedger | null = null;
+    public readonly collectionStore: CollectionStore;
     private hasLoadedVault = false;
     private lastSyncContext: string | null = null;
     private requiresFullScan = false;
@@ -64,6 +71,7 @@ export class DataManager {
             createCardIndexStorage(databaseName),
             plugin.getObsidianRtlSetting(),
         );
+        this.collectionStore = new CollectionStore(new VaultCollectionStorage(plugin.app.vault));
         this.registerCardIndexEvents();
     }
 
@@ -121,6 +129,7 @@ export class DataManager {
         noteReviewQueue: NoteReviewQueue,
         onOsrVaultDataChanged: () => Promise<void>,
     ): Promise<void> {
+        await this.collectionStore.initialize();
         const questionPostponementList: QuestionPostponementList = new QuestionPostponementList(
             this.pluginDataManager,
             this.settingsManager.settings,
@@ -154,6 +163,10 @@ export class DataManager {
     private registerCardIndexEvents(): void {
         this.plugin.registerEvent(
             this.plugin.app.vault.on("modify", (file) => {
+                if (file instanceof TFile && this.isCollectionDataPath(file.path)) {
+                    void this.collectionStore.reload();
+                    return;
+                }
                 if (file instanceof TFile && file.path === SCHEDULE_LEDGER_PATH) {
                     void this.scheduleLedger?.reload();
                     return;
@@ -163,12 +176,17 @@ export class DataManager {
                     file.extension === "md" &&
                     file.path !== SCHEDULE_LEDGER_PATH
                 ) {
+                    void this.collectionStore.deleteNoteBySource(file.path);
                     void this.cardIndex.invalidate(file.path);
                 }
             }),
         );
         this.plugin.registerEvent(
             this.plugin.app.vault.on("create", (file) => {
+                if (file instanceof TFile && this.isCollectionDataPath(file.path)) {
+                    void this.collectionStore.reload();
+                    return;
+                }
                 if (file instanceof TFile && file.path === SCHEDULE_LEDGER_PATH) {
                     void this.scheduleLedger?.reload();
                     return;
@@ -184,6 +202,10 @@ export class DataManager {
         );
         this.plugin.registerEvent(
             this.plugin.app.vault.on("delete", (file) => {
+                if (file instanceof TFile && this.isCollectionDataPath(file.path)) {
+                    this.collectionStore.reset();
+                    return;
+                }
                 if (file instanceof TFile && file.path === SCHEDULE_LEDGER_PATH) {
                     this.scheduleLedger?.reset();
                     return;
@@ -201,6 +223,11 @@ export class DataManager {
         );
         this.plugin.registerEvent(
             this.plugin.app.vault.on("rename", (file, oldPath) => {
+                if (this.isCollectionDataPath(oldPath)) this.collectionStore.reset();
+                if (file instanceof TFile && this.isCollectionDataPath(file.path)) {
+                    void this.collectionStore.reload();
+                    return;
+                }
                 if (oldPath === SCHEDULE_LEDGER_PATH) {
                     this.scheduleLedger?.reset();
                 }
@@ -213,6 +240,7 @@ export class DataManager {
                     file.extension === "md" &&
                     file.path !== SCHEDULE_LEDGER_PATH
                 ) {
+                    void this.collectionStore.renameSourcePath(oldPath, file.path);
                     void this.cardIndex.invalidate(oldPath);
                     void this.cardIndex.invalidate(file.path);
                 } else if (!(file instanceof TFile)) {
@@ -222,11 +250,19 @@ export class DataManager {
         );
         this.plugin.registerEvent(
             this.plugin.app.metadataCache.on("changed", (file) => {
-                if (file.extension === "md" && file.path !== SCHEDULE_LEDGER_PATH) {
+                if (
+                    file.extension === "md" &&
+                    file.path !== SCHEDULE_LEDGER_PATH &&
+                    !this.isCollectionDataPath(file.path)
+                ) {
                     void this.cardIndex.invalidate(file.path);
                 }
             }),
         );
+    }
+
+    private isCollectionDataPath(path: string): boolean {
+        return path === COLLECTION_PATH || path === REVIEW_LOG_PATH;
     }
 
     async loadVault(): Promise<void> {
@@ -270,6 +306,10 @@ export class DataManager {
                 pendingPaths.length <= 500
             ) {
                 for (const path of pendingPaths) {
+                    if (path === SCHEDULE_LEDGER_PATH || this.isCollectionDataPath(path)) {
+                        this.osrCore.removeFile(path);
+                        continue;
+                    }
                     const file = this.plugin.app.vault.getAbstractFileByPath(path);
                     if (!(file instanceof TFile) || file.extension !== "md") {
                         this.osrCore.removeFile(path);
@@ -297,7 +337,10 @@ export class DataManager {
 
             const notes: TFile[] = this.plugin.app.vault
                 .getMarkdownFiles()
-                .filter((note) => note.path !== SCHEDULE_LEDGER_PATH);
+                .filter(
+                    (note) =>
+                        note.path !== SCHEDULE_LEDGER_PATH && !this.isCollectionDataPath(note.path),
+                );
             await this.cardIndex.prune(new Set(notes.map((note) => note.path)));
             for (const noteFile of notes) {
                 // Skip files in the note ignore folder

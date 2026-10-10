@@ -40,11 +40,18 @@ function getClozeWrapper(settings: SRSettings): [string, string] | null {
     return null;
 }
 
-export function serializeNativeCard(draft: NativeCardDraft, settings: SRSettings): string {
+export function serializeNativeCard(
+    draft: NativeCardDraft,
+    settings: SRSettings,
+    stableQuestionId?: string,
+): string {
     const rootTag = (settings.flashcardTags[0] ?? FALLBACK_ROOT_TAG).replace(/\/+$/g, "");
     const deckPath = normalizeManagedDeckPath(draft.deckPath);
     const tag = deckPath ? `${rootTag}/${deckPath}` : rootTag;
-    return `${tag}\n\n${serializeNativeQuestion(draft, settings)}\n`;
+    const blockId = stableQuestionId
+        ? ` ${stableQuestionId.startsWith("^") ? stableQuestionId : `^${stableQuestionId}`}`
+        : "";
+    return `${tag}\n\n${serializeNativeQuestion(draft, settings)}${blockId}\n`;
 }
 
 /** Converts native form values into the parser format without exposing it in the UI. */
@@ -111,6 +118,7 @@ export class NativeCardStore {
             this.plugin.dataManager.applyManagedDecks();
             await this.plugin.dataManager.osrCore.finalizeLoad();
         }
+        await this.plugin.dataManager.collectionStore.ensureDeckPath(deckPath);
         return deckPath;
     }
 
@@ -195,7 +203,6 @@ export class NativeCardStore {
         if (normalizedDeck) await this.createDeck(normalizedDeck);
 
         const settings = this.plugin.dataManager.data.settings;
-        const contents = serializeNativeCard({ ...draft, deckPath: normalizedDeck }, settings);
         const rootFolder = normalizePath(`${settings.scheduleDataVaultLocation}/Cards`);
         const deckFolder = normalizedDeck
             ? `${rootFolder}/${normalizedDeck}`
@@ -215,7 +222,23 @@ export class NativeCardStore {
             suffix++;
         }
 
+        const noteId = this.plugin.dataManager.collectionStore.createId("note");
+        const questionId = `^sr-data-id-${noteId}`;
+        const contents = serializeNativeCard(
+            { ...draft, deckPath: normalizedDeck },
+            settings,
+            questionId,
+        );
         const file = await this.plugin.app.vault.create(path, contents);
+        await this.plugin.dataManager.collectionStore.createNativeNote({
+            id: noteId,
+            type: draft.type,
+            front: draft.front.trim(),
+            back: draft.back.trim(),
+            deckPath: normalizedDeck,
+            sourcePath: file.path,
+            questionId,
+        });
         await this.waitForMetadata(this.plugin.app, file);
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();

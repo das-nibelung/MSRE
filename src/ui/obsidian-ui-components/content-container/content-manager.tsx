@@ -80,6 +80,7 @@ interface ReviewUndoSnapshot {
     previousSchedule: RepItemScheduleInfo | null;
     chosenDeckPath: TopicPath;
     response: ReviewResponse;
+    reviewLogId: string | null;
 }
 
 // TODO: Refactor/integrate this code with the backend
@@ -395,7 +396,15 @@ export default class ContentManager {
             t("CANCEL"),
             async () => {
                 if (this.sessionData === null || this.reviewSequencer === null) return;
+                const currentCard = this.sessionData.cardData.currentCard;
+                const sourcePath =
+                    currentCard?.storageInfo?.notePath ?? this.sessionData.currentNote.filePath;
+                const questionId =
+                    currentCard?.storageInfo?.questionId ??
+                    this.sessionData.currentQuestion.questionText.obsidianBlockId ??
+                    null;
                 await this.reviewSequencer.deleteCurrentCardFromNote();
+                await this.dataManager.collectionStore.deleteNoteBySource(sourcePath, questionId);
                 await this._showNextCard();
             },
         ).open();
@@ -554,10 +563,33 @@ export default class ContentManager {
                       previousSchedule: currentCard.scheduleInfo,
                       chosenDeckPath: this.sessionData.deckData.chosenDeck.getTopicPath().clone(),
                       response,
+                      reviewLogId: null,
                   };
+
+        const previousSchedule = currentCard?.scheduleInfo?.serializeSchedule() ?? null;
 
         await this.reviewSequencer.processReview(response);
         if (snapshot !== null) {
+            try {
+                snapshot.reviewLogId = await this.dataManager.collectionStore.recordReview({
+                    sourcePath:
+                        currentCard?.storageInfo?.notePath ?? this.sessionData.currentNote.filePath,
+                    questionId:
+                        currentCard?.storageInfo?.questionId ??
+                        this.sessionData.currentQuestion.questionText.obsidianBlockId ??
+                        null,
+                    ordinal: currentCard?.cardIdx ?? 0,
+                    deckPath: snapshot.chosenDeckPath.path.join("/"),
+                    front: currentCard?.front ?? "",
+                    back: currentCard?.back ?? "",
+                    rating: this.reviewResponseToRating(response),
+                    mode: this.reviewMode === FlashcardReviewMode.Cram ? "cram" : "review",
+                    previousSchedule,
+                    nextSchedule: currentCard?.scheduleInfo?.serializeSchedule() ?? null,
+                });
+            } catch (error) {
+                console.warn("MSRE: Unable to record review history", error);
+            }
             this.lastReviewSnapshot = snapshot;
             this.recordResponse(response, 1);
             this.cardContainer.setUndoAvailable(true);
@@ -607,6 +639,9 @@ export default class ContentManager {
             }
 
             this.recordResponse(snapshot.response, -1);
+            if (snapshot.reviewLogId) {
+                await this.dataManager.collectionStore.removeReview(snapshot.reviewLogId);
+            }
             this.lastReviewSnapshot = null;
             this.uiManager.setUIState(UIState.CardFront);
             this.sessionData.cardData.currentCardState = CardState.Front;
@@ -639,6 +674,21 @@ export default class ContentManager {
                 break;
             case ReviewResponse.Reset:
                 break;
+        }
+    }
+
+    private reviewResponseToRating(response: ReviewResponse): 1 | 2 | 3 | 4 {
+        switch (response) {
+            case ReviewResponse.Again:
+                return 1;
+            case ReviewResponse.Hard:
+                return 2;
+            case ReviewResponse.Good:
+                return 3;
+            case ReviewResponse.Easy:
+                return 4;
+            case ReviewResponse.Reset:
+                return 1;
         }
     }
 

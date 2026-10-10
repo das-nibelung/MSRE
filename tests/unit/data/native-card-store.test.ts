@@ -34,6 +34,19 @@ describe("native card storage", () => {
         expect(cards[0].text).toBe("What does ECG measure?\n?\nElectrical activity of the heart");
     });
 
+    it("embeds the stable collection id as an Obsidian block id", () => {
+        const text = serializeNativeCard(
+            { deckPath: "Law", type: "basic", front: "Question", back: "Answer" },
+            DEFAULT_SETTINGS,
+            "^sr-data-id-note-fixed",
+        );
+
+        expect(text).toContain("^sr-data-id-note-fixed");
+        const parsed = parse(text, DEFAULT_SETTINGS);
+        expect(parsed).toHaveLength(1);
+        expect(parsed[0].text).toContain("^sr-data-id-note-fixed");
+    });
+
     it("serializes two-way and cloze cards", () => {
         const reversed = serializeNativeCard(
             { deckPath: "Languages", type: "reversed", front: "bonjour", back: "hello" },

@@ -588,10 +588,19 @@ export class NativeCreatorView extends ItemView {
         if (expanded.length !== question.cards.length) throw new Error("card-count-changed");
 
         question.questionText.actualQuestion = modifiedText;
+        const questionId = question.ensureStableId();
         await question.writeQuestion(settings);
         question.cards.forEach((card, index) => {
             card.front = expanded[index].front;
             card.back = expanded[index].back;
+        });
+        await this.plugin.dataManager.collectionStore.updateNativeNote({
+            type: draft.type,
+            front: draft.front.trim(),
+            back: draft.back.trim(),
+            deckPath: this.selectedDeck,
+            sourcePath: question.note.filePath,
+            questionId,
         });
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
