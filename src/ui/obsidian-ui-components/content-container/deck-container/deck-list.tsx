@@ -24,13 +24,13 @@ export default class DeckListComponent {
     private totalCardsText: HTMLDivElement;
 
     private startReviewOfDeck: (deck: Deck) => void;
-    private openCardBrowser: () => void;
+    private openCardBrowser: () => void | Promise<void>;
     private createStarterCardNote: () => void;
 
     public constructor(
         parentEl: HTMLElement,
         startReviewOfDeck: (deck: Deck) => void,
-        openCardBrowser: () => void,
+        openCardBrowser: () => void | Promise<void>,
         createStarterCardNote: () => void,
     ) {
         this.startReviewOfDeck = startReviewOfDeck;
@@ -58,7 +58,7 @@ export default class DeckListComponent {
         this.treeHeaderRowText = this.treeHeaderRowInner.createDiv("tag-pane-tag-text");
         this.treeHeaderRowTextSpan = this.treeHeaderRowText.createSpan("tag-pane-tag-self");
         this.treeHeaderRowTextSpan.addClass("sr-tree-row-text");
-        this.treeHeaderRowTextSpan.setText("Title"); // TODO: i18n
+        this.treeHeaderRowTextSpan.setText(t("DECKS"));
 
         this.treeHeaderRowNumbersWrapper = this.treeHeaderRowSelf.createDiv();
         this.treeHeaderRowNumbersWrapper.addClasses([
@@ -74,7 +74,7 @@ export default class DeckListComponent {
             "tag-pane-tag-count",
             "tree-item-flair",
             "sr-tree-stats-count",
-            "sr-fg-green",
+            "sr-stat-due",
         ]);
         this.dueCardsText.setText(t("DUE"));
 
@@ -84,7 +84,7 @@ export default class DeckListComponent {
             "tag-pane-tag-count",
             "tree-item-flair",
             "sr-tree-stats-count",
-            "sr-fg-blue",
+            "sr-stat-new",
         ]);
         this.newCardsText.setText(t("NEW"));
 
@@ -94,7 +94,7 @@ export default class DeckListComponent {
             "tag-pane-tag-count",
             "tree-item-flair",
             "sr-tree-stats-count",
-            "sr-fg-yellow",
+            "sr-stat-seen",
         ]);
         this.reviewedCardsText.setText(t("SEEN"));
 
@@ -104,7 +104,7 @@ export default class DeckListComponent {
             "tag-pane-tag-count",
             "tree-item-flair",
             "sr-tree-stats-count",
-            "sr-fg-red",
+            "sr-stat-total",
         ]);
         this.totalCardsText.setText(t("TOTAL"));
 
@@ -145,7 +145,7 @@ export default class DeckListComponent {
 
         // Creates the "All Decks" row
         this._crateTreeRow(
-            "All Decks",
+            t("ALL_DECKS"),
             originDeckStats,
             0,
             this.treeContainer,
@@ -276,12 +276,17 @@ export default class DeckListComponent {
     private _createStatsInRow(parentEl: HTMLDivElement, deckStats: DeckStats) {
         parentEl.empty();
 
-        this._createStatsContainer(t("DUE_CARDS"), deckStats.dueCount, "sr-bg-green", parentEl);
-        this._createStatsContainer(t("NEW_CARDS"), deckStats.newCount, "sr-bg-blue", parentEl);
+        this._createStatsContainer(t("DUE_CARDS"), deckStats.dueCount, "sr-stat-due", parentEl);
+        this._createStatsContainer(t("NEW_CARDS"), deckStats.newCount, "sr-stat-new", parentEl);
         const reviewedCards: number =
             deckStats.totalCount - deckStats.newCount - deckStats.dueCount;
-        this._createStatsContainer(t("SEEN_CARDS"), reviewedCards, "sr-bg-yellow", parentEl);
-        this._createStatsContainer(t("TOTAL_CARDS"), deckStats.totalCount, "sr-bg-red", parentEl);
+        this._createStatsContainer(t("SEEN_CARDS"), reviewedCards, "sr-stat-seen", parentEl);
+        this._createStatsContainer(
+            t("TOTAL_CARDS"),
+            deckStats.totalCount,
+            "sr-stat-total",
+            parentEl,
+        );
     }
 
     private _createStatsContainer(

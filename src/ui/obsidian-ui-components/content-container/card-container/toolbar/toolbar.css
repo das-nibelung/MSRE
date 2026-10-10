@@ -2,17 +2,17 @@
     --deck-info-name-width: 20ch;
     --tool-button-section-width: 218px;
 
-    height: 46px;
+    min-height: 54px;
 
     display: flex;
     gap: var(--size-4-2);
     justify-content: space-between;
     align-items: center;
-    padding: 0 var(--size-4-2);
+    padding: var(--size-4-1) var(--size-4-3);
     border-bottom: 1px solid var(--background-modifier-border);
 
     & > * {
-        margin: var(--size-4-2) 0;
+        margin: 0;
     }
 
     & > .sr-divider {
@@ -24,6 +24,28 @@
 
     & .sr-extended-menu-button {
         display: none;
+    }
+
+    & .sr-toolbar-icon-button {
+        flex: 0 0 auto;
+        width: var(--interactive-size);
+        height: var(--interactive-size);
+        min-width: var(--interactive-size);
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        background: transparent;
+        box-shadow: none;
+        color: var(--text-muted);
+        transition:
+            background-color 140ms ease,
+            color 140ms ease;
+
+        &:hover,
+        &:focus-visible {
+            color: var(--text-normal);
+            background: var(--background-modifier-hover);
+        }
     }
 
     & .sr-reset-button.mod-warning {
@@ -46,7 +68,7 @@
 }
 
 .is-mobile .sr-card-toolbar {
-    height: auto;
+    min-height: 56px;
 }
 
 .is-phone .sr-tab-view .sr-card-toolbar {
@@ -59,7 +81,8 @@
 
 @media only screen and (orientation: landscape) {
     .is-phone .sr-card-toolbar {
-        display: none;
+        min-height: 46px;
+        padding-block: 0;
     }
 }
 
@@ -134,5 +157,11 @@
     .sr-card-toolbar .sr-current-deck-info,
     .sr-card-toolbar .sr-deck-pointer {
         display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sr-card-toolbar .sr-toolbar-icon-button {
+        transition: none;
     }
 }

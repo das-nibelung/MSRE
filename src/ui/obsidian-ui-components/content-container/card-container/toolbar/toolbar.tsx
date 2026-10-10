@@ -1,5 +1,4 @@
 import "src/ui/obsidian-ui-components/content-container/card-container/toolbar/toolbar.css";
-import { Platform } from "obsidian";
 
 import { Deck } from "src/data/data-structures/deck/deck";
 import { DeckStats } from "src/scheduling/flashcard-review-sequencer";
@@ -10,7 +9,6 @@ import EditButtonComponent from "src/ui/obsidian-ui-components/content-container
 import ResetButtonComponent from "src/ui/obsidian-ui-components/content-container/card-container/toolbar/toolbar-buttons/reset-button";
 import SkipButtonComponent from "src/ui/obsidian-ui-components/content-container/card-container/toolbar/toolbar-buttons/skip-button";
 import ModalCloseButtonComponent from "src/ui/obsidian-ui-components/content-container/modal-close-button";
-import EmulatedPlatform from "src/utils/platform-detector";
 
 export default class CardToolbarComponent {
     private toolbar: HTMLDivElement;
@@ -36,12 +34,13 @@ export default class CardToolbarComponent {
         this.toolbar = parentEl.createDiv();
         this.toolbar.addClass("sr-card-toolbar");
         const isModal = closeModal !== undefined;
+        const iconButtonClasses = ["clickable-icon", "sr-toolbar-icon-button"];
 
-        new BackButtonComponent(this.toolbar, async () => await backToDeckHandler(), [
-            (EmulatedPlatform().isPhone || Platform.isPhone) && isModal
-                ? "mod-raised"
-                : "clickable-icon",
-        ]);
+        new BackButtonComponent(
+            this.toolbar,
+            async () => await backToDeckHandler(),
+            iconButtonClasses,
+        );
 
         const centerSpacer = this.toolbar.createDiv();
         centerSpacer.addClass("sr-flex-spacer");
@@ -51,24 +50,16 @@ export default class CardToolbarComponent {
 
         this.toolbar.createDiv().addClass("sr-flex-spacer");
 
-        new EditButtonComponent(
-            this.toolbar,
-            editClickHandler,
-            EmulatedPlatform().isPhone || Platform.isPhone ? ["mod-raised"] : ["clickable-icon"],
-        );
+        new EditButtonComponent(this.toolbar, editClickHandler, iconButtonClasses);
 
         this.resetButton = new ResetButtonComponent(
             this.toolbar,
             onOpenResetModalClick,
-            EmulatedPlatform().isPhone || Platform.isPhone ? ["mod-raised"] : ["clickable-icon"],
+            iconButtonClasses,
         );
         this.resetButton.setDisabled(true);
 
-        new SkipButtonComponent(
-            this.toolbar,
-            () => skipCurrentCard(),
-            EmulatedPlatform().isPhone || Platform.isPhone ? ["mod-raised"] : ["clickable-icon"],
-        );
+        new SkipButtonComponent(this.toolbar, () => skipCurrentCard(), iconButtonClasses);
 
         this.toolbar.createDiv("sr-divider");
 
@@ -86,9 +77,7 @@ export default class CardToolbarComponent {
             skipCurrentCard,
             onOpenResetModalClick,
             closeModal,
-            EmulatedPlatform().isPhone || Platform.isPhone
-                ? ["mod-raised", "sr-short-menu-button"]
-                : ["clickable-icon", "sr-short-menu-button"],
+            [...iconButtonClasses, "sr-short-menu-button"],
         );
 
         this.extendedMenuButton = new CardMenuButtonComponent(
@@ -105,19 +94,13 @@ export default class CardToolbarComponent {
             skipCurrentCard,
             onOpenResetModalClick,
             closeModal,
-            EmulatedPlatform().isPhone || Platform.isPhone
-                ? ["mod-raised", "sr-extended-menu-button"]
-                : ["clickable-icon", "sr-extended-menu-button"],
+            [...iconButtonClasses, "sr-extended-menu-button"],
         );
 
         // If we don't have a close modal, we don't need the close button
         if (closeModal === undefined) return;
 
-        const closeButtonClasses = [
-            EmulatedPlatform().isPhone || Platform.isPhone ? "mod-raised" : "clickable-icon",
-        ];
-
-        new ModalCloseButtonComponent(this.toolbar, closeModal, closeButtonClasses);
+        new ModalCloseButtonComponent(this.toolbar, closeModal, iconButtonClasses);
     }
 
     /**

@@ -1,7 +1,8 @@
 /* MARK: Card Container */
 
 .sr-card-container {
-    --internal-side-padding: var(--size-4-2);
+    --internal-side-padding: var(--size-4-4);
+    background: var(--background-primary);
 
     & .sr-scroll-wrapper {
         height: 100px;
@@ -9,6 +10,8 @@
         overflow: hidden;
         flex-grow: 1;
         display: flex;
+        padding: var(--size-4-4);
+        background: var(--background-primary);
 
         & .sr-content {
             font-size: var(--font-text-size);
@@ -17,8 +20,13 @@
             user-select: text;
             flex-grow: 1;
             word-break: break-word;
-            padding: 0 var(--internal-side-padding);
-            padding-top: var(--size-4-2);
+            width: 100%;
+            max-width: 760px;
+            margin: 0 auto;
+            padding: var(--size-4-6);
+            border: 1px solid var(--background-modifier-border);
+            border-radius: var(--radius-l);
+            background: var(--background-secondary);
         }
     }
 
@@ -27,9 +35,9 @@
     }
 
     & .sr-content hr {
-        backdrop-filter: invert(40%);
-        border-top-style: dashed;
-        margin: 1rem 0;
+        border: 0;
+        border-top: 1px solid var(--background-modifier-border);
+        margin: var(--size-4-6) 0;
     }
 
     & .sr-content .cloze-input {
@@ -37,14 +45,25 @@
     }
 }
 
+.is-phone #sr-modal-view .sr-card-container {
+    & .sr-scroll-wrapper {
+        padding: var(--size-4-3);
+    }
+
+    & .sr-content {
+        padding: var(--size-4-5) var(--size-4-4);
+        border-radius: var(--radius-m);
+    }
+}
+
 @media only screen and (orientation: landscape) {
     .is-phone .sr-card-container {
         & .sr-content {
-            padding-top: 0;
+            padding: var(--size-4-3);
         }
 
         & .sr-content hr {
-            margin: 2px 0;
+            margin: var(--size-4-2) 0;
         }
     }
 }

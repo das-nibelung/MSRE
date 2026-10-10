@@ -1,5 +1,5 @@
 import "src/ui/obsidian-ui-components/content-container/deck-container/deck-list-header.css";
-import { ButtonComponent, DropdownComponent, setIcon } from "obsidian";
+import { ButtonComponent, setIcon } from "obsidian";
 
 import { t } from "src/lang/helpers";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
@@ -7,56 +7,77 @@ import ModalCloseButtonComponent from "src/ui/obsidian-ui-components/content-con
 
 export default class DeckListHeaderComponent {
     private header: HTMLDivElement;
-    private deckIcon: HTMLElement;
-    private title: HTMLDivElement;
-    private reviewModeDropdown: DropdownComponent;
+    private reviewModeButtons = new Map<FlashcardReviewMode, HTMLButtonElement>();
 
     public constructor(
         parentEl: HTMLElement,
         changeReviewMode: (reviewMode: FlashcardReviewMode) => void,
-        openCardBrowser: () => void,
+        openCardBrowser: () => void | Promise<void>,
         closeModal?: () => void,
     ) {
         this.header = parentEl.createDiv();
         this.header.addClass("sr-deck-list-header");
         this.header.addClass("sr-header");
 
-        this.deckIcon = this.header.createDiv();
-        this.deckIcon.addClass("sr-deck-icon");
-        setIcon(this.deckIcon, "layers");
+        const navigation = this.header.createDiv("sr-deck-navigation");
+        const title = navigation.createDiv("sr-title");
+        title.setText(t("DECKS"));
 
-        this.title = this.header.createDiv();
-        this.title.addClass("sr-title");
-        this.title.setText(t("DECKS"));
-
-        this.header.createDiv().addClass("sr-flex-spacer");
-        this.reviewModeDropdown = new DropdownComponent(this.header);
-        const reviewModeOptions: Record<string, string> = {
-            Review: t("REVIEW_MODE"),
-            Cram: t("CRAM_MODE"),
-        };
-        this.reviewModeDropdown.addOptions(reviewModeOptions);
-        this.reviewModeDropdown.setValue("Review");
-
-        this.reviewModeDropdown.onChange((value) => {
-            if (value === undefined) return;
-            if (value === "Review") changeReviewMode(FlashcardReviewMode.Review);
-            if (value === "Cram") changeReviewMode(FlashcardReviewMode.Cram);
-        });
-
-        new ButtonComponent(this.header)
-            .setIcon("library-big")
+        const actions = navigation.createDiv("sr-deck-navigation-actions");
+        const browserButton = new ButtonComponent(actions)
+            .setButtonText(t("CARD_BROWSER"))
             .setTooltip(t("BROWSE_CARDS"))
             .onClick(openCardBrowser);
+        browserButton.buttonEl.addClasses(["sr-card-browser-button", "clickable-icon"]);
+        const browserIcon = activeDocument.createElement("span");
+        browserIcon.addClass("sr-card-browser-icon");
+        setIcon(browserIcon, "library-big");
+        browserButton.buttonEl.prepend(browserIcon);
 
         if (closeModal !== undefined) {
-            new ModalCloseButtonComponent(this.header, closeModal, ["sr-deck-close-button"]);
+            new ModalCloseButtonComponent(actions, closeModal, [
+                "sr-deck-close-button",
+                "clickable-icon",
+            ]);
         }
+
+        const modeSwitcher = this.header.createDiv("sr-review-mode-switcher");
+        modeSwitcher.setAttribute("role", "group");
+        modeSwitcher.setAttribute("aria-label", t("REVIEW_MODE"));
+        this.createModeButton(
+            modeSwitcher,
+            FlashcardReviewMode.Review,
+            t("REVIEW_MODE"),
+            changeReviewMode,
+        );
+        this.createModeButton(
+            modeSwitcher,
+            FlashcardReviewMode.Cram,
+            t("CRAM_MODE"),
+            changeReviewMode,
+        );
+        this.updateReviewMode(FlashcardReviewMode.Review);
     }
 
     public updateReviewMode(reviewMode: FlashcardReviewMode) {
-        this.reviewModeDropdown.setValue(
-            reviewMode === FlashcardReviewMode.Review ? "Review" : "Cram",
-        );
+        this.reviewModeButtons.forEach((button, mode) => {
+            const isActive = mode === reviewMode;
+            button.toggleClass("is-active", isActive);
+            button.setAttribute("aria-pressed", String(isActive));
+        });
+    }
+
+    private createModeButton(
+        parentEl: HTMLElement,
+        mode: FlashcardReviewMode,
+        label: string,
+        changeReviewMode: (reviewMode: FlashcardReviewMode) => void,
+    ): void {
+        const button = new ButtonComponent(parentEl).setButtonText(label).onClick(() => {
+            this.updateReviewMode(mode);
+            changeReviewMode(mode);
+        });
+        button.buttonEl.addClass("sr-review-mode-button");
+        this.reviewModeButtons.set(mode, button.buttonEl);
     }
 }

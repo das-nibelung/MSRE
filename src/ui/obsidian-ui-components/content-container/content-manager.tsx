@@ -106,11 +106,18 @@ export default class ContentManager {
         this.uiManager = this.plugin.uiManager;
         this.dataManager = this.plugin.dataManager;
 
+        const openCardBrowser = async () => {
+            // A workspace view is otherwise opened behind the review modal on mobile.
+            // Close the modal first so the newly opened card browser is actually visible.
+            closeModal?.();
+            await this.uiManager.openCardBrowser();
+        };
+
         this.deckContainer = new DeckContainer(
             parentEl,
             this._changeReviewMode.bind(this),
             this._startReviewOfDeck.bind(this),
-            this.uiManager.openCardBrowser.bind(this.uiManager),
+            openCardBrowser,
             this.uiManager.createStarterCardNote.bind(this.uiManager),
             closeModal,
         );

@@ -2,22 +2,64 @@
 
 .sr-response {
     display: flex;
-    gap: var(--size-4-4);
-    padding: var(--size-4-2) var(--internal-side-padding);
+    gap: var(--size-4-2);
+    padding: var(--size-4-3) var(--internal-side-padding) var(--size-4-4);
     border-top: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
 
     & .sr-response-button {
-        height: 48px;
+        height: 50px;
         flex-grow: 1;
         margin: auto;
-        line-height: 48px;
+        border: 1px solid transparent;
+        border-radius: var(--radius-m);
+        box-shadow: none;
+        line-height: 50px;
         text-align: center;
+        font-weight: var(--font-semibold);
         cursor: pointer;
         user-select: none;
+        transition:
+            background-color 140ms ease,
+            transform 100ms ease;
+
+        &:active {
+            transform: scale(0.985);
+        }
 
         & > * {
             display: none;
         }
+    }
+
+    & .sr-show-answer-button.sr-bg-blue {
+        border-color: var(--interactive-accent);
+        background: var(--interactive-accent) !important;
+        color: var(--text-on-accent) !important;
+    }
+
+    & .sr-again-button.sr-bg-red {
+        border-color: color-mix(in srgb, var(--color-red) 38%, transparent);
+        background: color-mix(in srgb, var(--color-red) 14%, transparent) !important;
+        color: var(--color-red) !important;
+    }
+
+    & .sr-hard-button.sr-bg-yellow {
+        border-color: color-mix(in srgb, var(--color-orange) 38%, transparent);
+        background: color-mix(in srgb, var(--color-orange) 14%, transparent) !important;
+        color: var(--color-orange) !important;
+    }
+
+    & .sr-good-button.sr-bg-blue {
+        border-color: color-mix(in srgb, var(--color-blue) 38%, transparent);
+        background: color-mix(in srgb, var(--color-blue) 14%, transparent) !important;
+        color: var(--color-blue) !important;
+    }
+
+    & .sr-easy-button.sr-bg-green {
+        border-color: color-mix(in srgb, var(--color-green) 38%, transparent);
+        background: color-mix(in srgb, var(--color-green) 14%, transparent) !important;
+        color: var(--color-green) !important;
     }
 }
 
@@ -65,6 +107,12 @@
     .is-phone .sr-response {
         padding-top: var(--size-2-1);
         padding-bottom: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sr-response .sr-response-button {
+        transition: none;
     }
 }
 

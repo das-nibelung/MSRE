@@ -12,7 +12,15 @@
 }
 
 .sr-modal-host .modal-close-button,
+.sr-native-modal-close-button,
 #sr-modal-view .modal-header {
+    display: none !important;
+}
+
+/* iOS can render the modal affordance as a sibling of the plugin modal. */
+body.sr-review-modal-open
+    .modal-container:has(#sr-modal-view)
+    .modal-close-button:not(.sr-modal-close-button) {
     display: none !important;
 }
 

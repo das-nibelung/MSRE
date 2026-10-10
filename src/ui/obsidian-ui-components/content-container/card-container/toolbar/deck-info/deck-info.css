@@ -1,10 +1,12 @@
 .sr-info-section {
+    position: relative;
     display: flex;
     gap: var(--size-4-2);
-
-    color: var(--text-muted);
+    min-width: 0;
+    padding-bottom: 7px;
+    color: var(--text-normal);
     text-wrap: nowrap;
-    font-weight: bold;
+    font-weight: var(--font-medium);
 }
 
 .sr-deck-info {
@@ -13,12 +15,14 @@
     justify-content: center;
     align-items: center;
     flex-wrap: nowrap;
-    color: white;
-    padding: 0 var(--size-4-2);
-    border-radius: var(--input-radius);
+    min-width: 0;
+    color: var(--text-normal) !important;
+    background: transparent !important;
+    padding: 0 var(--size-4-1);
+    border-radius: 0;
 
     & .sr-divider {
-        border-color: white;
+        border-color: var(--background-modifier-border);
     }
 }
 
@@ -35,6 +39,24 @@
     text-overflow: ellipsis;
 }
 
+.sr-session-progress {
+    position: absolute;
+    inset-inline: var(--size-4-1);
+    bottom: 0;
+    height: 3px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--background-modifier-border);
+}
+
+.sr-session-progress-fill {
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--interactive-accent);
+    transition: width 180ms ease;
+}
+
 .sr-deck-pointer,
 .sr-counter-icon {
     display: flex;
@@ -44,5 +66,11 @@
     & svg {
         --icon-size: 16px;
         --icon-stroke: 2.5px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sr-session-progress-fill {
+        transition: none;
     }
 }

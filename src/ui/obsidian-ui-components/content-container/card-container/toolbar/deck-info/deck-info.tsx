@@ -18,6 +18,8 @@ export default class DeckInfoComponent {
     private currentDeckName: HTMLDivElement;
     private currentDeckCounterDivider: HTMLDivElement;
     private currentDeckCardCounter: ProgressCounterComponent;
+    private sessionProgress: HTMLDivElement;
+    private sessionProgressFill: HTMLDivElement;
 
     constructor(parentEl: HTMLDivElement) {
         this.deckInfoContainer = parentEl.createDiv();
@@ -68,6 +70,11 @@ export default class DeckInfoComponent {
             0,
             0,
         );
+
+        this.sessionProgress = this.deckInfoContainer.createDiv("sr-session-progress");
+        this.sessionProgress.setAttribute("role", "progressbar");
+        this.sessionProgress.setAttribute("aria-valuemin", "0");
+        this.sessionProgressFill = this.sessionProgress.createDiv("sr-session-progress-fill");
     }
 
     public updateInfo(
@@ -85,6 +92,13 @@ export default class DeckInfoComponent {
         this.chosenDeckName.setText(chosenDeckName);
         this.chosenDeckCardCounter.setProgress(cardProgressInChosenDeck, totalCardsInChosenDeck);
         this.chosenDeckSubDeckCounter.setProgress(deckProgressInChosenDeck, totalDecksInChosenDeck);
+
+        const progress = Math.max(0, Math.min(cardProgressInChosenDeck, totalCardsInChosenDeck));
+        const progressPercent =
+            totalCardsInChosenDeck === 0 ? 0 : (progress / totalCardsInChosenDeck) * 100;
+        this.sessionProgress.setAttribute("aria-valuemax", totalCardsInChosenDeck.toString());
+        this.sessionProgress.setAttribute("aria-valuenow", progress.toString());
+        this.sessionProgressFill.setCssProps({ width: `${progressPercent}%` });
 
         this.currentDeckName.setText(currentDeckName);
         this.currentDeckCardCounter.setProgress(

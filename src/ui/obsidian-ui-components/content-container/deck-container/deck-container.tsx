@@ -20,7 +20,7 @@ export class DeckContainer {
         parentEl: HTMLElement,
         changeReviewMode: (reviewMode: FlashcardReviewMode) => void,
         startReviewOfDeck: (deck: Deck) => void,
-        openCardBrowser: () => void,
+        openCardBrowser: () => void | Promise<void>,
         createStarterCardNote: () => void,
         closeModal?: () => void,
     ) {

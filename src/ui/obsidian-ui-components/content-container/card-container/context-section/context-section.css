@@ -1,8 +1,19 @@
 .sr-context {
-    font-style: italic;
-    color: var(--text-faint);
+    width: fit-content;
+    max-width: 100%;
+    margin-bottom: var(--size-4-4);
+    padding: var(--size-2-2) var(--size-4-2);
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--background-modifier-hover);
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    font-style: normal;
+    font-weight: var(--font-medium);
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     word-break: break-word;
-    padding-bottom: var(--size-4-2);
 }
 
 @media only screen and (orientation: landscape) {
