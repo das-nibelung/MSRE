@@ -3,6 +3,7 @@ name: Release personal plugin
 on:
     push:
         branches:
+            - main
             - personal-main
         paths:
             - manifest.json
