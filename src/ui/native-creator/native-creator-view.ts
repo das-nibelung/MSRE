@@ -30,7 +30,19 @@ import {
     NoteFieldDefinition,
     NoteTypeDefinition,
     NoteTypeKind,
+    TemplateBlockKind,
+    TemplateSurface,
+    TemplateVisualBlock,
 } from "src/data/collection/collection-types";
+import {
+    compileTemplateBlocks,
+    conditionForField,
+    createTemplateVisualBlock,
+    inferTemplateBlocks,
+    TEMPLATE_LIBRARY,
+    TemplateLibraryBlueprint,
+    validateTemplateDesign,
+} from "src/data/collection/template-designer";
 import { CARD_BROWSER_VIEW_TYPE, CARD_CREATOR_VIEW_TYPE } from "src/data/constants";
 import { Card } from "src/data/data-structures/card/card";
 import { CardType } from "src/data/data-structures/card/questions/question";
@@ -125,6 +137,9 @@ export class NativeCreatorView extends ItemView {
     private mediaRecordingChunks: Blob[] = [];
     private isRecordingMedia = false;
     private draftRestored = false;
+    private templatePreviewDevice: "phone" | "desktop" = "phone";
+    private templatePreviewTheme: "light" | "dark" = "dark";
+    private templatePreviewValues: Record<string, string> = {};
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -1787,11 +1802,112 @@ export class NativeCreatorView extends ItemView {
         setIcon(addIcon, "plus");
         add.buttonEl.prepend(addIcon);
 
+        this.renderTemplateLibrary(surface);
+
         const list = surface.createDiv("sr-note-type-list");
         for (const noteType of this.plugin.dataManager.collectionStore.getNoteTypes()) {
             if (noteType.id === IMAGE_OCCLUSION_NOTE_TYPE_ID) continue;
             this.renderNoteTypeRow(list, noteType);
         }
+    }
+
+    private renderTemplateLibrary(parent: HTMLElement): void {
+        const library = parent.createEl("details", { cls: "sr-template-library" });
+        const summary = library.createEl("summary");
+        const icon = summary.createSpan("sr-template-library-icon");
+        setIcon(icon, "library-big");
+        const copy = summary.createDiv();
+        copy.createEl("strong", { text: t("TEMPLATE_LIBRARY") });
+        copy.createSpan({ text: t("TEMPLATE_LIBRARY_HELP") });
+        const grid = library.createDiv("sr-template-library-grid");
+        for (const blueprint of TEMPLATE_LIBRARY) {
+            const card = grid.createDiv("sr-template-library-card");
+            const cardIcon = card.createDiv("sr-template-library-card-icon");
+            setIcon(
+                cardIcon,
+                blueprint.id === "medicine"
+                    ? "heart-pulse"
+                    : blueprint.id === "law"
+                      ? "scale"
+                      : blueprint.id === "mathematics"
+                        ? "sigma"
+                        : "languages",
+            );
+            const body = card.createDiv();
+            body.createEl("strong", { text: this.getLibraryBlueprintName(blueprint) });
+            body.createSpan({ text: this.getLibraryBlueprintDescription(blueprint) });
+            new ButtonComponent(card).setButtonText(t("USE_TEMPLATE")).onClick(() => {
+                this.noteTypeDraft = this.createDraftFromLibrary(blueprint);
+                this.templatePreviewValues = {};
+                this.render();
+            });
+        }
+    }
+
+    private getLibraryBlueprintName(blueprint: TemplateLibraryBlueprint): string {
+        if (blueprint.id === "medicine") return t("TEMPLATE_LIBRARY_MEDICINE");
+        if (blueprint.id === "law") return t("TEMPLATE_LIBRARY_LAW");
+        if (blueprint.id === "mathematics") return t("TEMPLATE_LIBRARY_MATHEMATICS");
+        return t("TEMPLATE_LIBRARY_LANGUAGE");
+    }
+
+    private getLibraryBlueprintDescription(blueprint: TemplateLibraryBlueprint): string {
+        if (blueprint.id === "medicine") return t("TEMPLATE_LIBRARY_MEDICINE_DESC");
+        if (blueprint.id === "law") return t("TEMPLATE_LIBRARY_LAW_DESC");
+        if (blueprint.id === "mathematics") return t("TEMPLATE_LIBRARY_MATHEMATICS_DESC");
+        return t("TEMPLATE_LIBRARY_LANGUAGE_DESC");
+    }
+
+    private createDraftFromLibrary(blueprint: TemplateLibraryBlueprint): NoteTypeEditorDraft {
+        const store = this.plugin.dataManager.collectionStore;
+        const fields = blueprint.fields.map((field, ordinal) => ({
+            id: store.createId("field"),
+            name: field.name,
+            ordinal,
+            kind: field.kind ?? ("rich-text" as const),
+            required: field.required ?? false,
+        }));
+        const byName = new Map(fields.map((field) => [field.name, field.id]));
+        const createBlockId = () => store.createId("block");
+        const templates = blueprint.templates.map((template, ordinal): CardTemplateDefinition => ({
+            id: store.createId("template"),
+            version: 1,
+            name: template.name,
+            ordinal,
+            questionFormat: template.question,
+            answerFormat: template.answer,
+            browserFormat: template.browser ?? template.question,
+            deckOverride: null,
+            enabled: true,
+            generator: template.generator ?? "standard",
+            answerMode: template.answerMode ?? "reveal",
+            answerFieldId: template.answerField ? (byName.get(template.answerField) ?? null) : null,
+            sourceFieldId: template.sourceField ? (byName.get(template.sourceField) ?? null) : null,
+            condition: conditionForField(
+                template.conditionField ? (byName.get(template.conditionField) ?? null) : null,
+            ),
+            css: "",
+            editorMode: "visual",
+            questionBlocks: inferTemplateBlocks(template.question, fields, createBlockId),
+            answerBlocks: inferTemplateBlocks(template.answer, fields, createBlockId),
+            browserBlocks: inferTemplateBlocks(
+                template.browser ?? template.question,
+                fields,
+                createBlockId,
+            ),
+            questionCss: "",
+            answerCss: "",
+            browserCss: "",
+        }));
+        return {
+            id: store.createId("notetype"),
+            version: 1,
+            name: this.getLibraryBlueprintName(blueprint),
+            kind: "standard",
+            fields,
+            templates,
+            css: blueprint.css,
+        };
     }
 
     private renderNoteTypeRow(parent: HTMLElement, noteType: NoteTypeDefinition): void {
@@ -1928,6 +2044,9 @@ export class NativeCreatorView extends ItemView {
                         template.answerFormat = template.answerFormat
                             .split(`{{${previousName}}}`)
                             .join(`{{${field.name}}}`);
+                        template.browserFormat = (template.browserFormat ?? "")
+                            .split(`{{${previousName}}}`)
+                            .join(`{{${field.name}}}`);
                     }
                 }
                 this.clearError();
@@ -1959,7 +2078,39 @@ export class NativeCreatorView extends ItemView {
                 .setTooltip(t("REMOVE_FIELD"))
                 .setDisabled(draft.fields.length === 1)
                 .onClick(() => {
+                    for (const template of draft.templates) {
+                        for (const blocks of [
+                            template.questionBlocks,
+                            template.answerBlocks,
+                            template.browserBlocks,
+                        ]) {
+                            for (const block of blocks ?? []) {
+                                if (block.fieldId === field.id) block.fieldId = null;
+                                if (block.condition.fieldId === field.id) {
+                                    block.condition = {
+                                        operator: "always",
+                                        fieldId: null,
+                                        value: "",
+                                    };
+                                }
+                            }
+                        }
+                        if (template.answerFieldId === field.id) template.answerFieldId = null;
+                        if (template.sourceFieldId === field.id) template.sourceFieldId = null;
+                        if (template.condition?.fieldId === field.id) {
+                            template.condition = {
+                                operator: "always",
+                                fieldId: null,
+                                value: "",
+                            };
+                        }
+                    }
                     draft.fields.splice(index, 1);
+                    for (const template of draft.templates) {
+                        if ((template.editorMode ?? "advanced") === "visual") {
+                            this.syncTemplateBlocks(template, draft);
+                        }
+                    }
                     this.render();
                 });
         });
@@ -2059,50 +2210,48 @@ export class NativeCreatorView extends ItemView {
                 );
             }
 
-            const advanced = card.createEl("details", { cls: "sr-note-template-advanced" });
-            advanced.createEl("summary", { text: t("TEMPLATE_CREATION_RULE") });
-            const advancedBody = advanced.createDiv("sr-note-template-advanced-body");
-            this.renderTemplateCondition(advancedBody, draft, template);
-            const style = advancedBody.createEl("label", { cls: "sr-note-template-control" });
-            style.createSpan({ text: t("TEMPLATE_STYLE") });
-            const styleInput = style.createEl("textarea", {
-                cls: "sr-native-textarea",
-                attr: { rows: "2", spellcheck: "false", placeholder: "font-size: 1.05em;" },
-            });
-            styleInput.value = template.css ?? "";
-            styleInput.addEventListener("input", () => {
-                template.css = styleInput.value;
-                for (const body of card.querySelectorAll<HTMLElement>(
-                    ".sr-note-template-preview-body",
-                )) {
-                    body.dataset.templateCss = template.css;
-                    body.setAttribute(
-                        "style",
-                        [draft.css, template.css].filter((value) => value?.trim()).join(";"),
-                    );
-                }
-            });
+            const mode = card.createDiv("sr-template-editor-mode");
+            for (const [value, label] of [
+                ["visual", t("TEMPLATE_MODE_VISUAL")],
+                ["advanced", t("TEMPLATE_MODE_ADVANCED")],
+            ] as const) {
+                const button = new ButtonComponent(mode).setButtonText(label).onClick(() => {
+                    template.editorMode = value;
+                    if (value === "visual") this.ensureTemplateBlocks(template, draft);
+                    this.render();
+                });
+                button.buttonEl.toggleClass(
+                    "is-active",
+                    (template.editorMode ?? "advanced") === value,
+                );
+                button.buttonEl.setAttribute(
+                    "aria-pressed",
+                    String((template.editorMode ?? "advanced") === value),
+                );
+            }
 
-            this.createTemplateTextarea(
-                card,
-                t("QUESTION_TEMPLATE"),
-                template.questionFormat,
-                draft,
+            const behaviorDetails = card.createEl("details", {
+                cls: "sr-note-template-advanced",
+            });
+            behaviorDetails.createEl("summary", { text: t("TEMPLATE_BEHAVIOR_STYLE") });
+            const behaviorBody = behaviorDetails.createDiv("sr-note-template-advanced-body");
+            this.renderTemplateCondition(behaviorBody, draft, template);
+            this.createTemplateCssEditor(
+                behaviorBody,
+                t("TEMPLATE_STYLE"),
+                template.css ?? "",
                 (value) => {
-                    template.questionFormat = value;
-                    this.renderTemplatePreview(preview, draft, template);
+                    template.css = value;
+                    this.refreshTemplatePreviewFrom(behaviorBody, draft, template);
                 },
             );
-            this.createTemplateTextarea(
-                card,
-                t("ANSWER_TEMPLATE"),
-                template.answerFormat,
-                draft,
-                (value) => {
-                    template.answerFormat = value;
-                    this.renderTemplatePreview(preview, draft, template);
-                },
-            );
+
+            if ((template.editorMode ?? "advanced") === "visual") {
+                this.ensureTemplateBlocks(template, draft);
+                this.renderVisualTemplateEditor(card, draft, template);
+            } else {
+                this.renderAdvancedTemplateEditor(card, draft, template);
+            }
 
             const deck = card.createDiv("sr-note-template-deck");
             const deckCopy = deck.createDiv();
@@ -2146,6 +2295,418 @@ export class NativeCreatorView extends ItemView {
         select.addEventListener("change", () => {
             onChange(select.value);
             this.render();
+        });
+    }
+
+    private ensureTemplateBlocks(
+        template: CardTemplateDefinition,
+        draft: NoteTypeEditorDraft,
+    ): void {
+        const idFactory = () => this.plugin.dataManager.collectionStore.createId("block");
+        if (!template.questionBlocks?.length) {
+            template.questionBlocks = inferTemplateBlocks(
+                template.questionFormat,
+                draft.fields,
+                idFactory,
+            );
+        }
+        if (!template.answerBlocks?.length) {
+            template.answerBlocks = inferTemplateBlocks(
+                template.answerFormat,
+                draft.fields,
+                idFactory,
+            );
+        }
+        if (!template.browserBlocks?.length) {
+            template.browserBlocks = inferTemplateBlocks(
+                template.browserFormat ?? template.questionFormat,
+                draft.fields,
+                idFactory,
+            );
+        }
+    }
+
+    private templateBlocksForSurface(
+        template: CardTemplateDefinition,
+        surface: TemplateSurface,
+    ): TemplateVisualBlock[] {
+        if (surface === "question") return (template.questionBlocks ??= []);
+        if (surface === "answer") return (template.answerBlocks ??= []);
+        return (template.browserBlocks ??= []);
+    }
+
+    private syncTemplateBlocks(template: CardTemplateDefinition, draft: NoteTypeEditorDraft): void {
+        template.questionFormat = compileTemplateBlocks(
+            template.questionBlocks ?? [],
+            draft.fields,
+        );
+        template.answerFormat = compileTemplateBlocks(template.answerBlocks ?? [], draft.fields);
+        template.browserFormat = compileTemplateBlocks(template.browserBlocks ?? [], draft.fields);
+        const answerInput = [
+            ...(template.questionBlocks ?? []),
+            ...(template.answerBlocks ?? []),
+        ].find((block) => block.kind === "answer-input" && block.fieldId);
+        if (answerInput?.fieldId) {
+            template.answerMode = "type";
+            template.answerFieldId = answerInput.fieldId;
+        }
+    }
+
+    private renderVisualTemplateEditor(
+        parent: HTMLElement,
+        draft: NoteTypeEditorDraft,
+        template: CardTemplateDefinition,
+    ): void {
+        const editor = parent.createDiv("sr-visual-template-editor");
+        editor.createEl("p", { cls: "sr-template-editor-help", text: t("VISUAL_EDITOR_HELP") });
+        for (const surface of ["question", "answer", "browser"] as const) {
+            const panel = editor.createDiv(`sr-visual-surface is-${surface}`);
+            const header = panel.createDiv("sr-visual-surface-header");
+            const copy = header.createDiv();
+            copy.createEl("strong", { text: this.templateSurfaceLabel(surface) });
+            copy.createSpan({ text: this.templateSurfaceHelp(surface) });
+            const add = new ButtonComponent(header)
+                .setIcon("plus")
+                .setTooltip(t("ADD_BLOCK"))
+                .onClick((event) => this.showTemplateBlockMenu(event, draft, template, surface));
+            add.buttonEl.setAttribute("aria-label", t("ADD_BLOCK"));
+
+            const blocks = this.templateBlocksForSurface(template, surface);
+            const list = panel.createDiv("sr-visual-block-list");
+            list.addEventListener("dragover", (event) => event.preventDefault());
+            list.addEventListener("drop", (event) => {
+                event.preventDefault();
+                const id = event.dataTransfer?.getData("text/plain");
+                const from = blocks.findIndex((block) => block.id === id);
+                if (from < 0 || from === blocks.length - 1) return;
+                blocks.push(blocks.splice(from, 1)[0]);
+                this.syncTemplateBlocks(template, draft);
+                this.render();
+            });
+            if (blocks.length === 0) {
+                const empty = list.createDiv("sr-visual-block-empty");
+                setIcon(empty.createSpan(), "blocks");
+                empty.createSpan({ text: t("NO_TEMPLATE_BLOCKS") });
+            }
+            blocks.forEach((block, index) =>
+                this.renderVisualTemplateBlock(list, draft, template, surface, block, index),
+            );
+
+            const style = panel.createEl("details", { cls: "sr-visual-surface-style" });
+            style.createEl("summary", { text: t("SURFACE_STYLE") });
+            this.createTemplateCssEditor(
+                style,
+                t("SURFACE_STYLE"),
+                surface === "question"
+                    ? (template.questionCss ?? "")
+                    : surface === "answer"
+                      ? (template.answerCss ?? "")
+                      : (template.browserCss ?? ""),
+                (value) => {
+                    if (surface === "question") template.questionCss = value;
+                    else if (surface === "answer") template.answerCss = value;
+                    else template.browserCss = value;
+                    this.refreshTemplatePreviewFrom(panel, draft, template);
+                },
+            );
+        }
+    }
+
+    private templateSurfaceLabel(surface: TemplateSurface): string {
+        if (surface === "question") return t("CARD_TEMPLATE_QUESTION");
+        if (surface === "answer") return t("CARD_TEMPLATE_ANSWER");
+        return t("CARD_TEMPLATE_BROWSER");
+    }
+
+    private templateSurfaceHelp(surface: TemplateSurface): string {
+        if (surface === "question") return t("QUESTION_SURFACE_HELP");
+        if (surface === "answer") return t("ANSWER_SURFACE_HELP");
+        return t("BROWSER_SURFACE_HELP");
+    }
+
+    private showTemplateBlockMenu(
+        event: MouseEvent,
+        draft: NoteTypeEditorDraft,
+        template: CardTemplateDefinition,
+        surface: TemplateSurface,
+    ): void {
+        const menu = new Menu();
+        const kinds: Array<[TemplateBlockKind, string, string]> = [
+            ["field", t("BLOCK_FIELD"), "braces"],
+            ["text", t("BLOCK_TEXT"), "type"],
+            ["divider", t("BLOCK_DIVIDER"), "minus"],
+            ["image", t("BLOCK_IMAGE"), "image"],
+            ["hint", t("BLOCK_HINT"), "lightbulb"],
+            ["answer-input", t("BLOCK_ANSWER_INPUT"), "text-cursor-input"],
+            ["audio", t("BLOCK_AUDIO"), "audio-lines"],
+            ["tts", t("BLOCK_TTS"), "speech"],
+        ];
+        for (const [kind, label, icon] of kinds) {
+            if (surface === "browser" && ["answer-input", "audio", "tts"].includes(kind)) continue;
+            menu.addItem((item) =>
+                item
+                    .setTitle(label)
+                    .setIcon(icon)
+                    .onClick(() => {
+                        const needsField = !["text", "divider"].includes(kind);
+                        const block = createTemplateVisualBlock(
+                            this.plugin.dataManager.collectionStore.createId("block"),
+                            kind,
+                            needsField ? (draft.fields[0]?.id ?? null) : null,
+                        );
+                        this.templateBlocksForSurface(template, surface).push(block);
+                        this.syncTemplateBlocks(template, draft);
+                        this.render();
+                    }),
+            );
+        }
+        menu.showAtMouseEvent(event);
+    }
+
+    private renderVisualTemplateBlock(
+        parent: HTMLElement,
+        draft: NoteTypeEditorDraft,
+        template: CardTemplateDefinition,
+        surface: TemplateSurface,
+        block: TemplateVisualBlock,
+        index: number,
+    ): void {
+        const blocks = this.templateBlocksForSurface(template, surface);
+        const row = parent.createDiv(`sr-visual-block is-${block.kind}`);
+        row.draggable = true;
+        row.addEventListener("dragstart", (event) => {
+            event.dataTransfer?.setData("text/plain", block.id);
+            event.dataTransfer?.setDragImage(row, 20, 20);
+            row.addClass("is-dragging");
+        });
+        row.addEventListener("dragend", () => row.removeClass("is-dragging"));
+        row.addEventListener("dragover", (event) => event.preventDefault());
+        row.addEventListener("drop", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const id = event.dataTransfer?.getData("text/plain");
+            const from = blocks.findIndex((candidate) => candidate.id === id);
+            if (from < 0 || from === index) return;
+            const [moved] = blocks.splice(from, 1);
+            blocks.splice(index, 0, moved);
+            this.syncTemplateBlocks(template, draft);
+            this.render();
+        });
+        const handle = row.createDiv("sr-visual-block-handle");
+        setIcon(handle, "grip-vertical");
+        const content = row.createDiv("sr-visual-block-content");
+        content.createSpan({
+            cls: "sr-visual-block-kind",
+            text: this.templateBlockLabel(block.kind),
+        });
+        if (!["text", "divider"].includes(block.kind)) {
+            const select = content.createEl("select", {
+                cls: "dropdown",
+                attr: { "aria-label": t("FIELD_NAME") },
+            });
+            for (const field of draft.fields) {
+                select.createEl("option", { value: field.id, text: field.name });
+            }
+            select.value = block.fieldId ?? draft.fields[0]?.id ?? "";
+            select.addEventListener("change", () => {
+                block.fieldId = select.value || null;
+                this.syncTemplateBlocks(template, draft);
+                this.refreshTemplatePreviewFrom(row, draft, template);
+            });
+        }
+        if (block.kind === "text") {
+            const input = content.createEl("textarea", {
+                cls: "sr-native-textarea",
+                attr: { rows: "2", placeholder: t("BLOCK_TEXT_PLACEHOLDER") },
+            });
+            input.value = block.text;
+            input.addEventListener("input", () => {
+                block.text = input.value;
+                this.syncTemplateBlocks(template, draft);
+                this.refreshTemplatePreviewFrom(row, draft, template);
+            });
+        }
+        if (block.kind === "hint") {
+            const label = content.createEl("input", {
+                cls: "sr-native-input",
+                attr: { type: "text", placeholder: t("BLOCK_HINT_LABEL") },
+            });
+            label.value = block.label;
+            label.addEventListener("input", () => {
+                block.label = label.value;
+                this.syncTemplateBlocks(template, draft);
+                this.refreshTemplatePreviewFrom(row, draft, template);
+            });
+        }
+        const condition = content.createEl("details", { cls: "sr-visual-block-condition" });
+        condition.createEl("summary", { text: t("CONDITIONAL_DISPLAY") });
+        const conditionBody = condition.createDiv("sr-visual-block-condition-body");
+        const operator = conditionBody.createEl("select", { cls: "dropdown" });
+        for (const [value, label] of [
+            ["always", t("TEMPLATE_CONDITION_ALWAYS")],
+            ["not-empty", t("TEMPLATE_CONDITION_NOT_EMPTY")],
+            ["empty", t("TEMPLATE_CONDITION_EMPTY")],
+            ["equals", t("TEMPLATE_CONDITION_EQUALS")],
+            ["not-equals", t("TEMPLATE_CONDITION_NOT_EQUALS")],
+        ] as const) {
+            operator.createEl("option", { value, text: label });
+        }
+        operator.value = block.condition.operator;
+        operator.addEventListener("change", () => {
+            block.condition.operator = operator.value as typeof block.condition.operator;
+            if (block.condition.operator !== "always" && !block.condition.fieldId) {
+                block.condition.fieldId = draft.fields[0]?.id ?? null;
+            }
+            this.syncTemplateBlocks(template, draft);
+            this.render();
+        });
+        if (block.condition.operator !== "always") {
+            const field = conditionBody.createEl("select", { cls: "dropdown" });
+            for (const definition of draft.fields) {
+                field.createEl("option", { value: definition.id, text: definition.name });
+            }
+            field.value = block.condition.fieldId ?? draft.fields[0]?.id ?? "";
+            field.addEventListener("change", () => {
+                block.condition.fieldId = field.value || null;
+                this.syncTemplateBlocks(template, draft);
+                this.refreshTemplatePreviewFrom(row, draft, template);
+            });
+        }
+        if (["equals", "not-equals"].includes(block.condition.operator)) {
+            const expected = conditionBody.createEl("input", {
+                cls: "sr-native-input",
+                attr: { type: "text", placeholder: t("CONDITION_VALUE") },
+            });
+            expected.value = block.condition.value;
+            expected.addEventListener("input", () => {
+                block.condition.value = expected.value;
+                this.syncTemplateBlocks(template, draft);
+                this.refreshTemplatePreviewFrom(row, draft, template);
+            });
+        }
+        const actions = row.createDiv("sr-visual-block-actions");
+        for (const [icon, delta, label] of [
+            ["chevron-up", -1, t("MOVE_UP")],
+            ["chevron-down", 1, t("MOVE_DOWN")],
+        ] as const) {
+            new ButtonComponent(actions)
+                .setIcon(icon)
+                .setTooltip(label)
+                .setDisabled(index + delta < 0 || index + delta >= blocks.length)
+                .onClick(() => {
+                    const [moved] = blocks.splice(index, 1);
+                    blocks.splice(index + delta, 0, moved);
+                    this.syncTemplateBlocks(template, draft);
+                    this.render();
+                });
+        }
+        new ButtonComponent(actions)
+            .setIcon("trash-2")
+            .setTooltip(t("REMOVE_BLOCK"))
+            .onClick(() => {
+                blocks.splice(index, 1);
+                this.syncTemplateBlocks(template, draft);
+                this.render();
+            });
+    }
+
+    private templateBlockLabel(kind: TemplateBlockKind): string {
+        const labels: Record<TemplateBlockKind, string> = {
+            field: t("BLOCK_FIELD"),
+            text: t("BLOCK_TEXT"),
+            divider: t("BLOCK_DIVIDER"),
+            image: t("BLOCK_IMAGE"),
+            hint: t("BLOCK_HINT"),
+            "answer-input": t("BLOCK_ANSWER_INPUT"),
+            audio: t("BLOCK_AUDIO"),
+            tts: t("BLOCK_TTS"),
+        };
+        return labels[kind];
+    }
+
+    private renderAdvancedTemplateEditor(
+        parent: HTMLElement,
+        draft: NoteTypeEditorDraft,
+        template: CardTemplateDefinition,
+    ): void {
+        const editor = parent.createDiv("sr-advanced-template-editor");
+        const help = editor.createDiv("sr-advanced-template-help");
+        help.createEl("strong", { text: t("ADVANCED_EDITOR") });
+        help.createSpan({ text: t("ADVANCED_EDITOR_HELP") });
+        this.createTemplateTextarea(
+            editor,
+            t("QUESTION_TEMPLATE"),
+            template.questionFormat,
+            draft,
+            (value) => {
+                template.questionFormat = value;
+                template.questionBlocks = [];
+                this.refreshTemplatePreviewFrom(editor, draft, template);
+            },
+        );
+        this.createTemplateTextarea(
+            editor,
+            t("ANSWER_TEMPLATE"),
+            template.answerFormat,
+            draft,
+            (value) => {
+                template.answerFormat = value;
+                template.answerBlocks = [];
+                this.refreshTemplatePreviewFrom(editor, draft, template);
+            },
+        );
+        this.createTemplateTextarea(
+            editor,
+            t("BROWSER_TEMPLATE"),
+            template.browserFormat ?? template.questionFormat,
+            draft,
+            (value) => {
+                template.browserFormat = value;
+                template.browserBlocks = [];
+                this.refreshTemplatePreviewFrom(editor, draft, template);
+            },
+        );
+        const css = editor.createEl("details", { cls: "sr-advanced-css-editor" });
+        css.createEl("summary", { text: t("SURFACE_STYLES") });
+        for (const [surface, label, value] of [
+            ["question", t("QUESTION_STYLE"), template.questionCss ?? ""],
+            ["answer", t("ANSWER_STYLE"), template.answerCss ?? ""],
+            ["browser", t("BROWSER_STYLE"), template.browserCss ?? ""],
+        ] as const) {
+            this.createTemplateCssEditor(css, label, value, (next) => {
+                if (surface === "question") template.questionCss = next;
+                else if (surface === "answer") template.answerCss = next;
+                else template.browserCss = next;
+                this.refreshTemplatePreviewFrom(editor, draft, template);
+            });
+        }
+        const reference = editor.createEl("details", { cls: "sr-template-reference" });
+        reference.createEl("summary", { text: t("TEMPLATE_REFERENCE") });
+        reference.createEl("code", {
+            text: "{{Field}}  {{#Field}}…{{/Field}}  {{^Field}}…{{/Field}}  {{FrontSide}}  {{upper:Field}}  {{lower:Field}}  {{text:Field}}  {{tts:Field}}",
+        });
+    }
+
+    private createTemplateCssEditor(
+        parent: HTMLElement,
+        label: string,
+        value: string,
+        onChange: (value: string) => void,
+    ): void {
+        const control = parent.createEl("label", { cls: "sr-note-template-control" });
+        control.createSpan({ text: label });
+        const input = control.createEl("textarea", {
+            cls: "sr-native-textarea sr-template-css-input",
+            attr: {
+                rows: "3",
+                spellcheck: "false",
+                placeholder: "font-size: 1.05em;",
+            },
+        });
+        input.value = value;
+        input.addEventListener("input", () => {
+            onChange(input.value);
+            this.clearError();
         });
     }
 
@@ -2224,6 +2785,47 @@ export class NativeCreatorView extends ItemView {
                 this.clearError();
             });
         }
+        const frontSide = tokens.createEl("button", {
+            text: "FrontSide",
+            attr: { type: "button", title: t("INSERT_FRONT_SIDE") },
+        });
+        frontSide.addEventListener("click", () => {
+            textarea.setRangeText(
+                "{{FrontSide}}",
+                textarea.selectionStart,
+                textarea.selectionEnd,
+                "end",
+            );
+            onChange(textarea.value);
+            textarea.focus();
+        });
+        const filters = tokens.createEl("select", {
+            cls: "dropdown sr-template-filter-picker",
+            attr: { "aria-label": t("FIELD_FILTERS") },
+        });
+        filters.createEl("option", { value: "", text: t("FIELD_FILTERS") });
+        const defaultField = draft.fields[0]?.name ?? "Field";
+        for (const [value, text] of [
+            [`{{upper:${defaultField}}}`, "UPPER"],
+            [`{{lower:${defaultField}}}`, "lower"],
+            [`{{trim:${defaultField}}}`, "trim"],
+            [`{{text:${defaultField}}}`, t("PLAIN_TEXT_FILTER")],
+            [`{{tts:${defaultField}}}`, "TTS"],
+        ]) {
+            filters.createEl("option", { value, text });
+        }
+        filters.addEventListener("change", () => {
+            if (!filters.value) return;
+            textarea.setRangeText(
+                filters.value,
+                textarea.selectionStart,
+                textarea.selectionEnd,
+                "end",
+            );
+            onChange(textarea.value);
+            filters.value = "";
+            textarea.focus();
+        });
         textarea.addEventListener("input", () => {
             onChange(textarea.value);
             this.clearError();
@@ -2236,31 +2838,173 @@ export class NativeCreatorView extends ItemView {
         template: CardTemplateDefinition,
     ): void {
         parent.empty();
-        parent.createDiv({ cls: "sr-note-template-preview-label", text: t("LIVE_PREVIEW") });
-        const sampleFields = Object.fromEntries(
-            draft.fields.map((field) => [field.id, `${field.name}`]),
+        const toolbar = parent.createDiv("sr-note-template-preview-toolbar");
+        toolbar.createEl("strong", { text: t("LIVE_PREVIEW") });
+        const controls = toolbar.createDiv("sr-note-template-preview-controls");
+        for (const [value, icon, label] of [
+            ["phone", "smartphone", t("PREVIEW_IPHONE")],
+            ["desktop", "monitor", t("PREVIEW_DESKTOP")],
+        ] as const) {
+            const button = new ButtonComponent(controls)
+                .setIcon(icon)
+                .setTooltip(label)
+                .onClick(() => {
+                    this.templatePreviewDevice = value;
+                    this.renderTemplatePreview(parent, draft, template);
+                });
+            button.buttonEl.toggleClass("is-active", this.templatePreviewDevice === value);
+        }
+        for (const [value, icon, label] of [
+            ["light", "sun", t("PREVIEW_LIGHT")],
+            ["dark", "moon", t("PREVIEW_DARK")],
+        ] as const) {
+            const button = new ButtonComponent(controls)
+                .setIcon(icon)
+                .setTooltip(label)
+                .onClick(() => {
+                    this.templatePreviewTheme = value;
+                    this.renderTemplatePreview(parent, draft, template);
+                });
+            button.buttonEl.toggleClass("is-active", this.templatePreviewTheme === value);
+        }
+        const sampleFields = this.getTemplatePreviewFields(draft);
+        for (const field of draft.fields) {
+            sampleFields[field.name] = sampleFields[field.id] ?? field.name;
+        }
+        const question = renderNoteTypeTemplate(
+            template.questionFormat,
+            draft as NoteTypeDefinition,
+            sampleFields,
         );
-        for (const field of draft.fields) sampleFields[field.name] = field.name;
-        const faces = parent.createDiv("sr-note-template-preview-faces");
-        for (const [label, value] of [
-            [t("CARD_TEMPLATE_QUESTION"), template.questionFormat],
-            [t("CARD_TEMPLATE_ANSWER"), template.answerFormat],
+        const faces = parent.createDiv(
+            `sr-note-template-preview-faces is-${this.templatePreviewDevice} theme-${this.templatePreviewTheme}`,
+        );
+        for (const [surface, label, value] of [
+            ["question", t("CARD_TEMPLATE_QUESTION"), question],
+            [
+                "answer",
+                t("CARD_TEMPLATE_ANSWER"),
+                renderNoteTypeTemplate(
+                    template.answerFormat,
+                    draft as NoteTypeDefinition,
+                    sampleFields,
+                    question,
+                ),
+            ],
+            [
+                "browser",
+                t("CARD_TEMPLATE_BROWSER"),
+                renderNoteTypeTemplate(
+                    template.browserFormat ?? template.questionFormat,
+                    draft as NoteTypeDefinition,
+                    sampleFields,
+                    question,
+                ),
+            ],
         ] as const) {
             const face = faces.createDiv("sr-note-template-preview-face");
             face.createSpan({ text: label });
             const body = face.createDiv("sr-note-template-preview-body");
             body.dataset.templateCss = template.css ?? "";
-            body.setAttribute(
-                "style",
-                [draft.css, template.css].filter((value) => value?.trim()).join(";"),
+            this.applyPreviewCss(body, [
+                draft.css,
+                template.css ?? "",
+                surface === "question"
+                    ? (template.questionCss ?? "")
+                    : surface === "answer"
+                      ? (template.answerCss ?? "")
+                      : (template.browserCss ?? ""),
+            ]);
+            void MarkdownRenderer.render(this.app, value, body, "", this).then(() =>
+                this.bindPreviewTemplateActions(body),
             );
-            void MarkdownRenderer.render(
-                this.app,
-                renderNoteTypeTemplate(value, draft as NoteTypeDefinition, sampleFields),
-                body,
-                "",
-                this,
-            );
+        }
+        const samples = parent.createEl("details", { cls: "sr-template-preview-data" });
+        samples.createEl("summary", { text: t("PREVIEW_DATA") });
+        const grid = samples.createDiv("sr-template-preview-data-grid");
+        for (const field of draft.fields) {
+            const control = grid.createEl("label");
+            control.createSpan({ text: field.name });
+            const input = control.createEl("input", {
+                cls: "sr-native-input",
+                attr: { type: "text" },
+            });
+            input.value = sampleFields[field.id] ?? "";
+            input.addEventListener("change", () => {
+                this.templatePreviewValues[field.id] = input.value;
+                this.renderTemplatePreview(parent, draft, template);
+            });
+        }
+    }
+
+    private refreshTemplatePreviewFrom(
+        element: HTMLElement,
+        draft: NoteTypeEditorDraft,
+        template: CardTemplateDefinition,
+    ): void {
+        const preview = element
+            .closest(".sr-note-template-card")
+            ?.querySelector<HTMLElement>(".sr-note-template-preview");
+        if (preview) this.renderTemplatePreview(preview, draft, template);
+    }
+
+    private getTemplatePreviewFields(draft: NoteTypeEditorDraft): Record<string, string> {
+        const snapshot = this.plugin.dataManager.collectionStore.getCollectionSnapshot();
+        const realNote = Object.values(snapshot.notes).find(
+            (note) => !note.deletedAt && note.noteTypeId === draft.id,
+        );
+        return Object.fromEntries(
+            draft.fields.map((field) => [
+                field.id,
+                this.templatePreviewValues[field.id] ??
+                    realNote?.fields[field.id] ??
+                    this.previewPlaceholderForField(field),
+            ]),
+        );
+    }
+
+    private previewPlaceholderForField(field: NoteFieldDefinition): string {
+        if (field.kind === "number") return "42";
+        if (field.kind === "formula") return "$E = mc^2$";
+        if (field.kind === "media") return "";
+        return field.name;
+    }
+
+    private applyPreviewCss(element: HTMLElement, values: string[]): void {
+        const declarations = values.filter((value) => value.trim() && !value.includes("{"));
+        if (declarations.length > 0) element.setAttribute("style", declarations.join(";"));
+        const rules = values.filter((value) => value.includes("{"));
+        if (rules.length === 0) return;
+        const scope = `sr-preview-scope-${Math.random().toString(36).slice(2, 9)}`;
+        element.addClass(scope);
+        const selector = `.${scope}`;
+        const css = rules
+            .join("\n")
+            .replaceAll("{{card}}", selector)
+            .replaceAll("{{front}}", selector)
+            .replaceAll("{{back}}", selector)
+            .replaceAll("{{browser}}", selector)
+            .replace(/(^|})(\s*)([^@}{][^{]*){/g, (_match, boundary, space, selectors) => {
+                const scoped = String(selectors)
+                    .split(",")
+                    .map((candidate) => `${selector} ${candidate.trim()}`)
+                    .join(", ");
+                return `${boundary}${space}${scoped}{`;
+            });
+        element.createEl("style", { text: css });
+    }
+
+    private bindPreviewTemplateActions(root: HTMLElement): void {
+        for (const button of root.querySelectorAll<HTMLElement>(".sr-template-tts")) {
+            button.addEventListener("click", (event) => {
+                event.preventDefault();
+                const encoded = button.dataset.srTts;
+                if (!encoded || !("speechSynthesis" in window)) return;
+                window.speechSynthesis.cancel();
+                window.speechSynthesis.speak(
+                    new SpeechSynthesisUtterance(decodeURIComponent(encoded)),
+                );
+            });
         }
     }
 
@@ -2291,18 +3035,9 @@ export class NativeCreatorView extends ItemView {
             attr: { rows: "4", spellcheck: "false", placeholder: "font-size: 1.1em;" },
         });
         textarea.value = draft.css;
-        textarea.addEventListener("input", () => {
+        textarea.addEventListener("change", () => {
             draft.css = textarea.value;
-            for (const preview of parent.querySelectorAll<HTMLElement>(
-                ".sr-note-template-preview-body",
-            )) {
-                preview.setAttribute(
-                    "style",
-                    [draft.css, preview.dataset.templateCss]
-                        .filter((value) => value?.trim())
-                        .join(";"),
-                );
-            }
+            this.render();
         });
     }
 
@@ -2325,36 +3060,45 @@ export class NativeCreatorView extends ItemView {
 
     private createEmptyNoteTypeDraft(): NoteTypeEditorDraft {
         const store = this.plugin.dataManager.collectionStore;
+        const fields: NoteFieldDefinition[] = [
+            {
+                id: store.createId("field"),
+                name: t("CARD_FRONT"),
+                ordinal: 0,
+                kind: "rich-text",
+                required: true,
+            },
+            {
+                id: store.createId("field"),
+                name: t("CARD_BACK"),
+                ordinal: 1,
+                kind: "rich-text",
+                required: true,
+            },
+        ];
         return {
             id: store.createId("notetype"),
             version: 1,
             name: "",
             kind: "standard",
-            fields: [
-                {
-                    id: store.createId("field"),
-                    name: t("CARD_FRONT"),
-                    ordinal: 0,
-                    kind: "rich-text",
-                    required: true,
-                },
-                {
-                    id: store.createId("field"),
-                    name: t("CARD_BACK"),
-                    ordinal: 1,
-                    kind: "rich-text",
-                    required: true,
-                },
-            ],
-            templates: [this.createEmptyTemplate(0)],
+            fields,
+            templates: [this.createEmptyTemplate(0, fields)],
             css: "",
         };
     }
 
-    private createEmptyTemplate(ordinal: number): CardTemplateDefinition {
-        const fields = this.noteTypeDraft?.fields ?? [];
+    private createEmptyTemplate(
+        ordinal: number,
+        fields: NoteFieldDefinition[] = this.noteTypeDraft?.fields ?? [],
+    ): CardTemplateDefinition {
         const front = fields[0]?.name ?? t("CARD_FRONT");
         const back = fields[1]?.name ?? fields[0]?.name ?? t("CARD_BACK");
+        const createBlock = (kind: TemplateBlockKind, fieldId: string | null = null) =>
+            createTemplateVisualBlock(
+                this.plugin.dataManager.collectionStore.createId("block"),
+                kind,
+                fieldId,
+            );
         return {
             id: this.plugin.dataManager.collectionStore.createId("template"),
             version: 1,
@@ -2370,6 +3114,14 @@ export class NativeCreatorView extends ItemView {
             sourceFieldId: null,
             condition: { operator: "always", fieldId: null, value: "" },
             css: "",
+            editorMode: "visual",
+            questionBlocks: [createBlock("field", fields[0]?.id ?? null)],
+            answerBlocks: [createBlock("field", fields[1]?.id ?? fields[0]?.id ?? null)],
+            browserBlocks: [createBlock("field", fields[0]?.id ?? null)],
+            browserFormat: `{{${front}}}`,
+            questionCss: "",
+            answerCss: "",
+            browserCss: "",
         };
     }
 
@@ -2380,13 +3132,47 @@ export class NativeCreatorView extends ItemView {
             name: noteType.name,
             kind: noteType.kind,
             fields: noteType.fields.map((field) => ({ ...field })),
-            templates: noteType.templates.map((template) => ({ ...template })),
+            templates: noteType.templates.map((template) => ({
+                ...template,
+                condition: template.condition ? { ...template.condition } : undefined,
+                questionBlocks: template.questionBlocks?.map((block) => ({
+                    ...block,
+                    condition: { ...block.condition },
+                })),
+                answerBlocks: template.answerBlocks?.map((block) => ({
+                    ...block,
+                    condition: { ...block.condition },
+                })),
+                browserBlocks: template.browserBlocks?.map((block) => ({
+                    ...block,
+                    condition: { ...block.condition },
+                })),
+            })),
             css: noteType.css,
         };
     }
 
     private cloneNoteTypeDraft(noteType: NoteTypeDefinition): NoteTypeEditorDraft {
         const store = this.plugin.dataManager.collectionStore;
+        const fieldIdMap = new Map(
+            noteType.fields.map((field) => [field.id, store.createId("field")]),
+        );
+        const cloneBlock = (block: TemplateVisualBlock): TemplateVisualBlock => ({
+            ...block,
+            id: store.createId("block"),
+            fieldId: block.fieldId ? (fieldIdMap.get(block.fieldId) ?? null) : null,
+            condition: {
+                ...block.condition,
+                fieldId: block.condition.fieldId
+                    ? (fieldIdMap.get(block.condition.fieldId) ?? null)
+                    : null,
+            },
+        });
+        const remapFormat = (format: string): string => {
+            let result = format;
+            for (const [from, to] of fieldIdMap) result = result.replaceAll(from, to);
+            return result;
+        };
         return {
             id: store.createId("notetype"),
             version: 1,
@@ -2394,7 +3180,7 @@ export class NativeCreatorView extends ItemView {
             kind: noteType.kind,
             fields: noteType.fields.map((field, ordinal) => ({
                 ...field,
-                id: store.createId("field"),
+                id: fieldIdMap.get(field.id) ?? store.createId("field"),
                 ordinal,
             })),
             templates: noteType.templates.map((template, ordinal) => ({
@@ -2402,6 +3188,28 @@ export class NativeCreatorView extends ItemView {
                 id: store.createId("template"),
                 version: 1,
                 ordinal,
+                questionFormat: remapFormat(template.questionFormat),
+                answerFormat: remapFormat(template.answerFormat),
+                browserFormat: template.browserFormat
+                    ? remapFormat(template.browserFormat)
+                    : undefined,
+                answerFieldId: template.answerFieldId
+                    ? (fieldIdMap.get(template.answerFieldId) ?? null)
+                    : null,
+                sourceFieldId: template.sourceFieldId
+                    ? (fieldIdMap.get(template.sourceFieldId) ?? null)
+                    : null,
+                condition: template.condition
+                    ? {
+                          ...template.condition,
+                          fieldId: template.condition.fieldId
+                              ? (fieldIdMap.get(template.condition.fieldId) ?? null)
+                              : null,
+                      }
+                    : undefined,
+                questionBlocks: template.questionBlocks?.map(cloneBlock),
+                answerBlocks: template.answerBlocks?.map(cloneBlock),
+                browserBlocks: template.browserBlocks?.map(cloneBlock),
             })),
             css: noteType.css,
         };
@@ -2410,6 +3218,11 @@ export class NativeCreatorView extends ItemView {
     private async saveNoteType(): Promise<void> {
         const draft = this.noteTypeDraft;
         if (!draft) return;
+        for (const template of draft.templates) {
+            if ((template.editorMode ?? "advanced") === "visual") {
+                this.syncTemplateBlocks(template, draft);
+            }
+        }
         if (!draft.name.trim()) {
             this.error = t("NOTE_TYPE_NAME_REQUIRED");
             this.render();
@@ -2430,6 +3243,17 @@ export class NativeCreatorView extends ItemView {
             )
         ) {
             this.error = t("NOTE_TYPE_TEMPLATES_INVALID");
+            this.render();
+            return;
+        }
+        const validationIssues = draft.templates.flatMap((template) =>
+            validateTemplateDesign(template, draft.fields),
+        );
+        if (validationIssues.length > 0) {
+            const first = validationIssues[0];
+            this.error = t("TEMPLATE_VALIDATION_FAILED", {
+                details: first.field ? `${first.code}: ${first.field}` : first.code,
+            });
             this.render();
             return;
         }

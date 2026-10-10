@@ -48,6 +48,14 @@ function template(
         sourceFieldId: null,
         condition: { operator: "always", fieldId: null, value: "" },
         css: "",
+        editorMode: "visual",
+        questionBlocks: [],
+        answerBlocks: [],
+        browserBlocks: [],
+        browserFormat: questionFormat,
+        questionCss: "",
+        answerCss: "",
+        browserCss: "",
     };
 }
 

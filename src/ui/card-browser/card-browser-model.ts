@@ -22,6 +22,7 @@ export interface CardBrowserRecord {
     flag: CardFlag;
     tags: string[];
     cardType: CardBrowserCardType;
+    collectionCardId?: string | null;
 }
 
 function normalizeForSearch(value: string): string {

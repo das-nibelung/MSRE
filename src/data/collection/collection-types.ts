@@ -1,12 +1,16 @@
 import { ISerializedScheduleEntry } from "src/data/plugin-data";
 
-export const COLLECTION_SCHEMA_VERSION = 6;
+export const COLLECTION_SCHEMA_VERSION = 7;
 export const REVIEW_LOG_SCHEMA_VERSION = 1;
 
 export type NoteTypeKind = "standard" | "cloze" | "image-occlusion";
 export type CardTemplateGenerator = NoteTypeKind;
 export type CardAnswerMode = "reveal" | "type";
 export type TemplateConditionOperator = "always" | "not-empty" | "empty" | "equals" | "not-equals";
+export type TemplateEditorMode = "visual" | "advanced";
+export type TemplateSurface = "question" | "answer" | "browser";
+export type TemplateBlockKind =
+    "field" | "text" | "divider" | "image" | "hint" | "answer-input" | "audio" | "tts";
 export type FieldKind = "text" | "rich-text" | "media" | "number" | "formula";
 export type CardLifecycleState = "active" | "suspended" | "buried";
 export type CardFlag = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -18,6 +22,22 @@ export interface NoteFieldDefinition {
     ordinal: number;
     kind: FieldKind;
     required: boolean;
+}
+
+export interface TemplateBlockCondition {
+    operator: TemplateConditionOperator;
+    fieldId: string | null;
+    value: string;
+}
+
+/** A portable visual-editor node. It compiles to the same Markdown/HTML format as advanced mode. */
+export interface TemplateVisualBlock {
+    id: string;
+    kind: TemplateBlockKind;
+    fieldId: string | null;
+    text: string;
+    label: string;
+    condition: TemplateBlockCondition;
 }
 
 export interface CardTemplateDefinition {
@@ -46,6 +66,18 @@ export interface CardTemplateDefinition {
     };
     /** Template-only presentation overrides applied after the note type style. */
     css?: string;
+    /** Preferred editing surface. Both modes always remain available without data loss. */
+    editorMode?: TemplateEditorMode;
+    /** Visual source for each presentation surface. Advanced formats remain the compiled source of truth. */
+    questionBlocks?: TemplateVisualBlock[];
+    answerBlocks?: TemplateVisualBlock[];
+    browserBlocks?: TemplateVisualBlock[];
+    /** Compact representation used by previews and the card browser. */
+    browserFormat?: string;
+    /** Surface-specific presentation rules; accepts declarations or scoped CSS rules. */
+    questionCss?: string;
+    answerCss?: string;
+    browserCss?: string;
 }
 
 export interface NoteTypeDefinition {

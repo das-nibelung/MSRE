@@ -164,6 +164,52 @@ describe("native card storage", () => {
         ).toBe("Rendered question<hr>Answer");
     });
 
+    it("renders field filters, comparisons, hints, and speech controls", () => {
+        const basic = getBuiltinNoteTypes()[0];
+        const rendered = renderNoteTypeTemplate(
+            "{{upper:Front}} {{#equals:Back:Answer}}{{hint:Back:Open%20hint}}{{/equals:Back:Answer}} {{tts:Front}}",
+            basic,
+            { front: "Question", back: "Answer" },
+        );
+
+        expect(rendered).toContain("QUESTION");
+        expect(rendered).toContain(
+            '<details class="sr-template-hint"><summary>Open hint</summary>Answer</details>',
+        );
+        expect(rendered).toContain('class="sr-template-tts"');
+        expect(
+            renderNoteTypeTemplate(
+                "{{#not-equals:Back:Answer}}Hidden{{/not-equals:Back:Answer}}",
+                basic,
+                { front: "Question", back: "Answer" },
+            ),
+        ).toBe("");
+        const filters = renderNoteTypeTemplate(
+            "{{trim:Front}}|{{lower:Front}}|{{text:Back}}|{{image:Front}}|{{audio:Front}}",
+            basic,
+            {
+                front: "  FILE.png  ",
+                back: "**Rich** [link](https://example.com)",
+            },
+        );
+        expect(filters).toContain("FILE.png|  file.png  |Rich link");
+        expect(filters).toContain("![[FILE.png]]");
+        expect(
+            renderNoteTypeTemplate("{{tts:Front}}{{hint:Back:Hint}}", basic, {
+                front: "",
+                back: "",
+            }),
+        ).toBe("");
+        expect(
+            renderNoteTypeTemplate("{{image:Front}} {{audio:Back}} {{hint:Back}}", basic, {
+                front: "![[photo.png]]",
+                back: "sound.mp3",
+            }),
+        ).toBe(
+            '![[photo.png]] ![[sound.mp3]] <details class="sr-template-hint"><summary>Hint</summary>sound.mp3</details>',
+        );
+    });
+
     it("serializes multi-template and multi-cloze notes into reviewable questions", () => {
         const [, reversed, cloze] = getBuiltinNoteTypes();
         const standardBody = serializeStructuredNoteBody(

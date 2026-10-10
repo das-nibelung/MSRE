@@ -207,6 +207,35 @@ function normalizeTemplate(
         sourceFieldId: template.sourceFieldId ?? null,
         condition: template.condition ?? { operator: "always", fieldId: null, value: "" },
         css: template.css ?? "",
+        editorMode: template.editorMode ?? "advanced",
+        questionBlocks: (template.questionBlocks ?? []).map((block) => ({
+            ...block,
+            condition: block.condition ?? {
+                operator: "always",
+                fieldId: null,
+                value: "",
+            },
+        })),
+        answerBlocks: (template.answerBlocks ?? []).map((block) => ({
+            ...block,
+            condition: block.condition ?? {
+                operator: "always",
+                fieldId: null,
+                value: "",
+            },
+        })),
+        browserBlocks: (template.browserBlocks ?? []).map((block) => ({
+            ...block,
+            condition: block.condition ?? {
+                operator: "always",
+                fieldId: null,
+                value: "",
+            },
+        })),
+        browserFormat: template.browserFormat ?? template.questionFormat,
+        questionCss: template.questionCss ?? "",
+        answerCss: template.answerCss ?? "",
+        browserCss: template.browserCss ?? "",
     };
 }
 

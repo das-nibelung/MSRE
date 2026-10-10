@@ -15,6 +15,7 @@ import { Deck } from "src/data/data-structures/deck/deck";
 import { KnowledgeArea } from "src/data/plugin-data";
 import { SRSettings } from "src/data/settings";
 import SRPlugin from "src/main";
+import { escapeHtml } from "src/utils/escape-html";
 
 export type NativeCardType = "basic" | "reversed" | "cloze";
 
@@ -109,6 +110,25 @@ export function renderNoteTypeTemplate(
         const value = fields[field.id] ?? "";
         for (const token of [field.name, field.id]) {
             const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            for (const operator of ["equals", "not-equals"] as const) {
+                const conditionPattern = new RegExp(
+                    `{{#${operator}:${escaped}:([^}]+)}}([\\s\\S]*?){{\\/${operator}:${escaped}:\\1}}`,
+                    "g",
+                );
+                result = result.replace(
+                    conditionPattern,
+                    (_match: string, expected: string, content: string) => {
+                        const equal = value.trim() === decodeURIComponent(expected).trim();
+                        return operator === "equals"
+                            ? equal
+                                ? content
+                                : ""
+                            : equal
+                              ? ""
+                              : content;
+                    },
+                );
+            }
             result = result.replace(
                 new RegExp(`{{#${escaped}}}([\\s\\S]*?){{\\/${escaped}}}`, "g"),
                 value.trim() ? "$1" : "",
@@ -116,6 +136,42 @@ export function renderNoteTypeTemplate(
             result = result.replace(
                 new RegExp(`{{\\^${escaped}}}([\\s\\S]*?){{\\/${escaped}}}`, "g"),
                 value.trim() ? "" : "$1",
+            );
+            result = result.replace(
+                new RegExp(
+                    `{{(cloze|trim|lower|upper|text|image|audio|tts|hint):${escaped}(?::([^}]*))?}}`,
+                    "gi",
+                ),
+                (_match, rawFilter: string, rawArgument: string | undefined) => {
+                    const filter = rawFilter.toLocaleLowerCase();
+                    if (filter === "trim" || filter === "cloze") return value.trim();
+                    if (filter === "lower") return value.toLocaleLowerCase();
+                    if (filter === "upper") return value.toLocaleUpperCase();
+                    if (filter === "text") {
+                        return value
+                            .replace(/<[^>]+>/g, " ")
+                            .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+                            .replace(/[*_~`>#-]/g, " ")
+                            .replace(/\s+/g, " ")
+                            .trim();
+                    }
+                    if (filter === "image" || filter === "audio") {
+                        const trimmed = value.trim();
+                        if (!trimmed || /!?\[\[|!?\[[^\]]*\]\(/.test(trimmed)) return trimmed;
+                        return `![[${trimmed}]]`;
+                    }
+                    if (filter === "tts") {
+                        return value.trim()
+                            ? `<button type="button" class="sr-template-tts" data-sr-tts="${encodeURIComponent(value.trim())}" aria-label="Read aloud">🔊</button>`
+                            : "";
+                    }
+                    const label = rawArgument
+                        ? escapeHtml(decodeURIComponent(rawArgument))
+                        : "Hint";
+                    return value.trim()
+                        ? `<details class="sr-template-hint"><summary>${label}</summary>${value}</details>`
+                        : "";
+                },
             );
         }
         result = result.split(`{{${field.name}}}`).join(value);

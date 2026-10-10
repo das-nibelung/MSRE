@@ -3,6 +3,7 @@ import {
     App,
     ButtonComponent,
     ItemView,
+    MarkdownRenderer,
     Menu,
     Modal,
     Notice,
@@ -15,7 +16,7 @@ import {
 import { CardFlag, LegacyCardInput } from "src/data/collection/collection-types";
 import { CARD_BROWSER_VIEW_TYPE } from "src/data/constants";
 import { DataStore } from "src/data/data-store/base/data-store";
-import { NativeCardStore } from "src/data/native-card-store";
+import { NativeCardStore, renderNoteTypeTemplate } from "src/data/native-card-store";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
@@ -180,6 +181,7 @@ export class CardBrowserView extends ItemView {
                     lifecycleState: expired ? "active" : (stored?.state ?? "active"),
                     flag: stored?.flag ?? 0,
                     tags: stored ? (snapshot.notes[stored.noteId]?.tags ?? []) : [],
+                    collectionCardId: stored?.id ?? null,
                 };
             },
         );
@@ -579,11 +581,24 @@ export class CardBrowserView extends ItemView {
             },
         });
         const main = body.createDiv("sr-card-browser-row-main");
-        const frontText = compactCardText(record.front) || t("MEDIA_CARD");
-        const backText = compactCardText(record.back);
-        main.createDiv("sr-card-browser-front").setText(frontText);
-        if (backText && backText !== frontText) {
-            main.createDiv("sr-card-browser-back").setText(backText);
+        const browserPresentation = this.getBrowserPresentation(record);
+        if (browserPresentation) {
+            const preview = main.createDiv("sr-card-browser-template-preview");
+            this.applyBrowserTemplateCss(preview, browserPresentation.css);
+            void MarkdownRenderer.render(
+                this.app,
+                browserPresentation.content,
+                preview,
+                record.notePath,
+                this,
+            ).then(() => this.bindBrowserTemplateActions(preview));
+        } else {
+            const frontText = compactCardText(record.front) || t("MEDIA_CARD");
+            const backText = compactCardText(record.back);
+            main.createDiv("sr-card-browser-front").setText(frontText);
+            if (backText && backText !== frontText) {
+                main.createDiv("sr-card-browser-back").setText(backText);
+            }
         }
 
         const meta = body.createDiv("sr-card-browser-row-meta");
@@ -639,6 +654,70 @@ export class CardBrowserView extends ItemView {
         });
         row.addEventListener("contextmenu", (event) => this.openCardMenu(event, record));
         if (this.editingId === record.id) this.renderInlineEditor(row, record);
+    }
+
+    private getBrowserPresentation(
+        record: CardBrowserRecord,
+    ): { content: string; css: string[] } | null {
+        if (!record.collectionCardId) return null;
+        const snapshot = this.plugin.dataManager.collectionStore.getCollectionSnapshot();
+        const card = snapshot.cards[record.collectionCardId];
+        if (!card || card.deletedAt) return null;
+        const note = snapshot.notes[card.noteId];
+        const noteType = snapshot.noteTypes[note?.noteTypeId ?? ""];
+        const template = noteType?.templates.find((candidate) => candidate.id === card.templateId);
+        if (!note || !noteType || !template) return null;
+        const fields = { ...note.fields };
+        for (const field of noteType.fields) fields[field.name] = note.fields[field.id] ?? "";
+        const question = renderNoteTypeTemplate(template.questionFormat, noteType, fields);
+        return {
+            content: renderNoteTypeTemplate(
+                template.browserFormat ?? template.questionFormat,
+                noteType,
+                fields,
+                question,
+            ),
+            css: [noteType.css, template.css ?? "", template.browserCss ?? ""],
+        };
+    }
+
+    private applyBrowserTemplateCss(element: HTMLElement, values: string[]): void {
+        const declarations = values.filter((value) => value.trim() && !value.includes("{"));
+        if (declarations.length > 0) element.setAttribute("style", declarations.join(";"));
+        const rules = values.filter((value) => value.includes("{"));
+        if (rules.length === 0) return;
+        const scope = `sr-browser-template-${Math.random().toString(36).slice(2, 9)}`;
+        element.addClass(scope);
+        const selector = `.${scope}`;
+        const css = rules
+            .join("\n")
+            .replaceAll("{{card}}", selector)
+            .replaceAll("{{browser}}", selector)
+            .replaceAll("{{front}}", selector)
+            .replaceAll("{{back}}", selector)
+            .replace(/(^|})(\s*)([^@}{][^{]*){/g, (_match, boundary, space, selectors) => {
+                const scoped = String(selectors)
+                    .split(",")
+                    .map((candidate) => `${selector} ${candidate.trim()}`)
+                    .join(", ");
+                return `${boundary}${space}${scoped}{`;
+            });
+        element.createEl("style", { text: css });
+    }
+
+    private bindBrowserTemplateActions(root: HTMLElement): void {
+        for (const button of root.querySelectorAll<HTMLElement>(".sr-template-tts")) {
+            button.addEventListener("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const encoded = button.dataset.srTts;
+                if (!encoded || !("speechSynthesis" in window)) return;
+                window.speechSynthesis.cancel();
+                window.speechSynthesis.speak(
+                    new SpeechSynthesisUtterance(decodeURIComponent(encoded)),
+                );
+            });
+        }
     }
 
     private renderInlineEditor(parent: HTMLElement, record: CardBrowserRecord): void {

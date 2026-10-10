@@ -444,6 +444,40 @@
     min-width: 0;
 }
 
+.sr-card-browser-template-preview {
+    grid-column: 1 / -1;
+    min-width: 0;
+    max-height: 4.5em;
+    overflow: hidden;
+    color: var(--text-normal);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.sr-card-browser-template-preview > :first-child,
+.sr-card-browser-template-preview > :last-child {
+    margin-block: 0;
+}
+
+.sr-card-browser-template-preview img {
+    width: 44px;
+    height: 44px;
+    margin-inline-end: 8px;
+    border-radius: 8px;
+    object-fit: cover;
+    vertical-align: middle;
+}
+
+.sr-card-browser-template-preview .sr-template-tts,
+.sr-card-browser-template-preview .sr-template-hint {
+    min-height: 30px;
+    padding: 4px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 9px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+}
+
 .sr-card-browser-front,
 .sr-card-browser-back {
     min-width: 0;

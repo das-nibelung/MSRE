@@ -6,7 +6,11 @@ import {
     IMAGE_OCCLUSION_NOTE_TYPE_ID,
     OCCLUSION_ASSETS_FIELD_ID,
 } from "src/data/collection/builtin-note-types";
-import { CardFlag } from "src/data/collection/collection-types";
+import {
+    CardFlag,
+    CardTemplateDefinition,
+    NoteTypeDefinition,
+} from "src/data/collection/collection-types";
 import { CardType } from "src/data/data-structures/card/questions/question";
 import { SRSettings } from "src/data/settings";
 import { t } from "src/lang/helpers";
@@ -296,6 +300,8 @@ export class CardContainer {
             sessionData.currentQuestion.questionText.textDirection,
             // sessionData.cardData.currentCardState
         );
+        this.applyTemplateSurfaceAppearance(cardFace, sessionData, "question");
+        this.bindTemplateActions(cardFace);
 
         const typedAnswerExpected = this.getTypedAnswerExpected(sessionData);
         const usesTypedAnswer = typedAnswerExpected !== undefined;
@@ -564,6 +570,8 @@ export class CardContainer {
             sessionData.currentQuestion.questionText.textDirection,
             // sessionData.cardData.currentCardState,
         );
+        this.applyTemplateSurfaceAppearance(answerFace, sessionData, "answer");
+        this.bindTemplateActions(answerFace);
 
         if (this.typedAnswer.trim()) {
             const marker = sessionData.cardData.currentCard.back.match(
@@ -673,15 +681,25 @@ export class CardContainer {
     }
 
     private applyNoteTypeAppearance(cardSurface: HTMLElement, sessionData: SessionData): void {
+        const presentation = this.getTemplatePresentation(sessionData);
+        if (!presentation) return;
+        const { noteType, template } = presentation;
+        cardSurface.dataset.noteType = noteType.id;
+        this.applyTemplateCss(cardSurface, [noteType.css, template?.css ?? ""]);
+    }
+
+    private getTemplatePresentation(sessionData: SessionData): {
+        noteType: NoteTypeDefinition;
+        template: CardTemplateDefinition | undefined;
+    } | null {
         const card = sessionData.cardData.currentCard;
         const note = this.plugin.dataManager.collectionStore.findNoteBySource(
             sessionData.currentNote.filePath,
             card?.storageInfo?.questionId,
         );
-        if (!note) return;
+        if (!note) return null;
         const noteType = this.plugin.dataManager.collectionStore.getNoteType(note.noteTypeId);
-        if (!noteType) return;
-        cardSurface.dataset.noteType = noteType.id;
+        if (!noteType) return null;
         const snapshot = this.plugin.dataManager.collectionStore.getCollectionSnapshot();
         const questionId = card?.storageInfo?.questionId;
         const storedCard = Object.values(snapshot.cards).find(
@@ -691,11 +709,68 @@ export class CardContainer {
                 Boolean(questionId) &&
                 candidate.legacyStableId?.startsWith(`${questionId}:`),
         );
-        const templateCss = noteType.templates.find(
+        const template = noteType.templates.find(
             (template) => template.id === storedCard?.templateId,
-        )?.css;
-        const style = [noteType.css, templateCss].filter((value) => value?.trim()).join(";");
-        if (style) cardSurface.setAttribute("style", style);
+        );
+        return { noteType, template };
+    }
+
+    private applyTemplateSurfaceAppearance(
+        element: HTMLElement,
+        sessionData: SessionData,
+        surface: "question" | "answer",
+    ): void {
+        const template = this.getTemplatePresentation(sessionData)?.template;
+        if (!template) return;
+        this.applyTemplateCss(element, [
+            surface === "question" ? (template.questionCss ?? "") : (template.answerCss ?? ""),
+        ]);
+    }
+
+    private applyTemplateCss(element: HTMLElement, sources: string[]): void {
+        for (const source of sources.map((value) => value.trim()).filter(Boolean)) {
+            if (!source.includes("{")) {
+                const current = element.getAttribute("style") ?? "";
+                element.setAttribute("style", [current, source].filter(Boolean).join(";"));
+                continue;
+            }
+            const scope = `sr-template-scope-${Math.random().toString(36).slice(2, 9)}`;
+            element.classList.add(scope);
+            const selector = `.${scope}`;
+            const scoped = source
+                .replaceAll("{{card}}", selector)
+                .replaceAll("{{front}}", selector)
+                .replaceAll("{{back}}", selector)
+                .replaceAll("{{browser}}", selector)
+                .replace(/(^|})(\s*)([^@}{][^{]*){/g, (_match, boundary, space, selectors) => {
+                    const prefixed = String(selectors)
+                        .split(",")
+                        .map((candidate) => {
+                            const trimmed = candidate.trim();
+                            return trimmed.startsWith(selector)
+                                ? trimmed
+                                : `${selector} ${trimmed}`;
+                        })
+                        .join(", ");
+                    return `${boundary}${space}${prefixed}{`;
+                });
+            element.createEl("style", { text: scoped });
+        }
+    }
+
+    private bindTemplateActions(root: HTMLElement): void {
+        for (const button of root.querySelectorAll<HTMLElement>(".sr-template-tts")) {
+            button.addEventListener("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const encoded = button.dataset.srTts;
+                if (!encoded || !("speechSynthesis" in window)) return;
+                window.speechSynthesis.cancel();
+                window.speechSynthesis.speak(
+                    new SpeechSynthesisUtterance(decodeURIComponent(encoded)),
+                );
+            });
+        }
     }
 
     private createSummaryStat(parent: HTMLElement, value: string | number, label: string): void {

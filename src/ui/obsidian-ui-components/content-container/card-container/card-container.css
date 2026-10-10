@@ -443,6 +443,31 @@
     }
 }
 
+.sr-card-container .sr-template-divider {
+    width: 100%;
+    margin: var(--size-4-4) 0;
+    border: 0;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.sr-card-container .sr-template-tts,
+.sr-card-container .sr-template-hint {
+    display: inline-flex;
+    min-height: 38px;
+    align-items: center;
+    justify-content: center;
+    padding: var(--size-4-2) var(--size-4-3);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 12px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font: inherit;
+}
+
+.sr-card-container details.sr-template-hint > summary {
+    cursor: pointer;
+}
+
 .is-phone #sr-modal-view .sr-card-container {
     & .sr-scroll-wrapper {
         padding: 0;
