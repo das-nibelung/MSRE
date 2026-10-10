@@ -4,6 +4,7 @@ import {
     DropdownComponent,
     ItemView,
     Menu,
+    Notice,
     SearchComponent,
     setIcon,
     TFile,
@@ -11,10 +12,16 @@ import {
 } from "obsidian";
 
 import { CARD_BROWSER_VIEW_TYPE } from "src/data/constants";
+import { DataStore } from "src/data/data-store/base/data-store";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
-import { editCardFromBrowser, resetCardProgress, resetCardsProgress } from "src/ui/card-actions";
+import {
+    buryCardsUntilTomorrow,
+    editCardFromBrowser,
+    resetCardProgress,
+    resetCardsProgress,
+} from "src/ui/card-actions";
 import {
     CardBrowserFilter,
     CardBrowserRecord,
@@ -254,7 +261,10 @@ export class CardBrowserView extends ItemView {
         const row = parent.createDiv({
             cls: "sr-card-browser-row",
         });
-        const checkbox = row.createEl("input", {
+        const selectControl = row.createEl("label", {
+            cls: "sr-card-browser-select",
+        });
+        const checkbox = selectControl.createEl("input", {
             cls: "sr-card-browser-checkbox",
             attr: { type: "checkbox", "aria-label": t("SELECT_CARD") },
         });
@@ -294,12 +304,12 @@ export class CardBrowserView extends ItemView {
         const location = [record.deckNames.join(", "), record.notePath].filter(Boolean).join(" · ");
         meta.createSpan("sr-card-browser-path").setText(location);
 
-        const editButton = new ButtonComponent(row)
-            .setIcon("pencil")
-            .setTooltip(t("EDIT_CARD"))
-            .setClass("sr-card-browser-edit")
-            .onClick(() => void this.editCard(record));
-        editButton.buttonEl.addEventListener("click", (event) => event.stopPropagation());
+        const actionsButton = new ButtonComponent(row)
+            .setIcon("ellipsis")
+            .setTooltip(t("OPEN_MENU"))
+            .setClass("sr-card-browser-actions")
+            .onClick((event) => this.openCardMenu(event, record));
+        actionsButton.buttonEl.addEventListener("click", (event) => event.stopPropagation());
 
         body.addEventListener("click", () => void this.openSource(record));
         body.addEventListener("keydown", (event) => {
@@ -323,10 +333,9 @@ export class CardBrowserView extends ItemView {
             text: t("CARDS_SELECTED", { count: selectedRecords.length }),
         });
         new ButtonComponent(this.selectionBarEl)
-            .setIcon("history")
-            .setButtonText(t("RESET_SELECTED_PROGRESS"))
-            .setDisabled(selectedRecords.every((record) => record.card.isNew))
-            .onClick(() => this.confirmResetSelection(selectedRecords));
+            .setIcon("ellipsis")
+            .setTooltip(t("MORE_ACTIONS"))
+            .onClick((event) => this.openSelectionMenu(event, selectedRecords));
         new ButtonComponent(this.selectionBarEl)
             .setIcon("x")
             .setTooltip(t("CLEAR_SELECTION"))
@@ -334,6 +343,38 @@ export class CardBrowserView extends ItemView {
                 this.selectedIds.clear();
                 this.renderResults(this.records);
             });
+    }
+
+    private openSelectionMenu(event: MouseEvent, records: CardBrowserRecord[]): void {
+        const menu = new Menu();
+        const postponementList = this.plugin.dataManager.osrCore.questionPostponementList;
+        const allBuried = records.every((record) =>
+            postponementList.includes(record.card.question),
+        );
+        menu.addItem((item) =>
+            item
+                .setTitle(t("BURY_SELECTED_UNTIL_TOMORROW"))
+                .setIcon("moon")
+                .setDisabled(allBuried)
+                .onClick(() => void this.burySelection(records)),
+        );
+        menu.addItem((item) =>
+            item
+                .setTitle(t("RESET_SELECTED_PROGRESS"))
+                .setIcon("history")
+                .setDisabled(records.every((record) => record.card.isNew))
+                .onClick(() => this.confirmResetSelection(records)),
+        );
+        menu.showAtMouseEvent(event);
+    }
+
+    private async burySelection(records: CardBrowserRecord[]): Promise<void> {
+        await buryCardsUntilTomorrow(
+            records.map((record) => record.card),
+            this.plugin.dataManager.osrCore.questionPostponementList,
+        );
+        this.selectedIds.clear();
+        this.renderResults(this.records);
     }
 
     private confirmResetSelection(records: CardBrowserRecord[]): void {
@@ -384,6 +425,14 @@ export class CardBrowserView extends ItemView {
                 .onClick(() => void this.openSource(record)),
         );
         menu.addSeparator();
+        const postponementList = this.plugin.dataManager.osrCore.questionPostponementList;
+        menu.addItem((item) =>
+            item
+                .setTitle(t("BURY_UNTIL_TOMORROW"))
+                .setIcon("moon")
+                .setDisabled(postponementList.includes(record.card.question))
+                .onClick(() => void this.buryRecord(record)),
+        );
         menu.addItem((item) =>
             item
                 .setTitle(t("RESET_CARD_PROGRESS"))
@@ -391,7 +440,38 @@ export class CardBrowserView extends ItemView {
                 .setDisabled(record.card.isNew)
                 .onClick(() => this.confirmReset(record)),
         );
+        menu.addSeparator();
+        menu.addItem((item) =>
+            item
+                .setTitle(t("DELETE_CARD_SOURCE"))
+                .setIcon("trash")
+                .setWarning(true)
+                .onClick(() => this.confirmDelete(record)),
+        );
         menu.showAtMouseEvent(event);
+    }
+
+    private async buryRecord(record: CardBrowserRecord): Promise<void> {
+        await buryCardsUntilTomorrow(
+            [record.card],
+            this.plugin.dataManager.osrCore.questionPostponementList,
+        );
+    }
+
+    private confirmDelete(record: CardBrowserRecord): void {
+        new ConfirmationModal(
+            this.app,
+            t("DELETE_CARD_SOURCE"),
+            t("DELETE_CARD_SOURCE_CONFIRMATION"),
+            undefined,
+            async () => {
+                await DataStore.getInstance().delete(record.card.question);
+                await this.plugin.dataManager.sync();
+                this.selectedIds.delete(record.id);
+                new Notice(t("CARD_SOURCE_DELETED"));
+                this.render();
+            },
+        ).open();
     }
 
     private confirmReset(record: CardBrowserRecord): void {

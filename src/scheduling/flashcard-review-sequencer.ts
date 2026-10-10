@@ -36,6 +36,7 @@ export interface IFlashcardReviewSequencer {
     getDeckStats(topicPath: TopicPath): DeckStats;
     getSubDecksWithCardsInQueue(deck: Deck): Deck[];
     skipCurrentCard(): void;
+    buryCurrentQuestion(): Promise<void>;
     determineCardSchedule(response: ReviewResponse, card: Card): RepItemScheduleInfo;
     processReview(response: ReviewResponse): Promise<void>;
     updateCurrentQuestionTextAndCards(text: string): Promise<void>;
@@ -261,6 +262,12 @@ export class FlashcardReviewSequencer implements IFlashcardReviewSequencer {
     }
 
     skipCurrentCard(): void {
+        this.cardSequencer.deleteCurrentQuestionFromAllDecks();
+    }
+
+    async buryCurrentQuestion(): Promise<void> {
+        this.questionPostponementList.add(this.currentQuestion);
+        await this.questionPostponementList.write();
         this.cardSequencer.deleteCurrentQuestionFromAllDecks();
     }
 

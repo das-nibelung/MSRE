@@ -33,15 +33,18 @@ The editor context menu can also create basic, two-way, and cloze cards from a
 selection. The file menu opens the browser already filtered to the current note.
 Inside the browser, cards can be narrowed by scheduling state and deck, then
 sorted by due status, question, or source note without rescanning Markdown.
-Each browser row can be edited in place or opened in its source note. Its
-context menu exposes a confirmed progress reset, while scheduled cards show
-their due date, interval, and ease. Edits still write back to the original
-Markdown question, preserving Obsidian as the source of truth.
+Each browser row can be edited in place or opened in its source note. A native
+overflow menu keeps secondary actions out of the main interface: bury until
+tomorrow, confirmed progress reset, and confirmed source deletion. Scheduled
+cards show their due date, interval, and ease. Edits still write back to the
+original Markdown question, preserving Obsidian as the source of truth.
 
 The browser supports persistent multi-selection across filters, selecting all
-current search results, and resetting the selected schedules in one confirmed
-operation. When the browser is scoped to a note, its review button starts that
-note's queue directly instead of returning to the global deck picker.
+current search results, resetting the selected schedules in one confirmed
+operation, and burying a selection until tomorrow. The review-session overflow
+menu exposes the same bury action. When the browser is scoped to a note, its
+review button starts that note's queue directly instead of returning to the
+global deck picker.
 
 ## Incremental card index
 

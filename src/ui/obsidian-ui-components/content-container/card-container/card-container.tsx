@@ -60,6 +60,7 @@ export class CardContainer {
         showAnswerHandler: () => void,
         jumpToCurrentCardHandler: () => Promise<void>,
         displayCurrentCardInfoNoticeHandler: () => void,
+        buryCurrentCardHandler: () => Promise<void>,
         closeModal?: () => void,
     ) {
         // Init properties
@@ -85,6 +86,7 @@ export class CardContainer {
             editCardHandler,
             jumpToCurrentCardHandler,
             displayCurrentCardInfoNoticeHandler,
+            buryCurrentCardHandler,
             this.skipCardHandler,
             () => {
                 new ConfirmationModal(

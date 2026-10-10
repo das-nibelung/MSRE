@@ -128,6 +128,7 @@ export default class ContentManager {
             this._showAnswer.bind(this),
             this._jumpToCurrentCard.bind(this),
             this._displayCurrentCardInfoNotice.bind(this),
+            () => this._buryCurrentCard(),
             closeModal,
         );
     }
@@ -467,6 +468,13 @@ export default class ContentManager {
     public async _skipCurrentCard() {
         if (this.reviewSequencer === null) return;
         this.reviewSequencer.skipCurrentCard();
+        await this._showNextCard();
+    }
+
+    public async _buryCurrentCard() {
+        if (this.reviewSequencer === null) return;
+        await this.reviewSequencer.buryCurrentQuestion();
+        new Notice(t("CARD_BURIED_UNTIL_TOMORROW"));
         await this._showNextCard();
     }
 

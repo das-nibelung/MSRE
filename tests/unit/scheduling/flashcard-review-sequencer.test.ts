@@ -424,6 +424,23 @@ describe("skipCurrentCard", () => {
     });
 });
 
+describe("buryCurrentQuestion", () => {
+    test("Buries the whole question until the next day and advances the queue", async () => {
+        const c: TestContext = await setupSample1(FlashcardReviewMode.Review, DEFAULT_SETTINGS);
+        expect(c.reviewSequencer.currentCard.front).toEqual("Q2");
+        const buriedHash = c.reviewSequencer.currentQuestion.questionText.textHash;
+
+        await c.reviewSequencer.buryCurrentQuestion();
+
+        expect(c.questionPostponementList.list).toContain(buriedHash);
+        expect(c.questionPostponementList.list).toHaveLength(1);
+        expect(c.reviewSequencer.currentCard.front).toEqual("Q1");
+
+        await c.setSequencerDeckTreeFromOriginalText();
+        expect(c.reviewSequencer.currentCard.front).toEqual("Q1");
+    });
+});
+
 describe("processReview", () => {
     describe("FlashcardReviewMode.Review", () => {
         describe("ReviewResponse.Reset", () => {

@@ -102,6 +102,15 @@ const ru: IBaseLocale = {
     CONFIRM_SELECTED_PROGRESS_RESET:
         "Сбросить прогресс ${count} выбранных карточек? Их история повторений будет заменена начальным расписанием.",
     CARD_PROGRESS_RESET_COUNT: "Сброшен прогресс карточек: ${count}.",
+    MORE_ACTIONS: "Другие действия",
+    BURY_UNTIL_TOMORROW: "Отложить до завтра",
+    BURY_SELECTED_UNTIL_TOMORROW: "Отложить выбранные до завтра",
+    CARD_BURIED_UNTIL_TOMORROW: "Карточка отложена до завтра.",
+    CARDS_BURIED_UNTIL_TOMORROW: "До завтра отложено карточек: ${count}.",
+    DELETE_CARD_SOURCE: "Удалить источник карточки",
+    DELETE_CARD_SOURCE_CONFIRMATION:
+        "Удалить исходный текст карточки из заметки? Созданные из того же источника обратные карточки и пропуски также будут удалены.",
+    CARD_SOURCE_DELETED: "Источник карточки удалён.",
 
     // scheduling.ts
     DAYS_STR_IVL: "${interval} дней",

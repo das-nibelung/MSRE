@@ -15,6 +15,7 @@ export default class CardMenuButtonComponent extends MenuButtonComponent {
         editClickHandler: () => void,
         jumpToCurrentCard: () => Promise<void>,
         displayCurrentCardInfoNotice: () => void,
+        buryCurrentCard: () => Promise<void>,
         skipCurrentCard: () => void,
         onOpenResetModalClick: () => void,
         closeModal?: () => void,
@@ -35,6 +36,7 @@ export default class CardMenuButtonComponent extends MenuButtonComponent {
                     skipCurrentCard,
                     jumpToCurrentCard,
                     displayCurrentCardInfoNotice,
+                    buryCurrentCard,
                     deleteCurrentCard,
                     closeModal,
                 );
@@ -60,6 +62,7 @@ export default class CardMenuButtonComponent extends MenuButtonComponent {
         skipCurrentCard: () => void,
         jumpToCurrentCard: () => Promise<void>,
         displayCurrentCardInfoNotice: () => void,
+        buryCurrentCard: () => Promise<void>,
         deleteCurrentCard: () => void,
         closeModal?: () => void,
     ) {
@@ -123,10 +126,17 @@ export default class CardMenuButtonComponent extends MenuButtonComponent {
                     displayCurrentCardInfoNotice();
                 });
         });
+        cardMenu.addItem((item) => {
+            item.setTitle(t("BURY_UNTIL_TOMORROW"))
+                .setIcon("moon")
+                .onClick(() => void buryCurrentCard());
+        });
         if (showDeleteButton) {
+            cardMenu.addSeparator();
             cardMenu.addItem((item) => {
                 item.setTitle(t("DELETE_CARD"))
                     .setIcon("trash")
+                    .setWarning(true)
                     .onClick(() => {
                         deleteCurrentCard();
                     });

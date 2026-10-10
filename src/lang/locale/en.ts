@@ -466,6 +466,15 @@ const en: IBaseLocale = {
     CONFIRM_SELECTED_PROGRESS_RESET:
         "Reset the learning progress of ${count} selected cards? Their scheduling history will be replaced with the initial schedule.",
     CARD_PROGRESS_RESET_COUNT: "Progress reset for ${count} cards.",
+    MORE_ACTIONS: "More actions",
+    BURY_UNTIL_TOMORROW: "Bury until tomorrow",
+    BURY_SELECTED_UNTIL_TOMORROW: "Bury selected until tomorrow",
+    CARD_BURIED_UNTIL_TOMORROW: "Card buried until tomorrow.",
+    CARDS_BURIED_UNTIL_TOMORROW: "${count} cards buried until tomorrow.",
+    DELETE_CARD_SOURCE: "Delete card source",
+    DELETE_CARD_SOURCE_CONFIRMATION:
+        "Delete this card's source text from the note? Reversed and cloze cards generated from the same source will also be deleted.",
+    CARD_SOURCE_DELETED: "Card source deleted.",
 };
 
 export default en;

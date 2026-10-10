@@ -2,6 +2,7 @@ import { App, Notice } from "obsidian";
 
 import { DataStore } from "src/data/data-store/base/data-store";
 import { Card } from "src/data/data-structures/card/card";
+import { IQuestionPostponementList } from "src/data/data-structures/card/questions/question-postponement-list";
 import { CardFrontBackUtil } from "src/data/data-structures/card/questions/question-type";
 import { SRSettings } from "src/data/settings";
 import { t } from "src/lang/helpers";
@@ -67,4 +68,25 @@ export async function resetCardsProgress(cards: Card[]): Promise<number> {
         new Notice(t("CARD_PROGRESS_RESET_COUNT", { count: scheduledCards.length }));
     }
     return scheduledCards.length;
+}
+
+export async function buryCardsUntilTomorrow(
+    cards: Card[],
+    postponementList: IQuestionPostponementList,
+): Promise<number> {
+    const questions = [...new Set(cards.map((card) => card.question))].filter(
+        (question) => !postponementList.includes(question),
+    );
+    for (const question of questions) {
+        postponementList.add(question);
+    }
+    if (questions.length > 0) {
+        await postponementList.write();
+        new Notice(
+            questions.length === 1
+                ? t("CARD_BURIED_UNTIL_TOMORROW")
+                : t("CARDS_BURIED_UNTIL_TOMORROW", { count: questions.length }),
+        );
+    }
+    return questions.length;
 }
