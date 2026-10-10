@@ -1,12 +1,12 @@
 {
-    "id": "obsidian-spaced-repetition",
-    "name": "Spaced Repetition",
-    "version": "1.15.4",
+    "id": "personal-spaced-repetition",
+    "name": "Personal Spaced Repetition",
+    "version": "1.15.4-personal.1",
     "minAppVersion": "1.2.8",
-    "description": "Fight the forgetting curve by reviewing flashcards & entire notes using spaced repetition. Organize your flashcards into decks and learn only the cards you need to recall.",
-    "author": "Stephen Mwangi",
-    "authorUrl": "https://github.com/st3v3nmw",
-    "helpUrl": "https://stephenmwangi.com/obsidian-spaced-repetition/",
+    "description": "A personal, mobile-compatible fork of Spaced Repetition for reviewing flashcards and notes in Obsidian.",
+    "author": "das-nibelung; based on work by Stephen Mwangi and contributors",
+    "authorUrl": "https://github.com/das-nibelung",
+    "helpUrl": "https://github.com/das-nibelung/MSRE",
     "isDesktopOnly": false,
     "fundingUrl": "https://ko-fi.com/M4M44DEN6"
 }
