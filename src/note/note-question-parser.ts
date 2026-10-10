@@ -126,12 +126,14 @@ export class NoteQuestionParser {
             );
 
             // And if the card has been reviewed, then scheduling info as well
-            // TODO: Replace question hash with a blockid -> read & write
+            // Existing block IDs provide a stable identity across text edits and note moves.
+            const storageInfo = new RepItemStorageInfo(
+                this.noteFile.path,
+                question.questionText.textHash,
+                question.questionText.obsidianBlockId ?? undefined,
+            );
             let cardScheduleInfoList: RepItemScheduleInfo[] =
-                DataStore.getInstance().createSchedule(
-                    question.questionText.original,
-                    new RepItemStorageInfo(this.noteFile.path, question.questionText.textHash),
-                );
+                DataStore.getInstance().createSchedule(question.questionText.original, storageInfo);
 
             // we have some extra scheduling dates to delete
             const correctLength = cardFrontBackList.length;
@@ -141,7 +143,11 @@ export class NoteQuestionParser {
             }
 
             // Create the list of card objects, and attach to the question
-            const cardList: Card[] = this.createCardList(cardFrontBackList, cardScheduleInfoList);
+            const cardList: Card[] = this.createCardList(
+                cardFrontBackList,
+                cardScheduleInfoList,
+                storageInfo,
+            );
             question.setCardList(cardList);
             result.push(question);
         }
@@ -183,6 +189,7 @@ export class NoteQuestionParser {
     private createCardList(
         cardFrontBackList: CardFrontBack[],
         cardScheduleInfoList: RepItemScheduleInfo[],
+        storageInfo: RepItemStorageInfo,
     ): Card[] {
         const siblings: Card[] = [];
 
@@ -197,6 +204,13 @@ export class NoteQuestionParser {
                 front,
                 back,
                 cardIdx: i,
+                storageInfo: storageInfo.questionId
+                    ? new RepItemStorageInfo(
+                          storageInfo.notePath ?? undefined,
+                          storageInfo.questionHash ?? undefined,
+                          storageInfo.questionId,
+                      )
+                    : null,
             });
 
             cardObj.scheduleInfo = hasScheduleInfo ? schedule : null;

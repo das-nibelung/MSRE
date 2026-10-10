@@ -30,6 +30,11 @@ those notes are reparsed. The remaining in-memory deck tree and note-review
 queue stay intact. Large batches and structural folder changes automatically
 fall back to a full, safe rebuild.
 
+On first review, each question receives a persistent Obsidian block ID such as
+`^sr-data-id-…`. Existing user-created block IDs are preserved. Together with
+the sibling card number, this gives every card a stable identity that survives
+question text edits and moves within the vault.
+
 Markdown remains the source of truth. The index is safe to discard and is not
 written into the vault, so it does not create sync conflicts between desktop
 and mobile devices. If IndexedDB is unavailable, the plugin falls back to an

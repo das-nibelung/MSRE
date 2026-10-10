@@ -78,6 +78,7 @@ export class NotesDataStore implements IDataStore {
      * @returns
      */
     async writeSchedule(question: Question): Promise<void> {
+        question.ensureStableId();
         await this.write(question);
     }
 

@@ -42,6 +42,10 @@ const clozeQuestion1Card1: RegExp = /This single.+\.\.\..+turns into 3 separate 
 const clozeQuestion1Card2: RegExp = /This single question turns into.+\.\.\..+cards/;
 const clozeQuestion1Card3: RegExp = /This single question turns into 3 separate.+\.\.\./;
 
+function withoutGeneratedStableIds(text: string): string {
+    return text.replace(/ \^sr-data-id-[a-zA-Z0-9-]+/g, "");
+}
+
 class TestContext {
     settings: SRSettings;
     reviewMode: FlashcardReviewMode;
@@ -189,7 +193,7 @@ async function checkReviewResponseReviewMode(
         info.cardQ2PreReviewText,
         info.cardQ2PostReviewText,
     );
-    expect(await c.file.read()).toEqual(expectedText);
+    expect(withoutGeneratedStableIds(await c.file.read())).toEqual(expectedText);
 }
 
 async function checkReviewResponseCramMode(reviewResponse: ReviewResponse): Promise<TestContext> {
@@ -851,7 +855,7 @@ $$\\huge F_g=\\frac {G m_1 m_2}{d^2}$$`;
 <!--SR:!2023-09-10,4,270-->`;
 
             const actual: string = await c.file.read();
-            expect(actual).toEqual(expectedFileText);
+            expect(withoutGeneratedStableIds(actual)).toEqual(expectedFileText);
         });
     });
 
@@ -881,7 +885,7 @@ ${indent}- bar?::baz
             // After reviewing, check the text (explicitly text includes the whitespace before "- bar?::baz"at)
             await c.reviewSequencer.processReview(ReviewResponse.Easy);
             const expectedText: string = `${text}<!--SR:!2023-09-10,4,270-->\n`;
-            expect(await c.file.read()).toEqual(expectedText);
+            expect(withoutGeneratedStableIds(await c.file.read())).toEqual(expectedText);
         });
     });
 
@@ -1311,7 +1315,7 @@ ${updatedStr}
 
 #flashcards Q3::A3`;
 
-        expect(await c.file.read()).toEqual(expectedText);
+        expect(withoutGeneratedStableIds(await c.file.read())).toEqual(expectedText);
     });
 });
 

@@ -46,6 +46,7 @@ function serializeCard(card: Card): SerializedCard {
             ? {
                   notePath: card.storageInfo.notePath,
                   questionHash: card.storageInfo.questionHash,
+                  questionId: card.storageInfo.questionId,
               }
             : null,
     };
@@ -102,6 +103,7 @@ function deserializeCard(value: SerializedCard): Card {
             ? new RepItemStorageInfo(
                   value.storageInfo.notePath ?? undefined,
                   value.storageInfo.questionHash ?? undefined,
+                  value.storageInfo.questionId ?? undefined,
               )
             : null,
     });
