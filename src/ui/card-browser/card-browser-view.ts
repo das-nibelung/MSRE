@@ -38,6 +38,8 @@ const PAGE_SIZE = 100;
 function compactCardText(value: string): string {
     return value
         .replace(/<!--SR:[\s\S]*?-->/g, "")
+        .replace(/!\[\[[^\]]+\]\]/g, "")
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
         .replace(/<[^>]*>/g, " ")
         .replace(/\s+/g, " ")
         .trim();
@@ -252,9 +254,9 @@ export class CardBrowserView extends ItemView {
         ]);
         const deckRow = toolbar.createDiv("sr-card-browser-deck-row");
         deckRow.createSpan({ cls: "sr-card-browser-deck-label", text: t("DECK") });
+        const selectedDeckLabel = this.deck === "all" ? t("ALL_DECKS") : this.deck;
         const deckButton = new ButtonComponent(deckRow)
-            .setButtonText(this.deck === "all" ? t("ALL_DECKS") : this.deck)
-            .setIcon("folder")
+            .setIcon(this.deck === "all" ? "layers-3" : "folder")
             .setClass("sr-card-browser-filter")
             .onClick(() => {
                 new DeckPickerModal(this.app, {
@@ -270,6 +272,13 @@ export class CardBrowserView extends ItemView {
                         await new NativeCardStore(this.plugin).createDeck(value),
                 }).open();
             });
+        deckButton.buttonEl.setAttribute("aria-label", `${t("DECK")}: ${selectedDeckLabel}`);
+        deckButton.buttonEl.createSpan({
+            cls: "sr-card-browser-deck-value",
+            text: selectedDeckLabel,
+        });
+        const deckChevron = deckButton.buttonEl.createSpan("sr-card-browser-filter-icon");
+        setIcon(deckChevron, "chevron-down");
         deckButton.buttonEl.toggleClass("is-filtered", this.deck !== "all");
 
         const filterRow = toolbar.createDiv("sr-card-browser-filter-row");
@@ -570,10 +579,12 @@ export class CardBrowserView extends ItemView {
             },
         });
         const main = body.createDiv("sr-card-browser-row-main");
-        main.createDiv("sr-card-browser-front").setText(
-            compactCardText(record.front) || t("MEDIA_CARD"),
-        );
-        main.createDiv("sr-card-browser-back").setText(compactCardText(record.back));
+        const frontText = compactCardText(record.front) || t("MEDIA_CARD");
+        const backText = compactCardText(record.back);
+        main.createDiv("sr-card-browser-front").setText(frontText);
+        if (backText && backText !== frontText) {
+            main.createDiv("sr-card-browser-back").setText(backText);
+        }
 
         const meta = body.createDiv("sr-card-browser-row-meta");
         const visualState =
@@ -603,7 +614,8 @@ export class CardBrowserView extends ItemView {
             meta.createSpan("sr-card-browser-tag").setText(`#${tag}`);
         }
 
-        const flagButton = new ButtonComponent(row)
+        const tools = row.createDiv("sr-card-browser-row-tools");
+        const flagButton = new ButtonComponent(tools)
             .setIcon("flag")
             .setTooltip(this.getFlagOptions(false)[String(record.flag)])
             .setClass("sr-card-browser-flag")
@@ -612,7 +624,7 @@ export class CardBrowserView extends ItemView {
         flagButton.buttonEl.toggleClass("is-empty", record.flag === 0);
         flagButton.buttonEl.addEventListener("click", (event) => event.stopPropagation());
 
-        const actionsButton = new ButtonComponent(row)
+        const actionsButton = new ButtonComponent(tools)
             .setIcon("ellipsis")
             .setTooltip(t("OPEN_MENU"))
             .setClass("sr-card-browser-actions")

@@ -94,7 +94,6 @@ export class NativeCreatorView extends ItemView {
     private readonly store: NativeCardStore;
     private selectedDeck = "";
     private cardType: NativeCardType = "basic";
-    private cardVariants = new Set<NativeCardType>(["basic"]);
     private answerMode: "reveal" | "type" = "reveal";
     private front = "";
     private back = "";
@@ -219,6 +218,7 @@ export class NativeCreatorView extends ItemView {
                 if (structuredCard) this.selectedDeck = structuredCard.deckPath;
             } else {
                 this.loadCardForEditing(this.editingCard);
+                this.selectedNoteTypeId = this.noteTypeIdForCardType(this.cardType);
                 if (structuredNote?.answerMode) this.answerMode = structuredNote.answerMode;
                 this.front = this.extractMediaEmbeds(this.front, "front");
                 this.back = this.extractMediaEmbeds(this.back, "back");
@@ -230,6 +230,7 @@ export class NativeCreatorView extends ItemView {
                 source.storageInfo?.questionId,
             );
             this.loadCardForEditing(source);
+            this.selectedNoteTypeId = this.noteTypeIdForCardType(this.cardType);
             if (structuredNote?.answerMode) this.answerMode = structuredNote.answerMode;
             this.tagsText = structuredNote?.tags.join(", ") ?? "";
             this.front = this.extractMediaEmbeds(this.front, "front");
@@ -238,6 +239,7 @@ export class NativeCreatorView extends ItemView {
             this.front = "";
             this.back = "";
             this.cardType = "basic";
+            this.selectedNoteTypeId = BASIC_NOTE_TYPE_ID;
             this.answerMode = "reveal";
             this.customFieldValues = {};
             this.tagsText = "";
@@ -402,12 +404,17 @@ export class NativeCreatorView extends ItemView {
             this.renderCustomNoteFields(surface, editingCustomType);
             return;
         } else if (this.editingCard) {
-            const typeSwitcher = typeGroup.createDiv("sr-native-card-type-switcher");
-            this.createCardTypeButton(typeSwitcher, "basic", t("CARD_TYPE_BASIC"), true);
-            this.createCardTypeButton(typeSwitcher, "reversed", t("CARD_TYPE_REVERSED"), true);
-            this.createCardTypeButton(typeSwitcher, "cloze", t("CARD_TYPE_CLOZE"), true);
+            typeGroup.createDiv({
+                cls: "sr-native-readonly-value",
+                text: this.getNativeCardTypeLabel(this.cardType),
+            });
         } else {
-            const noteType = this.getSelectedNoteType();
+            let noteType = this.getSelectedNoteType();
+            if (noteType.id === IMAGE_OCCLUSION_NOTE_TYPE_ID) {
+                this.selectedNoteTypeId = BASIC_NOTE_TYPE_ID;
+                this.cardType = "basic";
+                noteType = this.getSelectedNoteType();
+            }
             const picker = new ButtonComponent(typeGroup)
                 .setButtonText(this.getNoteTypeDisplayName(noteType))
                 .setClass("sr-native-picker")
@@ -421,60 +428,10 @@ export class NativeCreatorView extends ItemView {
             }
         }
 
-        if (!this.editingCard) {
-            const occlusion = surface.createEl("button", {
-                cls: "sr-native-occlusion-entry",
-                attr: { type: "button" },
-            });
-            const occlusionIcon = occlusion.createSpan("sr-native-occlusion-entry-icon");
-            setIcon(occlusionIcon, "scan");
-            const occlusionCopy = occlusion.createSpan("sr-native-occlusion-entry-copy");
-            occlusionCopy.createEl("strong", { text: t("IMAGE_OCCLUSION") });
-            occlusionCopy.createSpan({ text: t("IMAGE_OCCLUSION_SHORT_HELP") });
-            const arrow = occlusion.createSpan("sr-native-occlusion-entry-arrow");
-            setIcon(arrow, "chevron-right");
-            occlusion.addEventListener("click", () => {
-                this.request = { mode: "image-occlusion", deckPath: this.selectedDeck };
-                this.error = "";
-                this.render();
-            });
-
-            const variants = this.createFieldGroup(
-                surface,
-                t("CARD_VARIANTS"),
-                t("CARD_VARIANTS_HELP"),
-            );
-            const variantPicker = variants.createDiv(
-                "sr-native-card-type-switcher sr-native-variant-picker",
-            );
-            for (const [type, label] of [
-                ["basic", t("CARD_VARIANT_FORWARD")],
-                ["reversed", t("CARD_VARIANT_REVERSE")],
-                ["cloze", t("CARD_TYPE_CLOZE")],
-            ] as const) {
-                const button = new ButtonComponent(variantPicker).setButtonText(label);
-                button.buttonEl.toggleClass("is-active", this.cardVariants.has(type));
-                button.buttonEl.setAttribute("aria-pressed", String(this.cardVariants.has(type)));
-                button.onClick(() => {
-                    if (this.cardVariants.has(type)) {
-                        if (this.cardVariants.size > 1) this.cardVariants.delete(type);
-                    } else {
-                        this.cardVariants.add(type);
-                    }
-                    this.cardType =
-                        this.cardVariants.size === 1 && this.cardVariants.has("cloze")
-                            ? "cloze"
-                            : "basic";
-                    this.error = "";
-                    this.saveDraft();
-                    this.render();
-                });
-            }
-        }
-
         const frontLabel = this.cardType === "cloze" ? t("CLOZE_TEXT") : t("CARD_FRONT");
         const frontHelp = this.cardType === "cloze" ? t("CLOZE_TEXT_HELP") : undefined;
-        const frontGroup = this.createFieldGroup(surface, frontLabel, frontHelp);
+        const cardFields = surface.createDiv("sr-native-card-fields");
+        const frontGroup = this.createFieldGroup(cardFields, frontLabel, frontHelp);
         const frontInput = this.createRichTextEditor(
             frontGroup,
             this.front,
@@ -486,7 +443,7 @@ export class NativeCreatorView extends ItemView {
         this.renderMediaControls(frontGroup, "front");
 
         const backGroup = this.createFieldGroup(
-            surface,
+            cardFields,
             this.cardType === "cloze" ? t("CLOZE_ANSWER") : t("CARD_BACK"),
             this.cardType === "cloze" ? t("CLOZE_ANSWER_HELP") : undefined,
         );
@@ -2434,7 +2391,8 @@ export class NativeCreatorView extends ItemView {
                 front: this.front,
                 back: this.back,
                 deckPath: this.selectedDeck,
-                cardVariants: [...this.cardVariants],
+                cardType: this.cardType,
+                selectedNoteTypeId: this.selectedNoteTypeId,
                 answerMode: this.answerMode,
                 tagsText: this.tagsText,
             }),
@@ -2453,6 +2411,8 @@ export class NativeCreatorView extends ItemView {
                 front?: string;
                 back?: string;
                 deckPath?: string;
+                cardType?: NativeCardType;
+                selectedNoteTypeId?: string;
                 cardVariants?: NativeCardType[];
                 answerMode?: "reveal" | "type";
                 tagsText?: string;
@@ -2460,9 +2420,14 @@ export class NativeCreatorView extends ItemView {
             this.front = draft.front ?? "";
             this.back = draft.back ?? "";
             this.selectedDeck = draft.deckPath ?? this.selectedDeck;
-            this.cardVariants = new Set(
-                draft.cardVariants?.length ? draft.cardVariants : ["basic"],
-            );
+            const restoredType =
+                draft.cardType ??
+                draft.cardVariants?.find((type) => type === "cloze") ??
+                draft.cardVariants?.[0] ??
+                "basic";
+            this.cardType = restoredType;
+            this.selectedNoteTypeId =
+                draft.selectedNoteTypeId ?? this.noteTypeIdForCardType(restoredType);
             this.answerMode = draft.answerMode ?? "reveal";
             this.tagsText = draft.tagsText ?? "";
             if (this.front || this.back) new Notice(t("DRAFT_RESTORED"));
@@ -2501,25 +2466,6 @@ export class NativeCreatorView extends ItemView {
             .filter(Boolean);
     }
 
-    private createCardTypeButton(
-        parent: HTMLElement,
-        type: NativeCardType,
-        label: string,
-        disabled = false,
-    ): void {
-        const button = new ButtonComponent(parent)
-            .setButtonText(label)
-            .setDisabled(disabled && this.cardType !== type)
-            .onClick(() => {
-                if (disabled) return;
-                this.cardType = type;
-                this.error = "";
-                this.render();
-            });
-        button.buttonEl.toggleClass("is-active", this.cardType === type);
-        button.buttonEl.setAttribute("aria-pressed", String(this.cardType === type));
-    }
-
     private openDeckMenu(_event: MouseEvent): void {
         new DeckPickerModal(this.app, {
             decks: this.store.getDeckPaths(),
@@ -2550,26 +2496,48 @@ export class NativeCreatorView extends ItemView {
         return noteType.name;
     }
 
+    private getNativeCardTypeLabel(type: NativeCardType): string {
+        if (type === "reversed") return t("CARD_TYPE_REVERSED");
+        if (type === "cloze") return t("CARD_TYPE_CLOZE");
+        return t("CARD_TYPE_BASIC");
+    }
+
+    private noteTypeIdForCardType(type: NativeCardType): string {
+        if (type === "reversed") return REVERSED_NOTE_TYPE_ID;
+        if (type === "cloze") return CLOZE_NOTE_TYPE_ID;
+        return BASIC_NOTE_TYPE_ID;
+    }
+
     private openNoteTypeMenu(event: MouseEvent): void {
         const menu = new Menu();
         for (const noteType of this.plugin.dataManager.collectionStore.getNoteTypes()) {
             menu.addItem((item) =>
                 item
                     .setTitle(this.getNoteTypeDisplayName(noteType))
-                    .setIcon(noteType.kind === "cloze" ? "scan-text" : "layout-template")
+                    .setIcon(
+                        noteType.kind === "image-occlusion"
+                            ? "scan"
+                            : noteType.kind === "cloze"
+                              ? "scan-text"
+                              : "layout-template",
+                    )
                     .setChecked(noteType.id === this.selectedNoteTypeId)
                     .onClick(() => {
+                        if (noteType.id === IMAGE_OCCLUSION_NOTE_TYPE_ID) {
+                            this.request = {
+                                mode: "image-occlusion",
+                                deckPath: this.selectedDeck,
+                            };
+                            this.error = "";
+                            this.render();
+                            return;
+                        }
                         this.selectedNoteTypeId = noteType.id;
                         if (noteType.id === BASIC_NOTE_TYPE_ID) this.cardType = "basic";
                         else if (noteType.id === REVERSED_NOTE_TYPE_ID) this.cardType = "reversed";
                         else if (noteType.id === CLOZE_NOTE_TYPE_ID) this.cardType = "cloze";
-                        if (noteType.id === BASIC_NOTE_TYPE_ID)
-                            this.cardVariants = new Set(["basic"]);
-                        else if (noteType.id === REVERSED_NOTE_TYPE_ID)
-                            this.cardVariants = new Set(["reversed"]);
-                        else if (noteType.id === CLOZE_NOTE_TYPE_ID)
-                            this.cardVariants = new Set(["cloze"]);
                         this.error = "";
+                        this.saveDraft();
                         this.render();
                     }),
             );
@@ -2714,9 +2682,7 @@ export class NativeCreatorView extends ItemView {
     }
 
     private async saveCard(addAnother: boolean): Promise<void> {
-        const includesCloze = this.editingCard
-            ? this.cardType === "cloze"
-            : this.cardVariants.has("cloze");
+        const includesCloze = this.cardType === "cloze";
         const fieldsMissing = includesCloze
             ? !this.front.trim() || !this.back.trim()
             : (!this.front.trim() && !this.hasPendingMedia("front")) ||
@@ -2746,15 +2712,7 @@ export class NativeCreatorView extends ItemView {
                 tags: this.getTags(),
             };
             if (this.editingCard) await this.saveEditedCard(draft);
-            else {
-                const types = [...this.cardVariants];
-                await this.store.createCards(
-                    types.map((type) => ({
-                        ...draft,
-                        type,
-                    })),
-                );
-            }
+            else await this.store.createCards([draft]);
             new Notice(this.editingCard ? t("CARD_UPDATED") : t("CARD_SAVED"));
             this.clearDraft();
             if (addAnother) {

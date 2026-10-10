@@ -700,6 +700,8 @@
 
 /* src/ui/obsidian-ui-components/content-container/card-container/response-section/response-section.css */
 .sr-response {
+  position: relative;
+  z-index: 4;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--size-4-2);
@@ -710,6 +712,7 @@
     color-mix(in srgb, var(--background-modifier-border) 76%, transparent);
   background: color-mix(in srgb, var(--background-primary) 88%, transparent);
   backdrop-filter: blur(22px) saturate(1.15);
+  flex: 0 0 auto;
   &.is-cram {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2948,7 +2951,7 @@ th.gridjs-th:last-child {
   min-width: 0;
   min-height: 40px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: var(--size-4-2);
   padding: 0 var(--size-4-3);
   overflow: hidden;
@@ -2958,6 +2961,19 @@ th.gridjs-th:last-child {
   box-shadow: none;
   color: var(--text-normal);
   font-weight: var(--font-medium);
+}
+.sr-card-browser-deck-row .sr-card-browser-filter > svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: var(--interactive-accent);
+}
+.sr-card-browser-deck-value {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sr-card-browser-filter-row .sr-card-browser-filter {
   display: flex;
@@ -3033,20 +3049,20 @@ th.gridjs-th:last-child {
 .sr-card-browser-list {
   display: flex;
   flex-direction: column;
-  gap: var(--size-4-2);
+  gap: 10px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-bottom: max(var(--size-4-6), var(--safe-area-inset-bottom));
 }
 .sr-card-browser-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  align-items: start;
   width: 100%;
-  min-height: 4.25rem;
+  min-height: 6.25rem;
   height: auto;
-  padding: var(--size-4-3);
-  gap: var(--size-2-2);
+  padding: 14px 12px;
+  column-gap: 10px;
   color: var(--text-normal);
   background: var(--background-secondary);
   border: 1px solid
@@ -3064,20 +3080,38 @@ th.gridjs-th:last-child {
 }
 .sr-card-browser-row-body {
   display: flex;
-  flex: 1 1 auto;
+  grid-column: 2;
   min-width: 0;
   flex-direction: column;
-  gap: var(--size-2-2);
+  gap: 8px;
   cursor: pointer;
 }
 .sr-card-browser-select {
   display: flex;
   flex: 0 0 auto;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   min-width: 40px;
   min-height: 40px;
   cursor: pointer;
+}
+.sr-card-browser-row-tools {
+  display: flex;
+  grid-column: 3;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.sr-card-browser-row-tools button {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
 }
 .sr-card-browser-checkbox {
   flex: 0 0 auto;
@@ -3102,7 +3136,7 @@ th.gridjs-th:last-child {
 }
 .sr-card-browser-actions {
   flex: 0 0 auto;
-  margin-inline-start: var(--size-4-2);
+  margin: 0;
   opacity: 0;
 }
 .sr-card-browser-row:hover .sr-card-browser-actions,
@@ -3117,23 +3151,28 @@ th.gridjs-th:last-child {
   min-height: 44px;
 }
 .sr-card-browser-row-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.82fr);
   gap: var(--size-4-3);
   min-width: 0;
 }
 .sr-card-browser-front,
 .sr-card-browser-back {
-  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
+  display: -webkit-box;
   text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
 }
 .sr-card-browser-front {
   font-weight: var(--font-semibold);
   line-height: 1.35;
+  -webkit-line-clamp: 2;
 }
 .sr-card-browser-back {
   color: var(--text-muted);
   line-height: 1.35;
+  -webkit-line-clamp: 2;
 }
 .sr-card-browser-row-meta {
   gap: var(--size-4-2);
@@ -3143,6 +3182,9 @@ th.gridjs-th:last-child {
   font-size: var(--font-ui-smaller);
 }
 .sr-card-browser-path {
+  min-width: 0;
+  flex: 1 1 100%;
+  width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3178,6 +3220,7 @@ th.gridjs-th:last-child {
 }
 .sr-card-browser-inline-editor {
   display: grid;
+  grid-column: 1 / -1;
   width: 100%;
   padding: 12px;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -3337,6 +3380,7 @@ th.gridjs-th:last-child {
     padding: 0;
   }
   .sr-card-browser-insights {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
   }
   .sr-card-browser-insight {
@@ -3347,9 +3391,8 @@ th.gridjs-th:last-child {
     font-size: var(--font-ui-medium);
   }
   .sr-card-browser-row-main {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: var(--size-2-1);
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
   .sr-card-browser-filter-row {
     gap: 6px;
@@ -3397,6 +3440,26 @@ th.gridjs-th:last-child {
   }
   .sr-card-browser-back {
     font-size: var(--font-ui-small);
+    -webkit-line-clamp: 1;
+  }
+  .sr-card-browser-row {
+    min-height: 7rem;
+    padding: 14px 10px;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    column-gap: 8px;
+    border-radius: 16px;
+  }
+  .sr-card-browser-select {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .sr-card-browser-row-tools,
+  .sr-card-browser-row-tools button {
+    width: 44px;
+    min-width: 44px;
+  }
+  .sr-card-browser-row-meta {
+    gap: 6px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -3588,6 +3651,18 @@ th.gridjs-th:last-child {
 }
 .sr-native-card-editor {
   gap: 16px;
+}
+.sr-native-card-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 18px;
+  background: var(--background-primary);
+}
+.sr-native-card-fields .sr-native-rich-editor {
+  background: var(--background-primary-alt);
 }
 .sr-native-card-meta {
   display: grid;
@@ -4852,18 +4927,12 @@ th.gridjs-th:last-child {
     min-height: 112px;
   }
   .sr-native-card-editor .sr-native-form-actions {
-    position: sticky;
-    z-index: 4;
-    bottom: max(0px, env(safe-area-inset-bottom));
-    margin: 0 -18px -18px;
-    padding: 10px 18px max(10px, env(safe-area-inset-bottom));
-    border-top: 1px solid var(--background-modifier-border);
-    background: color-mix(
-      in srgb,
-      var(--background-secondary) 94%,
-      transparent
-    );
-    backdrop-filter: blur(18px);
+    position: static;
+    margin: 0;
+    padding: 4px 0 0;
+    border: 0;
+    background: transparent;
+    backdrop-filter: none;
   }
   .sr-native-options-grid {
     grid-template-columns: 1fr;
@@ -4914,8 +4983,15 @@ th.gridjs-th:last-child {
   .sr-native-creator-surface {
     padding-inline: 14px;
   }
+  .sr-native-card-fields {
+    gap: 12px;
+    padding: 14px;
+    border-radius: 16px;
+  }
   .sr-native-card-editor .sr-native-form-actions {
-    margin-inline: -14px;
-    padding-inline: 14px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    margin: 0;
+    padding: 4px 0 0;
   }
 }

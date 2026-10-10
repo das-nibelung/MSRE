@@ -85,6 +85,7 @@ export class CardContainer {
         card: HTMLElement;
     } | null = null;
     private workspaceGestureShieldEnabled = false;
+    private gestureActionPending = false;
 
     constructor(
         app: App,
@@ -220,6 +221,7 @@ export class CardContainer {
     }
 
     public async drawCardFront(sessionData: SessionData, settings: SRSettings) {
+        this.clearGestureState();
         this.typedAnswer = "";
         this.toolbar.setResetButtonDisabled(true);
         this.content.removeClass("sr-session-complete-screen");
@@ -503,6 +505,7 @@ export class CardContainer {
         settings: SRSettings,
         determineButtonSchedule: (response: ReviewResponse) => RepItemScheduleInfo | null,
     ) {
+        this.clearGestureState();
         this.activeReviewMode = reviewMode;
         this.setCustomHotKeyState(settings.useCustomHotkeys);
         this.content.removeClass("sr-session-complete-screen");
@@ -669,6 +672,10 @@ export class CardContainer {
     }
 
     private onGestureStart = (event: PointerEvent): void => {
+        if (this.gestureActionPending) {
+            this.gestureStart = null;
+            return;
+        }
         if (event.pointerType === "touch") {
             if (
                 event.target instanceof Node &&
@@ -867,6 +874,7 @@ export class CardContainer {
     private onWorkspaceTouchStart = (event: TouchEvent): void => {
         const target = event.target;
         if (
+            this.gestureActionPending ||
             event.touches.length !== 1 ||
             !(target instanceof Node) ||
             !this.content.contains(target) ||
@@ -1050,29 +1058,48 @@ export class CardContainer {
         direction: "left" | "right" | "up" | "down",
         action: () => void | Promise<void>,
     ): Promise<void> {
+        if (this.gestureActionPending) return;
+        this.gestureActionPending = true;
         const reduceMotion = activeWindow.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        if (!reduceMotion) {
-            const exitTransform =
-                direction === "left"
-                    ? "translate3d(-115vw, 0, 0) rotate(-8deg)"
-                    : direction === "right"
-                      ? "translate3d(115vw, 0, 0) rotate(8deg)"
-                      : direction === "up"
-                        ? "translate3d(0, -115vh, 0)"
-                        : "translate3d(0, 115vh, 0)";
-            const animation = card.animate(
-                [
-                    { transform: card.style.transform || "translate3d(0, 0, 0)", opacity: 1 },
-                    {
-                        transform: exitTransform,
-                        opacity: 0.05,
-                    },
-                ],
-                { duration: 180, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" },
-            );
-            await animation.finished.catch((): void => {});
+        try {
+            if (!reduceMotion) {
+                const exitTransform =
+                    direction === "left"
+                        ? "translate3d(-115vw, 0, 0) rotate(-8deg)"
+                        : direction === "right"
+                          ? "translate3d(115vw, 0, 0) rotate(8deg)"
+                          : direction === "up"
+                            ? "translate3d(0, -115vh, 0)"
+                            : "translate3d(0, 115vh, 0)";
+                const animation = card.animate(
+                    [
+                        {
+                            transform: card.style.transform || "translate3d(0, 0, 0)",
+                            opacity: 1,
+                        },
+                        {
+                            transform: exitTransform,
+                            opacity: 0.05,
+                        },
+                    ],
+                    { duration: 180, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" },
+                );
+                await animation.finished.catch((): void => {});
+                animation.cancel();
+            }
+            await this.resetGestureCard(card, false);
+            await action();
+        } finally {
+            if (card.isConnected) await this.resetGestureCard(card, false);
+            this.gestureActionPending = false;
         }
-        await action();
+    }
+
+    private clearGestureState(): void {
+        this.gestureStart = null;
+        this.workspaceTouchStart = null;
+        const card = this.content?.querySelector<HTMLElement>(".sr-study-card");
+        if (card) void this.resetGestureCard(card, false);
     }
 
     private revealAnswerFromCard(event: MouseEvent): void {

@@ -1,6 +1,8 @@
 /* MARK: Response */
 
 .sr-response {
+    position: relative;
+    z-index: 4;
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--size-4-2);
@@ -9,6 +11,7 @@
     border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 76%, transparent);
     background: color-mix(in srgb, var(--background-primary) 88%, transparent);
     backdrop-filter: blur(22px) saturate(1.15);
+    flex: 0 0 auto;
 
     &.is-cram {
         grid-template-columns: repeat(2, minmax(0, 1fr));
