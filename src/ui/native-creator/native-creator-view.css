@@ -16,10 +16,10 @@
 
 .sr-native-creator-top {
     display: grid;
-    grid-template-columns: 48px minmax(0, 1fr) auto;
-    gap: 14px;
-    align-items: start;
-    margin-bottom: 24px;
+    grid-template-columns: 48px minmax(0, 1fr) auto auto;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 18px;
 }
 
 .sr-native-icon-button {
@@ -61,6 +61,15 @@
     font-weight: var(--font-medium);
 }
 
+.sr-native-top-save {
+    grid-column: 4;
+    grid-row: 1;
+    min-height: 44px;
+    padding-inline: 18px;
+    border-radius: 13px;
+    font-weight: var(--font-semibold);
+}
+
 .sr-native-section-picker-icon,
 .sr-native-section-picker-icon svg,
 .sr-native-section-picker-chevron,
@@ -84,18 +93,30 @@
     gap: 16px;
 }
 
+.sr-native-creator-surface.sr-native-card-editor {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
 .sr-native-card-fields {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 16px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 18px;
-    background: var(--background-primary);
+    gap: 12px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
 }
 
 .sr-native-card-fields .sr-native-rich-editor {
-    background: var(--background-primary-alt);
+    background: var(--background-primary);
+}
+
+.sr-native-card-fields > .sr-native-field + .sr-native-field {
+    padding-top: 14px;
+    border-top: 1px solid var(--background-modifier-border);
 }
 
 .sr-native-card-meta {
@@ -304,6 +325,20 @@
     font-size: var(--font-ui-small);
 }
 
+.sr-native-duplicate-status {
+    margin-top: -2px;
+    padding: 8px 11px;
+    border: 1px solid color-mix(in srgb, var(--color-orange) 28%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--color-orange) 9%, transparent);
+    color: var(--color-orange);
+    font-size: var(--font-ui-smaller);
+}
+
+.sr-native-duplicate-status[hidden] {
+    display: none;
+}
+
 .sr-native-form-tip {
     padding: 12px 14px;
     border: 1px solid color-mix(in srgb, var(--color-blue) 24%, transparent);
@@ -382,6 +417,30 @@
     color: var(--text-muted);
     box-shadow: none;
     font-size: var(--font-ui-smaller);
+}
+
+.sr-native-media-button-icon {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 10px;
+    background: transparent;
+    touch-action: manipulation;
+}
+
+.sr-native-media-button-icon:focus-visible {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+@media (hover: hover) {
+    .sr-native-media-button-icon:hover {
+        background: var(--background-modifier-hover);
+        color: var(--text-normal);
+    }
 }
 
 .sr-native-media-button svg {
@@ -800,8 +859,8 @@
 
 .sr-native-rich-content,
 .sr-native-rich-preview {
-    min-height: 122px;
-    padding: 15px 16px;
+    min-height: 92px;
+    padding: 13px 14px;
     outline: none;
     font-size: 16px;
     line-height: 1.55;
@@ -1515,8 +1574,13 @@
     }
 
     .sr-native-creator-top {
-        grid-template-columns: 44px minmax(0, 1fr);
-        margin-bottom: 18px;
+        grid-template-columns: 44px minmax(0, 1fr) auto;
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+
+    .sr-native-creator-top-card .sr-native-creator-heading {
+        display: none;
     }
 
     .sr-native-section-picker {
@@ -1526,6 +1590,17 @@
         max-width: 100%;
     }
 
+    .sr-native-creator-top-card .sr-native-section-picker {
+        grid-row: 1;
+    }
+
+    .sr-native-top-save {
+        grid-column: 3;
+        grid-row: 1;
+        min-height: 44px;
+        padding-inline: 15px;
+    }
+
     .sr-native-creator-surface {
         gap: 19px;
         padding: 18px;
@@ -1533,15 +1608,17 @@
     }
 
     .sr-native-card-editor {
-        gap: 14px;
+        gap: 12px;
     }
 
-    .sr-native-card-editor .sr-native-textarea {
-        min-height: 96px;
+    .sr-native-card-editor .sr-native-rich-content,
+    .sr-native-card-editor .sr-native-rich-preview {
+        min-height: 84px;
     }
 
-    .sr-native-card-editor .sr-native-textarea-front {
-        min-height: 112px;
+    .sr-native-rich-toolbar {
+        min-height: 40px;
+        padding-block: 2px;
     }
 
     .sr-native-card-editor .sr-native-form-actions {
@@ -1612,14 +1689,13 @@
 }
 
 @media (max-width: 520px) {
-    .sr-native-creator-surface {
+    .sr-native-creator-surface:not(.sr-native-card-editor) {
         padding-inline: 14px;
     }
 
     .sr-native-card-fields {
-        gap: 12px;
-        padding: 14px;
-        border-radius: 16px;
+        gap: 10px;
+        padding: 0;
     }
 
     .sr-native-card-editor .sr-native-form-actions {

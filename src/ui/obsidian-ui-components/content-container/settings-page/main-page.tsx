@@ -1,4 +1,4 @@
-import { ButtonComponent, setIcon, Setting, SettingGroup } from "obsidian";
+import { setIcon, Setting, SettingGroup } from "obsidian";
 
 import { DataManager } from "src/data/data-manager";
 import { DebugLoggerInstance } from "src/data/debug-logger";
@@ -46,34 +46,51 @@ export class MainPage extends SettingsPage {
 
         this.containerEl.addClass("sr-main-page");
 
-        const mainSettingsGroup = new SettingGroup(this.containerEl).setHeading(
-            t("SETTINGS_TAB_HEADING"),
-        );
-        SettingsPageTypesArray.forEach((pageType) => {
-            if (pageType === "main-page") return;
-            if (pageType === "statistics-page") return;
-            mainSettingsGroup.addSetting((setting: Setting) => {
-                setting.setName(getPageName(pageType)).addButton((button: ButtonComponent) => {
-                    button.setIcon("chevron-right").onClick(() => {
-                        this.openPage(pageType);
-                    });
-
-                    button.buttonEl.addClass("clickable-icon");
-                });
-                const iconEl = activeDocument.createElement("div");
-                iconEl.addClass("sr-settings-page-title-icon");
-                setIcon(iconEl, getPageIcon(pageType));
-
-                setting.nameEl.insertBefore(iconEl, setting.nameEl.firstChild);
-                setting.nameEl.addClass("sr-settings-page-title");
-                setting.settingEl.addClass("sr-settings-page-title-setting");
-                setting.settingEl.addEventListener("click", () => {
-                    this.openPage(pageType);
-                });
-            });
+        this.containerEl.createEl("h2", {
+            cls: "sr-settings-main-title",
+            text: t("SETTINGS_TAB_HEADING"),
+        });
+        const searchShell = this.containerEl.createDiv("sr-settings-search");
+        const searchIcon = searchShell.createSpan("sr-settings-search-icon");
+        searchIcon.setAttribute("aria-hidden", "true");
+        setIcon(searchIcon, "search");
+        const searchInput = searchShell.createEl("input", {
+            attr: {
+                type: "search",
+                name: "settings-search",
+                placeholder: `${t("SEARCH")}…`,
+                autocomplete: "off",
+                "aria-label": t("SEARCH"),
+            },
         });
 
-        mainSettingsGroup.addSetting((setting: Setting) => {
+        const navigation = this.containerEl.createDiv("sr-settings-navigation");
+        const navigationButtons: Array<{ button: HTMLButtonElement; label: string }> = [];
+        SettingsPageTypesArray.forEach((pageType) => {
+            if (pageType === "main-page") return;
+            const label = getPageName(pageType);
+            const button = navigation.createEl("button", {
+                cls: "sr-settings-navigation-item",
+                attr: { type: "button", "aria-label": label },
+            });
+            const iconEl = button.createSpan("sr-settings-page-title-icon");
+            iconEl.setAttribute("aria-hidden", "true");
+            setIcon(iconEl, getPageIcon(pageType));
+            button.createSpan({ cls: "sr-settings-navigation-label", text: label });
+            const chevron = button.createSpan("sr-settings-navigation-chevron");
+            chevron.setAttribute("aria-hidden", "true");
+            setIcon(chevron, "chevron-right");
+            button.addEventListener("click", () => this.openPage(pageType));
+            navigationButtons.push({ button, label: label.toLocaleLowerCase() });
+        });
+        searchInput.addEventListener("input", () => {
+            const query = searchInput.value.trim().toLocaleLowerCase();
+            for (const entry of navigationButtons) {
+                entry.button.hidden = Boolean(query) && !entry.label.includes(query);
+            }
+        });
+
+        new SettingGroup(this.containerEl).addSetting((setting: Setting) => {
             setting
                 .setName(t("LANGUAGE_SETTINGS"))
                 .setDesc(t("LANGUAGE_SETTINGS_DESC"))
@@ -105,27 +122,6 @@ export class MainPage extends SettingsPage {
 
         new SettingGroup(this.containerEl)
             .setHeading(t("INFO"))
-            .addSetting((setting: Setting) => {
-                setting
-                    .setName(getPageName("statistics-page"))
-                    .addButton((button: ButtonComponent) => {
-                        button.setIcon("chevron-right").onClick(() => {
-                            this.openPage("statistics-page");
-                        });
-
-                        button.buttonEl.addClass("clickable-icon");
-                    });
-                const iconEl = activeDocument.createElement("div");
-                iconEl.addClass("sr-settings-page-title-icon");
-                setIcon(iconEl, getPageIcon("statistics-page"));
-
-                setting.nameEl.insertBefore(iconEl, setting.nameEl.firstChild);
-                setting.nameEl.addClass("sr-settings-page-title");
-                setting.settingEl.addClass("sr-settings-page-title-setting");
-                setting.settingEl.addEventListener("click", () => {
-                    this.openPage("statistics-page");
-                });
-            })
             .addSetting((setting: Setting) => {
                 const elements: (HTMLElement | Text)[] = tHTML("CHECK_WIKI", {
                     wikiUrl: "https://stephenmwangi.com/obsidian-spaced-repetition/",

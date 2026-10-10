@@ -5,6 +5,7 @@ import {
     MarkdownRenderer,
     Menu,
     Notice,
+    Platform,
     setIcon,
     TFile,
     WorkspaceLeaf,
@@ -257,6 +258,7 @@ export class NativeCreatorView extends ItemView {
 
         const page = this.contentEl.createDiv("sr-native-creator-page");
         const top = page.createDiv("sr-native-creator-top");
+        top.toggleClass("sr-native-creator-top-card", this.request.mode === "card");
         const back = new ButtonComponent(top).setIcon("arrow-left").setTooltip(t("BACK_TO_CARDS"));
         back.buttonEl.addClass("sr-native-icon-button");
         back.onClick(() => void this.returnToCards());
@@ -322,6 +324,21 @@ export class NativeCreatorView extends ItemView {
             setIcon(chevron, "chevron-down");
         }
 
+        if (this.request.mode === "card") {
+            const save = new ButtonComponent(top)
+                .setButtonText(
+                    this.busy
+                        ? t("SAVING")
+                        : this.editingCard || this.editingStructuredNote
+                          ? t("SAVE_CHANGES")
+                          : t("SAVE"),
+                )
+                .setDisabled(this.busy)
+                .onClick(() => void this.saveCurrentCard(false));
+            save.buttonEl.addClass("sr-native-top-save");
+            save.buttonEl.addClass("mod-cta");
+        }
+
         const surface = page.createDiv("sr-native-creator-surface");
         if (this.request.mode === "image-occlusion") this.renderImageOcclusionForm(surface);
         else if (this.request.mode === "media") this.renderMediaManager(surface);
@@ -364,6 +381,15 @@ export class NativeCreatorView extends ItemView {
                         this.error = "";
                         this.render();
                     }),
+            );
+        }
+        if (this.getLastCreatedCard()) {
+            menu.addSeparator();
+            menu.addItem((item) =>
+                item
+                    .setTitle(t("DUPLICATE_CARD"))
+                    .setIcon("copy-plus")
+                    .onClick(() => this.duplicateLastCreatedCard()),
             );
         }
         menu.showAtMouseEvent(event);
@@ -431,6 +457,13 @@ export class NativeCreatorView extends ItemView {
         const frontLabel = this.cardType === "cloze" ? t("CLOZE_TEXT") : t("CARD_FRONT");
         const frontHelp = this.cardType === "cloze" ? t("CLOZE_TEXT_HELP") : undefined;
         const cardFields = surface.createDiv("sr-native-card-fields");
+        let duplicateStatus: HTMLDivElement | null = null;
+        const updateDuplicateStatus = (): void => {
+            if (!duplicateStatus) return;
+            const count = this.countMatchingFronts(this.front);
+            duplicateStatus.hidden = count === 0;
+            duplicateStatus.setText(`${t("DUPLICATE_MEDIA")}: ${count}`);
+        };
         const frontGroup = this.createFieldGroup(cardFields, frontLabel, frontHelp);
         const frontInput = this.createRichTextEditor(
             frontGroup,
@@ -438,9 +471,11 @@ export class NativeCreatorView extends ItemView {
             this.cardType === "cloze" ? t("CLOZE_TEXT_PLACEHOLDER") : t("CARD_FRONT_PLACEHOLDER"),
             frontLabel,
             "front",
-            (value) => (this.front = value),
+            (value) => {
+                this.front = value;
+                updateDuplicateStatus();
+            },
         );
-        this.renderMediaControls(frontGroup, "front");
 
         const backGroup = this.createFieldGroup(
             cardFields,
@@ -455,7 +490,11 @@ export class NativeCreatorView extends ItemView {
             "back",
             (value) => (this.back = value),
         );
-        this.renderMediaControls(backGroup, "back");
+        duplicateStatus = cardFields.createDiv({
+            cls: "sr-native-duplicate-status",
+            attr: { role: "status", "aria-live": "polite" },
+        });
+        updateDuplicateStatus();
 
         const advanced = surface.createEl("details", { cls: "sr-native-card-advanced" });
         if (this.answerMode === "type" || this.tagsText.trim()) advanced.open = true;
@@ -515,42 +554,94 @@ export class NativeCreatorView extends ItemView {
             .setDisabled(this.busy)
             .onClick(() => void this.saveCard(false));
 
-        window.setTimeout(() => frontInput.focus(), 0);
+        if (!Platform.isMobile) window.setTimeout(() => frontInput.focus(), 0);
     }
 
     private renderMediaControls(parent: HTMLElement, target: MediaTarget): void {
+        this.renderMediaPicker(parent, target, true);
+        this.renderMediaAttachmentList(parent, target);
+    }
+
+    private renderMediaPicker(parent: HTMLElement, target: MediaTarget, iconOnly: boolean): void {
         const controls = parent.createDiv("sr-native-media-controls");
         const picker = controls.createEl("button", {
-            cls: "sr-native-media-button",
-            attr: { type: "button" },
-        });
-        const icon = picker.createSpan();
-        setIcon(icon, "paperclip");
-        picker.createSpan({ text: t("ADD_MEDIA") });
-        const input = controls.createEl("input", {
-            cls: "sr-native-media-input",
+            cls: iconOnly
+                ? "sr-native-media-button sr-native-media-button-icon"
+                : "sr-native-media-button",
             attr: {
-                type: "file",
-                accept: "image/*,audio/*,video/*",
-                multiple: "true",
-                tabindex: "-1",
+                type: "button",
+                "aria-label": t("ADD_MEDIA"),
+                title: t("ADD_MEDIA"),
             },
         });
-        picker.addEventListener("click", () => input.click());
-        input.addEventListener("change", () => {
-            for (const file of Array.from(input.files ?? [])) {
-                this.pendingMedia.push({
-                    id: `media-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                    file,
-                    target,
-                    objectUrl: URL.createObjectURL(file),
-                });
-            }
-            input.value = "";
-            this.clearError();
-            this.render();
-        });
+        const icon = picker.createSpan();
+        icon.setAttribute("aria-hidden", "true");
+        setIcon(icon, "paperclip");
+        if (!iconOnly) picker.createSpan({ text: t("ADD_MEDIA") });
 
+        const createInput = (
+            accept: string,
+            capture?: "environment" | "user" | "microphone",
+            multiple = false,
+        ): HTMLInputElement => {
+            const input = controls.createEl("input", {
+                cls: "sr-native-media-input",
+                attr: {
+                    type: "file",
+                    accept,
+                    tabindex: "-1",
+                    ...(multiple ? { multiple: "true" } : {}),
+                    ...(capture ? { capture } : {}),
+                },
+            });
+            input.addEventListener("change", () => {
+                this.queueMediaFiles(input.files, target);
+                input.value = "";
+            });
+            return input;
+        };
+        const fileInput = createInput("image/*,audio/*,video/*", undefined, true);
+        const photoInput = createInput("image/*", "environment");
+        const audioInput = createInput("audio/*", "microphone");
+
+        picker.addEventListener("click", (event) => {
+            const menu = new Menu();
+            menu.addItem((item) =>
+                item
+                    .setTitle(t("IMPORT_MEDIA"))
+                    .setIcon("folder-open")
+                    .onClick(() => fileInput.click()),
+            );
+            menu.addItem((item) =>
+                item
+                    .setTitle(t("TAKE_PHOTO"))
+                    .setIcon("camera")
+                    .onClick(() => photoInput.click()),
+            );
+            menu.addItem((item) =>
+                item
+                    .setTitle(t("RECORD_AUDIO"))
+                    .setIcon("mic")
+                    .onClick(() => audioInput.click()),
+            );
+            menu.showAtMouseEvent(event);
+        });
+    }
+
+    private queueMediaFiles(files: FileList | null, target: MediaTarget): void {
+        for (const file of Array.from(files ?? [])) {
+            this.pendingMedia.push({
+                id: `media-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                file,
+                target,
+                objectUrl: URL.createObjectURL(file),
+            });
+        }
+        this.clearError();
+        this.render();
+    }
+
+    private renderMediaAttachmentList(parent: HTMLElement, target: MediaTarget): void {
         const pendingAttachments = this.pendingMedia.filter(
             (attachment) => attachment.target === target,
         );
@@ -572,6 +663,9 @@ export class NativeCreatorView extends ItemView {
                     attr: {
                         src: this.plugin.app.vault.getResourcePath(file),
                         alt: file.name,
+                        width: "44",
+                        height: "44",
+                        loading: "lazy",
                     },
                 });
             } else {
@@ -599,7 +693,12 @@ export class NativeCreatorView extends ItemView {
             const preview = item.createDiv("sr-native-media-preview");
             if (attachment.file.type.startsWith("image/")) {
                 preview.createEl("img", {
-                    attr: { src: attachment.objectUrl, alt: attachment.file.name },
+                    attr: {
+                        src: attachment.objectUrl,
+                        alt: attachment.file.name,
+                        width: "44",
+                        height: "44",
+                    },
                 });
             } else {
                 const mediaIcon = preview.createDiv();
@@ -2280,6 +2379,32 @@ export class NativeCreatorView extends ItemView {
                 this.saveDraft();
             });
         }
+        const latex = new ButtonComponent(toolbar).setIcon("sigma").setTooltip("LaTeX");
+        latex.buttonEl.addClass("sr-native-format-button");
+        latex.buttonEl.addEventListener("pointerdown", (event) => {
+            event.preventDefault();
+            editor.focus();
+            const selected = editor.ownerDocument.getSelection()?.toString() ?? "";
+            editor.ownerDocument.execCommand("insertText", false, `$${selected}$`);
+            onChange(this.readEditorValue(editor));
+            this.saveDraft();
+        });
+        if (this.cardType === "cloze" && target === "front") {
+            const cloze = new ButtonComponent(toolbar)
+                .setIcon("scan-text")
+                .setTooltip(t("CARD_TYPE_CLOZE"));
+            cloze.buttonEl.addClass("sr-native-format-button");
+            cloze.buttonEl.addEventListener("pointerdown", (event) => {
+                event.preventDefault();
+                const selected = editor.ownerDocument.getSelection()?.toString().trim() ?? "";
+                if (!selected) return;
+                this.front = this.readEditorValue(editor);
+                this.back = selected;
+                this.saveDraft();
+                this.render();
+            });
+        }
+        this.renderMediaPicker(toolbar, target, true);
         const spacer = toolbar.createSpan("sr-native-rich-toolbar-spacer");
         spacer.setAttribute("aria-hidden", "true");
         const previewButton = new ButtonComponent(toolbar)
@@ -2360,6 +2485,7 @@ export class NativeCreatorView extends ItemView {
                 event.preventDefault();
             }
         });
+        this.renderMediaAttachmentList(parent, target);
         return editor;
     }
 
@@ -2381,6 +2507,132 @@ export class NativeCreatorView extends ItemView {
 
     private lastDeckKey(): string {
         return `msre-last-deck:${this.app.vault.getName()}`;
+    }
+
+    private recentDecksKey(): string {
+        return `msre-recent-decks:${this.app.vault.getName()}`;
+    }
+
+    private lastCreatedCardKey(): string {
+        return `msre-last-created-card:${this.app.vault.getName()}`;
+    }
+
+    private getLastCreatedCard():
+        | (NativeCardDraft & {
+              noteTypeId?: string;
+              media?: Array<{ path: string; target: MediaTarget }>;
+          })
+        | null {
+        try {
+            const parsed: unknown = JSON.parse(
+                localStorage.getItem(this.lastCreatedCardKey()) ?? "null",
+            );
+            if (!parsed || typeof parsed !== "object") return null;
+            const candidate = parsed as Partial<
+                NativeCardDraft & {
+                    noteTypeId?: string;
+                    media?: Array<{ path: string; target: MediaTarget }>;
+                }
+            >;
+            if (typeof candidate.front !== "string" || typeof candidate.back !== "string") {
+                return null;
+            }
+            if (
+                typeof candidate.deckPath !== "string" ||
+                (candidate.type !== "basic" &&
+                    candidate.type !== "reversed" &&
+                    candidate.type !== "cloze")
+            ) {
+                return null;
+            }
+            return candidate as NativeCardDraft & {
+                noteTypeId?: string;
+                media?: Array<{ path: string; target: MediaTarget }>;
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    private rememberLastCreatedCard(draft: NativeCardDraft): void {
+        localStorage.setItem(
+            this.lastCreatedCardKey(),
+            JSON.stringify({
+                ...draft,
+                front: this.front,
+                back: this.back,
+                noteTypeId: this.selectedNoteTypeId,
+                media: this.existingMedia.map(({ path, target }) => ({ path, target })),
+            }),
+        );
+    }
+
+    private duplicateLastCreatedCard(): void {
+        const card = this.getLastCreatedCard();
+        if (!card) return;
+        this.clearPendingMedia();
+        this.request = { mode: "card", deckPath: card.deckPath };
+        this.editingCard = null;
+        this.selectedDeck = card.deckPath;
+        this.cardType = card.type;
+        this.selectedNoteTypeId = card.noteTypeId ?? this.noteTypeIdForCardType(card.type);
+        this.front = card.front;
+        this.back = card.back;
+        this.answerMode = card.answerMode ?? "reveal";
+        this.tagsText = card.tags?.join(", ") ?? "";
+        this.existingMedia = (card.media ?? []).map(({ path, target }, index) => ({
+            id: `duplicate-${Date.now()}-${index}`,
+            path,
+            target,
+        }));
+        this.error = "";
+        this.saveDraft();
+        this.render();
+    }
+
+    private countMatchingFronts(value: string): number {
+        if (!this.plugin.dataManager.isOsrCoreLoaded()) return 0;
+        const normalize = (candidate: string): string =>
+            candidate
+                .replace(/<[^>]*>/g, " ")
+                .replace(/\s+/g, " ")
+                .trim()
+                .toLocaleLowerCase();
+        const front = normalize(value);
+        if (!front) return 0;
+        return this.plugin.dataManager.osrCore
+            .getAllCards()
+            .filter((card) => card !== this.editingCard && normalize(card.front) === front).length;
+    }
+
+    private rememberDeck(deckPath: string): void {
+        if (!deckPath) return;
+        localStorage.setItem(this.lastDeckKey(), deckPath);
+        const recent = this.getRecentDecks().filter((candidate) => candidate !== deckPath);
+        localStorage.setItem(
+            this.recentDecksKey(),
+            JSON.stringify([deckPath, ...recent].slice(0, 5)),
+        );
+    }
+
+    private getRecentDecks(): string[] {
+        try {
+            const parsed: unknown = JSON.parse(localStorage.getItem(this.recentDecksKey()) ?? "[]");
+            return Array.isArray(parsed)
+                ? parsed.filter((value): value is string => typeof value === "string")
+                : [];
+        } catch {
+            return [];
+        }
+    }
+
+    private sortDecksByRecent(decks: string[]): string[] {
+        const order = new Map(this.getRecentDecks().map((deck, index) => [deck, index]));
+        return [...decks].sort((left, right) => {
+            const leftRank = order.get(left) ?? Number.MAX_SAFE_INTEGER;
+            const rightRank = order.get(right) ?? Number.MAX_SAFE_INTEGER;
+            return leftRank === rightRank ? left.localeCompare(right) : leftRank - rightRank;
+        });
     }
 
     private saveDraft(): void {
@@ -2468,11 +2720,11 @@ export class NativeCreatorView extends ItemView {
 
     private openDeckMenu(_event: MouseEvent): void {
         new DeckPickerModal(this.app, {
-            decks: this.store.getDeckPaths(),
+            decks: this.sortDecksByRecent(this.store.getDeckPaths()),
             current: this.selectedDeck,
             onChoose: (deckPath) => {
                 this.selectedDeck = deckPath;
-                localStorage.setItem(this.lastDeckKey(), deckPath);
+                this.rememberDeck(deckPath);
                 this.saveDraft();
                 this.render();
             },
@@ -2620,7 +2872,7 @@ export class NativeCreatorView extends ItemView {
             .setCta()
             .setDisabled(this.busy)
             .onClick(() => void this.saveStructuredNote(noteType, false));
-        if (firstInput) window.setTimeout(() => firstInput?.focus(), 0);
+        if (firstInput && !Platform.isMobile) window.setTimeout(() => firstInput?.focus(), 0);
     }
 
     private async saveStructuredNote(
@@ -2662,6 +2914,7 @@ export class NativeCreatorView extends ItemView {
             } else {
                 await this.store.createStructuredNote(draft);
             }
+            this.rememberDeck(this.selectedDeck);
             new Notice(this.editingStructuredNote ? t("CARD_UPDATED") : t("CARD_SAVED"));
             if (addAnother) {
                 this.customFieldValues = {};
@@ -2679,6 +2932,15 @@ export class NativeCreatorView extends ItemView {
                     : t("CARD_SAVE_FAILED");
             this.render();
         }
+    }
+
+    private async saveCurrentCard(addAnother: boolean): Promise<void> {
+        const noteType = this.getSelectedNoteType();
+        if (this.editingStructuredNote || !noteType.id.startsWith("builtin-")) {
+            await this.saveStructuredNote(noteType, addAnother);
+            return;
+        }
+        await this.saveCard(addAnother);
     }
 
     private async saveCard(addAnother: boolean): Promise<void> {
@@ -2713,6 +2975,8 @@ export class NativeCreatorView extends ItemView {
             };
             if (this.editingCard) await this.saveEditedCard(draft);
             else await this.store.createCards([draft]);
+            this.rememberDeck(this.selectedDeck);
+            if (!this.editingCard) this.rememberLastCreatedCard(draft);
             new Notice(this.editingCard ? t("CARD_UPDATED") : t("CARD_SAVED"));
             this.clearDraft();
             if (addAnother) {
@@ -2746,6 +3010,7 @@ export class NativeCreatorView extends ItemView {
         this.render();
         try {
             this.selectedDeck = await this.store.createDeck(this.selectedDeck);
+            this.rememberDeck(this.selectedDeck);
             if (this.request.targetAreaId) {
                 const topLevelDeck = this.selectedDeck.split("/")[0];
                 await this.store.assignDeckToKnowledgeArea(topLevelDeck, this.request.targetAreaId);

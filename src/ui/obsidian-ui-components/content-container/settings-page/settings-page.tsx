@@ -32,6 +32,9 @@ export abstract class SettingsPage {
     protected display: () => void; // Needed for some pages. TODO: Refactor this into some unified way.
     protected openPage: (pageType: SettingsPageType) => void;
     protected scrollListener: (scrollPosition: number) => void;
+    private readonly handleScroll = (): void => {
+        this.scrollListener(this.containerEl.scrollTop);
+    };
 
     constructor(
         pageContainerEl: HTMLElement,
@@ -85,9 +88,6 @@ export abstract class SettingsPage {
 
         this.containerEl = this.pageContainerEl.createDiv();
         this.containerEl.addClass("sr-settings-page-content");
-        this.containerEl.addEventListener("scroll", (_) => {
-            this.scrollListener(this.containerEl.scrollTop);
-        });
     }
 
     /**
@@ -118,18 +118,15 @@ export abstract class SettingsPage {
      * Removes the scroll listener from the SettingsPage.
      */
     public removeScrollListener(): void {
-        this.containerEl.removeEventListener("scroll", (_) => {
-            this.scrollListener(this.containerEl.scrollTop);
-        });
+        this.containerEl.removeEventListener("scroll", this.handleScroll);
     }
 
     /**
      * Adds the scroll listener to the SettingsPage.
      */
     public addScrollListener(): void {
-        this.containerEl.addEventListener("scroll", (_) => {
-            this.scrollListener(this.containerEl.scrollTop);
-        });
+        this.containerEl.removeEventListener("scroll", this.handleScroll);
+        this.containerEl.addEventListener("scroll", this.handleScroll, { passive: true });
     }
 
     /**
