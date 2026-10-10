@@ -17,6 +17,18 @@ Install the fork separately on desktop and iPhone. Disable the official
 `Spaced Repetition` plugin before enabling this fork so that both plugins do not
 write scheduling information to the same notes.
 
+## Incremental card index
+
+This fork keeps a disposable, device-local card index in IndexedDB. Unchanged
+notes are restored from the index instead of being read and parsed again. File
+create, modify, delete, and rename events invalidate only the affected note.
+Parser-setting changes automatically rebuild entries as they are encountered.
+
+Markdown remains the source of truth. The index is safe to discard and is not
+written into the vault, so it does not create sync conflicts between desktop
+and mobile devices. If IndexedDB is unavailable, the plugin falls back to an
+in-memory index for the current session.
+
 ## Upstream project
 
 The original project, documentation, and contributor history are available at

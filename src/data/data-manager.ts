@@ -1,5 +1,7 @@
 import { Notice, TFile } from "obsidian";
 
+import { createCardIndexStorage } from "src/data/card-index/card-index-storage";
+import { IncrementalCardIndex } from "src/data/card-index/incremental-card-index";
 import { OsrCore } from "src/data/core";
 import { DataStore, StorageType } from "src/data/data-store/base/data-store";
 import { DataStoreAlgorithm } from "src/data/data-store/base/data-store-algorithm";
@@ -36,6 +38,7 @@ export class DataManager {
     public settingsManager: SettingsManager; // TODO: Refactor so that the plugin data manager and the settings manager are separate from the data manager
     private _osrCore: OsrCore | null = null;
     private _syncLock = false;
+    private cardIndex: IncrementalCardIndex;
 
     constructor(
         plugin: SRPlugin,
@@ -45,6 +48,14 @@ export class DataManager {
         this.plugin = plugin;
         this.pluginDataManager = pluginDataManager;
         this.settingsManager = settingsManager;
+
+        const databaseName = `${plugin.manifest.id}:card-index:${plugin.app.vault.getName()}`;
+        this.cardIndex = new IncrementalCardIndex(
+            settingsManager.settings,
+            createCardIndexStorage(databaseName),
+            plugin.getObsidianRtlSetting(),
+        );
+        this.registerCardIndexEvents();
     }
 
     /**
@@ -115,6 +126,39 @@ export class DataManager {
             onOsrVaultDataChanged,
             noteReviewQueue,
             this.plugin.getObsidianRtlSetting(),
+            this.cardIndex,
+        );
+    }
+
+    private registerCardIndexEvents(): void {
+        this.plugin.registerEvent(
+            this.plugin.app.vault.on("modify", (file) => {
+                if (file instanceof TFile && file.extension === "md") {
+                    void this.cardIndex.invalidate(file.path);
+                }
+            }),
+        );
+        this.plugin.registerEvent(
+            this.plugin.app.vault.on("create", (file) => {
+                if (file instanceof TFile && file.extension === "md") {
+                    void this.cardIndex.invalidate(file.path);
+                }
+            }),
+        );
+        this.plugin.registerEvent(
+            this.plugin.app.vault.on("delete", (file) => {
+                if (file instanceof TFile && file.extension === "md") {
+                    void this.cardIndex.invalidate(file.path);
+                }
+            }),
+        );
+        this.plugin.registerEvent(
+            this.plugin.app.vault.on("rename", (file, oldPath) => {
+                if (file instanceof TFile && file.extension === "md") {
+                    void this.cardIndex.invalidate(oldPath);
+                    void this.cardIndex.invalidate(file.path);
+                }
+            }),
         );
     }
 
@@ -125,9 +169,15 @@ export class DataManager {
         this._syncLock = true;
 
         try {
+            this.cardIndex.setContext(
+                this.settingsManager.settings,
+                this.plugin.getObsidianRtlSetting(),
+            );
+            this.cardIndex.resetStats();
             this.osrCore.loadInitialStateOfCore();
 
             const notes: TFile[] = this.plugin.app.vault.getMarkdownFiles();
+            await this.cardIndex.prune(new Set(notes.map((note) => note.path)));
             for (const noteFile of notes) {
                 // Skip files in the note ignore folder
                 if (
@@ -143,6 +193,12 @@ export class DataManager {
             }
 
             await this.osrCore.finalizeLoad();
+            if (this.settingsManager.settings.showSchedulingDebugMessages) {
+                const stats = this.cardIndex.getStats();
+                console.log(
+                    `SR: card index ${stats.hits} hits, ${stats.misses} misses, ${stats.writes} writes`,
+                );
+            }
         } finally {
             this._syncLock = false;
         }
@@ -287,5 +343,9 @@ export class DataManager {
         } catch (error) {
             console.warn("DataManager: Error saving plugin data", error);
         }
+    }
+
+    close(): void {
+        this.cardIndex.close();
     }
 }
