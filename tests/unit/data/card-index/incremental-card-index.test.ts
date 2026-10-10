@@ -30,7 +30,7 @@ describe("IncrementalCardIndex", () => {
         const file = new UnitTestSRFile(
             `#flashcards/language
 Question::Answer
-Reverse:::Back
+Reverse:::Back ^stable-card
 <!--SR:!2025-01-20,4,270-->
 `,
             "Deck/card.md",
@@ -50,6 +50,7 @@ Reverse:::Back
         expect(restored.questionList[0].cards[0].back).toBe("Answer");
         expect(restored.questionList[1].cards).toHaveLength(2);
         expect(restored.questionList[1].cards[0].formatSchedule()).toContain("2025-01-20");
+        expect(restored.questionList[1].cards[0].storageInfo.questionId).toBe("^stable-card");
         expect(restored.questionList[1].cards[0].question).toBe(restored.questionList[1]);
         expect(restored.questionList[1].note).toBe(restored);
         expect(index.getStats()).toEqual({ hits: 1, misses: 0, writes: 1 });

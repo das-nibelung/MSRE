@@ -1,10 +1,12 @@
 import {
     OBSIDIAN_BLOCK_ID_ENDOFLINE_REGEX,
     OBSIDIAN_TAG_AT_STARTOFLINE_REGEX,
+    SR_DATA_ID_TAG,
     SR_METADATA_CALLOUT as SR_METADATA_CALLOUT,
 } from "src/data/constants";
 import { DataStore } from "src/data/data-store/base/data-store";
 import { DataStoreAlgorithm } from "src/data/data-store/base/data-store-algorithm";
+import { RepItemStorageInfo } from "src/data/data-store/base/rep-item-storage-info";
 import { Card } from "src/data/data-structures/card/card";
 import {
     TopicPath,
@@ -226,6 +228,29 @@ export class Question {
     setCardList(cards: Card[]): void {
         this.cards = cards;
         this.cards.forEach((card) => (card.question = this));
+    }
+
+    ensureStableId(blockId?: string): string {
+        if (!this.questionText.obsidianBlockId) {
+            const nextBlockId = blockId ?? `${SR_DATA_ID_TAG}${crypto.randomUUID()}`;
+            this.questionText.obsidianBlockId = nextBlockId.startsWith("^")
+                ? nextBlockId
+                : `^${nextBlockId}`;
+        }
+
+        const stableId = this.questionText.obsidianBlockId;
+        for (const card of this.cards ?? []) {
+            if (card.storageInfo) {
+                card.storageInfo.questionId = stableId;
+            } else {
+                card.storageInfo = new RepItemStorageInfo(
+                    this.note?.filePath,
+                    this.questionText.textHash,
+                    stableId,
+                );
+            }
+        }
+        return stableId;
     }
 
     formatForNote(settings: SRSettings): string {

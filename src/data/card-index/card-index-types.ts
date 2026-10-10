@@ -3,7 +3,7 @@ import { ISerializedScheduleEntry } from "src/data/plugin-data";
 import { RepetitionPhase } from "src/scheduling/algorithms/base/repetition-item";
 import { TextDirection } from "src/utils/strings";
 
-export const CARD_INDEX_SCHEMA_VERSION = 1;
+export const CARD_INDEX_SCHEMA_VERSION = 2;
 
 export interface CardIndexFileRevision {
     mtime: number;
@@ -33,6 +33,7 @@ export interface SerializedCard {
     storageInfo: {
         notePath: string | null;
         questionHash: string | null;
+        questionId: string | null;
     } | null;
 }
 

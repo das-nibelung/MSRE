@@ -18,6 +18,11 @@ export class Card extends RepetitionItem {
         Object.assign(this, init);
     }
 
+    get stableId(): string | null {
+        const questionId = this.storageInfo?.questionId;
+        return questionId ? `${questionId}:${this.cardIdx}` : null;
+    }
+
     formatSchedule(): string {
         return this.scheduleInfo !== null
             ? this.scheduleInfo.formatScheduleAsSRHtmlComment()
