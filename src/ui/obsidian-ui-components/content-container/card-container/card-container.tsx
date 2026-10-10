@@ -60,6 +60,13 @@ export class CardContainer {
         card: HTMLElement;
     } | null = null;
     private suppressNextCardClick = false;
+    private workspaceTouchStart: {
+        identifier: number;
+        x: number;
+        y: number;
+        axis: "pending" | "horizontal" | "vertical";
+    } | null = null;
+    private workspaceGestureShieldEnabled = false;
 
     constructor(
         app: App,
@@ -128,11 +135,6 @@ export class CardContainer {
         this.content.addEventListener("click", (event) => {
             this.revealAnswerFromCard(event);
         });
-        this.content.addEventListener("pointerdown", this.onGestureStart);
-        this.content.addEventListener("pointermove", this.onGestureMove);
-        this.content.addEventListener("pointerup", this.onGestureEnd);
-        this.content.addEventListener("pointercancel", this.onGestureCancel);
-
         this.response = new ResponseSectionComponent(
             this.view,
             settings,
@@ -154,6 +156,7 @@ export class CardContainer {
 
         await this.drawCardFront(sessionData, settings);
 
+        this.enableWorkspaceGestureShield();
         this.view.removeClass("sr-is-hidden");
         activeDocument.addEventListener("keydown", this._keydownHandler);
     }
@@ -172,6 +175,7 @@ export class CardContainer {
             this.pendingResumeTimeout = null;
         }
         this.cardState = CardState.Closed;
+        this.disableWorkspaceGestureShield();
         activeDocument.removeEventListener("keydown", this._keydownHandler);
         this.view.addClass("sr-is-hidden");
     }
@@ -514,11 +518,13 @@ export class CardContainer {
         const target = event.target;
         if (
             !(target instanceof Element) ||
+            !this.content.contains(target) ||
             target.closest("a, button, input, textarea, select, [contenteditable='true']") !== null
         ) {
             this.gestureStart = null;
             return;
         }
+        event.stopPropagation();
         const card = this.content.querySelector<HTMLElement>(".sr-study-card");
         if (card === null) return;
         this.gestureStart = {
@@ -537,6 +543,7 @@ export class CardContainer {
     private onGestureMove = (event: PointerEvent): void => {
         const start = this.gestureStart;
         if (start === null || start.pointerId !== event.pointerId) return;
+        event.stopPropagation();
 
         const deltaX = event.clientX - start.x;
         const deltaY = event.clientY - start.y;
@@ -566,6 +573,7 @@ export class CardContainer {
     private onGestureEnd = (event: PointerEvent): void => {
         const start = this.gestureStart;
         if (start === null || start.pointerId !== event.pointerId) return;
+        event.stopPropagation();
         this.gestureStart = null;
         if (this.content.hasPointerCapture(event.pointerId)) {
             this.content.releasePointerCapture(event.pointerId);
@@ -599,6 +607,7 @@ export class CardContainer {
     private onGestureCancel = (event: PointerEvent): void => {
         const start = this.gestureStart;
         if (start === null || start.pointerId !== event.pointerId) return;
+        event.stopPropagation();
         this.gestureStart = null;
         void this.resetGestureCard(start.card, true);
     };
@@ -619,6 +628,96 @@ export class CardContainer {
         card.style.removeProperty("transform");
         card.style.removeProperty("opacity");
     }
+
+    private enableWorkspaceGestureShield(): void {
+        if (
+            this.workspaceGestureShieldEnabled ||
+            !(Platform.isMobile || EmulatedPlatform().isMobile)
+        ) {
+            return;
+        }
+        this.workspaceGestureShieldEnabled = true;
+        activeWindow.addEventListener("pointerdown", this.onGestureStart, true);
+        activeWindow.addEventListener("pointermove", this.onGestureMove, true);
+        activeWindow.addEventListener("pointerup", this.onGestureEnd, true);
+        activeWindow.addEventListener("pointercancel", this.onGestureCancel, true);
+        activeWindow.addEventListener("touchstart", this.onWorkspaceTouchStart, {
+            capture: true,
+            passive: true,
+        });
+        activeWindow.addEventListener("touchmove", this.onWorkspaceTouchMove, {
+            capture: true,
+            passive: false,
+        });
+        activeWindow.addEventListener("touchend", this.onWorkspaceTouchEnd, {
+            capture: true,
+            passive: true,
+        });
+        activeWindow.addEventListener("touchcancel", this.onWorkspaceTouchEnd, {
+            capture: true,
+            passive: true,
+        });
+    }
+
+    private disableWorkspaceGestureShield(): void {
+        if (!this.workspaceGestureShieldEnabled) return;
+        this.workspaceGestureShieldEnabled = false;
+        this.workspaceTouchStart = null;
+        activeWindow.removeEventListener("pointerdown", this.onGestureStart, true);
+        activeWindow.removeEventListener("pointermove", this.onGestureMove, true);
+        activeWindow.removeEventListener("pointerup", this.onGestureEnd, true);
+        activeWindow.removeEventListener("pointercancel", this.onGestureCancel, true);
+        activeWindow.removeEventListener("touchstart", this.onWorkspaceTouchStart, true);
+        activeWindow.removeEventListener("touchmove", this.onWorkspaceTouchMove, true);
+        activeWindow.removeEventListener("touchend", this.onWorkspaceTouchEnd, true);
+        activeWindow.removeEventListener("touchcancel", this.onWorkspaceTouchEnd, true);
+    }
+
+    private onWorkspaceTouchStart = (event: TouchEvent): void => {
+        const target = event.target;
+        if (
+            event.touches.length !== 1 ||
+            !(target instanceof Node) ||
+            !this.content.contains(target) ||
+            (target instanceof Element &&
+                target.closest(
+                    "a, button, input, textarea, select, [contenteditable='true'], .internal-embed",
+                ) !== null)
+        ) {
+            this.workspaceTouchStart = null;
+            return;
+        }
+
+        const touch = event.touches[0];
+        this.workspaceTouchStart = {
+            identifier: touch.identifier,
+            x: touch.clientX,
+            y: touch.clientY,
+            axis: "pending",
+        };
+        event.stopPropagation();
+    };
+
+    private onWorkspaceTouchMove = (event: TouchEvent): void => {
+        const start = this.workspaceTouchStart;
+        if (start === null) return;
+        const touch = [...event.touches].find((item) => item.identifier === start.identifier);
+        if (touch === undefined) return;
+
+        const deltaX = touch.clientX - start.x;
+        const deltaY = touch.clientY - start.y;
+        if (start.axis === "pending" && Math.max(Math.abs(deltaX), Math.abs(deltaY)) >= 7) {
+            start.axis = Math.abs(deltaX) > Math.abs(deltaY) * 1.08 ? "horizontal" : "vertical";
+        }
+        if (start.axis === "horizontal") event.preventDefault();
+        event.stopPropagation();
+    };
+
+    private onWorkspaceTouchEnd = (event: TouchEvent): void => {
+        if (this.workspaceTouchStart === null) return;
+        event.stopPropagation();
+        this.workspaceTouchStart = null;
+    };
 
     private async animateGesture(
         card: HTMLElement,

@@ -141,6 +141,7 @@
   position: relative;
   isolation: isolate;
   background: var(--background-primary);
+  overscroll-behavior: contain;
   & .sr-scroll-wrapper {
     height: 100px;
     overflow: hidden;
@@ -148,6 +149,7 @@
     display: flex;
     padding: 0;
     background: var(--background-primary);
+    overscroll-behavior: contain;
     & .sr-content {
       display: flex;
       flex-direction: column;
@@ -1705,7 +1707,11 @@ body:not(.is-mobile) #sr-modal-view {
 /* src/ui/obsidian-ui-components/content-container/settings-page/settings-page.css */
 .sr-settings-tab {
   --sr-settings-content-width: 760px;
-  overflow: hidden;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden !important;
 }
 .sr-settings-page {
   display: flex;
@@ -1746,13 +1752,18 @@ body:not(.is-mobile) #sr-modal-view {
   cursor: pointer;
 }
 .sr-settings-page-content {
+  flex: 1 1 auto;
   width: min(100%, var(--sr-settings-content-width));
+  height: 0;
   min-height: 0;
   margin-inline: auto;
   padding: var(--size-4-4) var(--size-4-1)
     max(var(--size-4-8), var(--safe-area-inset-bottom));
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: auto !important;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 .sr-settings-tab .sr-settings-page-content > .setting-group {
   margin: 0 0 var(--size-4-6);
@@ -1797,13 +1808,15 @@ body:not(.is-mobile) #sr-modal-view {
 }
 @media (max-width: 600px) {
   .is-phone .modal.mod-settings .sr-settings-tab {
-    overflow: visible;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden !important;
     padding-bottom: max(var(--size-4-4), var(--safe-area-inset-bottom));
   }
   .is-phone .sr-settings-page {
-    height: auto;
-    min-height: 100%;
-    overflow: visible;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
   }
   .is-phone .sr-settings-page-header {
     position: sticky;
@@ -1825,9 +1838,12 @@ body:not(.is-mobile) #sr-modal-view {
     white-space: nowrap;
   }
   .is-phone .sr-settings-page-content {
+    flex: 1 1 auto;
     width: 100%;
-    height: auto;
-    overflow: visible;
+    height: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto !important;
     padding: var(--size-4-4) var(--size-4-3)
       max(var(--size-4-8), var(--safe-area-inset-bottom));
   }
