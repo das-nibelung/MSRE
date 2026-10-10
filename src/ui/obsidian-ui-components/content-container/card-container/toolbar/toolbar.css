@@ -2,13 +2,14 @@
     --deck-info-name-width: 20ch;
     --tool-button-section-width: 218px;
 
-    min-height: 54px;
+    position: relative;
+    min-height: 58px;
 
     display: flex;
     gap: var(--size-4-2);
     justify-content: space-between;
     align-items: center;
-    padding: var(--size-4-1) var(--size-4-3);
+    padding: var(--size-4-1) var(--size-4-4);
     border-bottom: 1px solid var(--background-modifier-border);
 
     & > * {
@@ -68,7 +69,7 @@
 }
 
 .is-mobile .sr-card-toolbar {
-    min-height: 56px;
+    min-height: 60px;
 }
 
 .is-phone .sr-tab-view .sr-card-toolbar {
@@ -76,7 +77,15 @@
 }
 
 .is-phone #sr-modal-view .sr-card-toolbar {
-    --deck-info-name-width: 10ch;
+    --deck-info-name-width: 18ch;
+    gap: var(--size-4-1);
+
+    & .sr-info-section {
+        position: absolute;
+        inset-inline-start: 50%;
+        width: min(42vw, 180px);
+        transform: translateX(-50%);
+    }
 }
 
 @media only screen and (orientation: landscape) {

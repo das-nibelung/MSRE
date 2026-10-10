@@ -10,7 +10,7 @@
         overflow: hidden;
         flex-grow: 1;
         display: flex;
-        padding: var(--size-4-4);
+        padding: 0 var(--size-4-4);
         background: var(--background-primary);
 
         & .sr-content {
@@ -23,10 +23,10 @@
             width: 100%;
             max-width: 760px;
             margin: 0 auto;
-            padding: var(--size-4-6);
-            border: 1px solid var(--background-modifier-border);
-            border-radius: var(--radius-l);
-            background: var(--background-secondary);
+            padding: var(--size-4-8) var(--size-4-4) var(--size-4-12);
+            border: 0;
+            border-radius: 0;
+            background: transparent;
 
             &.sr-can-reveal-answer {
                 cursor: pointer;
@@ -57,9 +57,9 @@
     align-items: center;
     gap: var(--size-4-1);
     margin: var(--size-4-8) auto 0;
-    padding: var(--size-2-2) var(--size-4-3);
-    border-radius: 999px;
-    background: var(--background-modifier-hover);
+    padding: var(--size-4-2) var(--size-4-3);
+    border-radius: var(--radius-m);
+    background: transparent;
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
     font-weight: var(--font-medium);
@@ -77,12 +77,12 @@
 
 .is-phone #sr-modal-view .sr-card-container {
     & .sr-scroll-wrapper {
-        padding: var(--size-4-3);
+        padding: 0;
     }
 
     & .sr-content {
-        padding: var(--size-4-5) var(--size-4-4);
-        border-radius: var(--radius-m);
+        padding: var(--size-4-7) var(--size-4-5) var(--size-4-10);
+        border-radius: 0;
     }
 }
 

@@ -13,7 +13,7 @@ export class SRModalView extends Modal {
     private settingsManager: SettingsManager;
     private resizeObserver: ResizeObserver | null = null;
     private closeButtonFrame: number | null = null;
-    private modalMutationObserver: MutationObserver | null = null;
+    private modalMutationObservers: MutationObserver[] = [];
 
     constructor(
         app: App,
@@ -65,17 +65,23 @@ export class SRModalView extends Modal {
     }
 
     onOpen(): void {
-        activeDocument.body.addClass("sr-review-modal-open");
+        this.getHostDocuments().forEach((doc) => doc.body.addClass("sr-review-modal-open"));
         this.removeNativeCloseButtons();
         this.closeButtonFrame = activeWindow.requestAnimationFrame(() => {
             this.removeNativeCloseButtons();
         });
-        this.modalMutationObserver = new MutationObserver(() => {
-            this.removeNativeCloseButtons();
-        });
-        this.modalMutationObserver.observe(activeDocument.body, {
-            childList: true,
-            subtree: true,
+        this.getHostDocuments().forEach((doc) => {
+            const Observer = doc.defaultView?.MutationObserver ?? MutationObserver;
+            const observer = new Observer(() => {
+                this.removeNativeCloseButtons();
+            });
+            observer.observe(doc.body, {
+                attributes: true,
+                attributeFilter: ["class", "aria-label"],
+                childList: true,
+                subtree: true,
+            });
+            this.modalMutationObservers.push(observer);
         });
         void this.contentManager.open();
     }
@@ -85,9 +91,9 @@ export class SRModalView extends Modal {
             activeWindow.cancelAnimationFrame(this.closeButtonFrame);
             this.closeButtonFrame = null;
         }
-        this.modalMutationObserver?.disconnect();
-        this.modalMutationObserver = null;
-        activeDocument.body.removeClass("sr-review-modal-open");
+        this.modalMutationObservers.forEach((observer) => observer.disconnect());
+        this.modalMutationObservers = [];
+        this.getHostDocuments().forEach((doc) => doc.body.removeClass("sr-review-modal-open"));
         this.contentManager.close();
     }
 
@@ -97,10 +103,36 @@ export class SRModalView extends Modal {
      * the control, so remove it immediately and whenever the host reinserts it.
      */
     private removeNativeCloseButtons(): void {
-        activeDocument.querySelectorAll<HTMLElement>(".modal-close-button").forEach((button) => {
-            if (button.hasClass("sr-modal-close-button")) return;
-            button.remove();
+        this.getHostDocuments().forEach((doc) => {
+            doc.querySelectorAll<HTMLElement>(
+                '.modal-close-button, [aria-label="Close"], [aria-label="Закрыть"]',
+            ).forEach((button) => {
+                if (button.hasClass("sr-modal-close-button")) return;
+                button.remove();
+            });
+
+            doc.querySelectorAll<SVGElement>(".lucide-x").forEach((icon) => {
+                const control = icon.closest<HTMLElement>(
+                    "button, .clickable-icon, .modal-close-button",
+                );
+                if (
+                    control === null ||
+                    control.hasClass("sr-modal-close-button") ||
+                    this.modalEl.contains(control)
+                ) {
+                    return;
+                }
+
+                const rect = control.getBoundingClientRect();
+                const isTopRightSystemControl =
+                    rect.top < 96 && rect.right > doc.documentElement.clientWidth - 96;
+                if (isTopRightSystemControl) control.remove();
+            });
         });
+    }
+
+    private getHostDocuments(): Document[] {
+        return [...new Set([globalThis["document"], activeDocument])];
     }
 
     private async onResize(entries: ResizeObserverEntry[]) {

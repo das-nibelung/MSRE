@@ -3,9 +3,9 @@
 .sr-response {
     display: flex;
     gap: var(--size-4-2);
-    padding: var(--size-4-3) var(--internal-side-padding) var(--size-4-4);
+    padding: var(--size-4-3) var(--internal-side-padding) var(--size-4-5);
     border-top: 1px solid var(--background-modifier-border);
-    background: var(--background-primary);
+    background: var(--background-secondary);
 
     & .sr-response-button {
         min-height: 50px;
@@ -18,9 +18,9 @@
         gap: 2px;
         margin: auto;
         padding: var(--size-4-2);
-        border: 1px solid transparent;
+        border: 0;
         border-radius: var(--radius-m);
-        box-shadow: none;
+        box-shadow: var(--input-shadow);
         line-height: 1.2;
         text-align: center;
         font-weight: var(--font-semibold);
@@ -53,26 +53,22 @@
     }
 
     & .sr-again-button.sr-bg-red {
-        border-color: color-mix(in srgb, var(--color-red) 38%, transparent);
-        background: color-mix(in srgb, var(--color-red) 14%, transparent) !important;
+        background: var(--background-primary) !important;
         color: var(--color-red) !important;
     }
 
     & .sr-hard-button.sr-bg-yellow {
-        border-color: color-mix(in srgb, var(--color-orange) 38%, transparent);
-        background: color-mix(in srgb, var(--color-orange) 14%, transparent) !important;
+        background: var(--background-primary) !important;
         color: var(--color-orange) !important;
     }
 
     & .sr-good-button.sr-bg-blue {
-        border-color: color-mix(in srgb, var(--color-blue) 38%, transparent);
-        background: color-mix(in srgb, var(--color-blue) 14%, transparent) !important;
+        background: var(--background-primary) !important;
         color: var(--color-blue) !important;
     }
 
     & .sr-easy-button.sr-bg-green {
-        border-color: color-mix(in srgb, var(--color-green) 38%, transparent);
-        background: color-mix(in srgb, var(--color-green) 14%, transparent) !important;
+        background: var(--background-primary) !important;
         color: var(--color-green) !important;
     }
 }
