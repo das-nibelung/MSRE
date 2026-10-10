@@ -1,0 +1,112 @@
+.sr-custom-study-modal {
+    width: min(92vw, 520px);
+}
+
+.sr-custom-study-modal .modal-content {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+}
+
+.sr-custom-study-hero {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr);
+    align-items: center;
+    gap: 14px;
+}
+
+.sr-custom-study-icon {
+    display: grid;
+    width: 48px;
+    height: 48px;
+    place-items: center;
+    border-radius: 15px;
+    background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-secondary));
+    color: var(--interactive-accent);
+}
+
+.sr-custom-study-hero h2 {
+    margin: 0;
+    letter-spacing: -0.025em;
+}
+
+.sr-custom-study-hero p {
+    margin: 4px 0 6px;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+
+.sr-custom-study-hero span {
+    color: var(--interactive-accent);
+    font-size: var(--font-ui-smaller);
+    font-weight: var(--font-semibold);
+}
+
+.sr-custom-study-section,
+.sr-custom-study-control {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.sr-custom-study-section h3,
+.sr-custom-study-control label {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    font-weight: var(--font-semibold);
+}
+
+.sr-custom-study-segmented {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding: 4px;
+    border-radius: 14px;
+    background: var(--background-secondary);
+}
+
+.sr-custom-study-segmented button {
+    min-height: 42px;
+    border: 0;
+    border-radius: 11px;
+    background: transparent;
+    box-shadow: none;
+}
+
+.sr-custom-study-segmented button.is-active {
+    background: var(--background-primary);
+    color: var(--text-normal);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 12%);
+}
+
+.sr-custom-study-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.sr-custom-study-control :is(input, select) {
+    width: 100%;
+    min-height: 46px;
+    border-radius: 13px;
+    font-size: 16px;
+}
+
+.sr-custom-study-actions {
+    display: grid;
+    grid-template-columns: 1fr 1.4fr;
+    gap: 10px;
+    padding-top: 4px;
+}
+
+.sr-custom-study-actions button {
+    min-height: 48px;
+    border-radius: 14px;
+    font-weight: var(--font-semibold);
+}
+
+@media (max-width: 420px) {
+    .sr-custom-study-grid {
+        grid-template-columns: 1fr;
+    }
+}

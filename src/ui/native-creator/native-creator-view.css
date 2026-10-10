@@ -818,6 +818,33 @@
 }
 
 @media (max-width: 520px) {
+    .sr-note-template-card-top {
+        grid-template-columns: 28px minmax(0, 1fr) 40px;
+    }
+
+    .sr-note-template-enabled {
+        grid-column: 2 / 4;
+    }
+
+    .sr-note-template-field-header,
+    .sr-note-template-deck {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .sr-note-template-tokens {
+        justify-content: flex-start;
+    }
+
+    .sr-note-template-deck-button {
+        width: 100%;
+        max-width: none;
+    }
+
+    .sr-note-template-preview-faces {
+        grid-template-columns: 1fr;
+    }
+
     .sr-media-manager-row {
         grid-template-columns: 48px minmax(0, 1fr);
     }
@@ -1121,9 +1148,22 @@
 
 .sr-note-template-card-top {
     display: grid;
-    grid-template-columns: 28px minmax(0, 1fr) 40px;
+    grid-template-columns: 28px minmax(0, 1fr) auto 40px;
     align-items: center;
     gap: 9px;
+}
+
+.sr-note-template-card.is-disabled {
+    opacity: 0.62;
+}
+
+.sr-note-template-enabled {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    white-space: nowrap;
 }
 
 .sr-note-template-field {
@@ -1138,10 +1178,144 @@
     font-weight: var(--font-semibold);
 }
 
+.sr-note-template-field-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.sr-note-template-tokens {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 5px;
+}
+
+.sr-note-template-tokens button {
+    min-height: 26px;
+    padding: 3px 8px;
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-secondary));
+    box-shadow: none;
+    color: var(--interactive-accent);
+    font-size: 11px;
+    font-weight: var(--font-semibold);
+}
+
 .sr-note-template-textarea {
     min-height: 84px;
     font-family: var(--font-monospace);
     font-size: 14px;
+}
+
+.sr-note-template-deck {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 12px;
+    border-radius: 13px;
+    background: var(--background-secondary);
+}
+
+.sr-note-template-deck > div {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sr-note-template-deck strong {
+    font-size: var(--font-ui-small);
+}
+
+.sr-note-template-deck span {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}
+
+.sr-note-template-deck-button {
+    max-width: 48%;
+    overflow: hidden;
+    border-radius: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sr-note-template-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 4px;
+}
+
+.sr-note-template-preview-label {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: var(--font-semibold);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.sr-note-template-preview-faces {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.sr-note-template-preview-face {
+    min-width: 0;
+    padding: 11px;
+    overflow: hidden;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 13px;
+    background: color-mix(in srgb, var(--background-secondary) 65%, transparent);
+}
+
+.sr-note-template-preview-face > span {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text-faint);
+    font-size: 10px;
+    font-weight: var(--font-semibold);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.sr-note-template-preview-body {
+    min-height: 44px;
+    overflow-wrap: anywhere;
+}
+
+.sr-note-template-preview-body > :first-child,
+.sr-note-template-preview-body > :last-child {
+    margin-block: 0;
+}
+
+.sr-note-style-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+
+.sr-note-style-presets button {
+    min-height: 34px;
+    border-radius: 999px;
+    box-shadow: none;
+}
+
+.sr-note-style-presets button.is-active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.sr-note-style-textarea {
+    min-height: 96px;
+    font-family: var(--font-monospace);
+    font-size: 13px;
 }
 
 .sr-note-type-save-actions {

@@ -1,6 +1,7 @@
 import { now } from "moment";
 import { App, MarkdownView, Notice, Platform } from "obsidian";
 
+import { CardFlag, LegacyCardInput } from "src/data/collection/collection-types";
 import { DataManager } from "src/data/data-manager";
 import { DataStore } from "src/data/data-store/base/data-store";
 import { Card } from "src/data/data-structures/card/card";
@@ -22,8 +23,9 @@ import { CardContainer } from "src/ui/obsidian-ui-components/content-container/c
 import CardInfoNotice from "src/ui/obsidian-ui-components/content-container/card-container/toolbar/toolbar-buttons/card-info-notice";
 import { DeckContainer } from "src/ui/obsidian-ui-components/content-container/deck-container/deck-container";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
+import { CustomStudyModal } from "src/ui/obsidian-ui-components/modals/custom-study-modal";
 import { FlashcardEditModal } from "src/ui/obsidian-ui-components/modals/edit-modal";
-import { ReviewQueueLoader } from "src/ui/review-queue-loader";
+import { CustomStudyOptions, ReviewQueueLoader } from "src/ui/review-queue-loader";
 import { UIManager, UIState } from "src/ui/ui-manager";
 import EmulatedPlatform from "src/utils/platform-detector";
 
@@ -108,6 +110,7 @@ export default class ContentManager {
     private sessionStartedAt = 0;
     private lastReviewSnapshot: ReviewUndoSnapshot | null = null;
     private isUndoingReview = false;
+    private customStudyActive = false;
 
     private lastPressedOnProcessReview: number = 0;
     private pendingResumeTimeout: number | null = null;
@@ -141,6 +144,7 @@ export default class ContentManager {
             this.plugin,
             this._changeReviewMode.bind(this),
             this._startReviewOfDeck.bind(this),
+            this._openCustomStudy.bind(this),
             openCardBrowser,
             this.uiManager.openNativeCardCreator.bind(this.uiManager),
             this.uiManager.openNativeDeckCreator.bind(this.uiManager),
@@ -163,6 +167,8 @@ export default class ContentManager {
             this._jumpToCurrentCard.bind(this),
             this._displayCurrentCardInfoNotice.bind(this),
             () => this._buryCurrentCard(),
+            () => this._suspendCurrentCard(),
+            (flag) => this._setCurrentCardFlag(flag),
             () => this._undoLastReview(),
             closeModal,
         );
@@ -221,6 +227,13 @@ export default class ContentManager {
 
     private async _showDecksList(reloadReviewQueue: boolean = false): Promise<void> {
         this._clearPendingResumeTimeout();
+        if (this.customStudyActive) {
+            this.customStudyActive = false;
+            this.reviewMode = FlashcardReviewMode.Review;
+            this.reviewQueueLoader.setReviewMode(FlashcardReviewMode.Review);
+            this.reviewQueueLoader.setCustomStudyOptions(null);
+            reloadReviewQueue = true;
+        }
         if (reloadReviewQueue) {
             this.reviewSequencer = await this.reviewQueueLoader.loadReviewQueue();
         }
@@ -530,10 +543,58 @@ export default class ContentManager {
     }
 
     public async _buryCurrentCard() {
-        if (this.reviewSequencer === null) return;
+        if (this.reviewSequencer === null || this.sessionData === null) return;
+        const inputs = this.getCurrentCardInputs(true);
         await this.reviewSequencer.buryCurrentQuestion();
-        new Notice(t("CARD_BURIED_UNTIL_TOMORROW"));
+        await this.dataManager.collectionStore.setLegacyCardsState(
+            inputs,
+            "buried",
+            this.nextLocalDayStart(),
+        );
+        new Notice(inputs.length > 1 ? t("SIBLINGS_BURIED") : t("CARD_BURIED_UNTIL_TOMORROW"));
         await this._showNextCard();
+    }
+
+    public async _suspendCurrentCard(): Promise<void> {
+        if (this.reviewSequencer === null || this.sessionData === null) return;
+        const inputs = this.getCurrentCardInputs(false);
+        if (inputs.length === 0) return;
+        await this.dataManager.collectionStore.setLegacyCardsState(inputs, "suspended");
+        this.reviewSequencer.skipCurrentCard();
+        new Notice(t("CARD_SUSPENDED"));
+        await this._showNextCard();
+    }
+
+    public async _setCurrentCardFlag(flag: CardFlag): Promise<void> {
+        const inputs = this.getCurrentCardInputs(false);
+        if (inputs.length === 0) return;
+        await this.dataManager.collectionStore.setLegacyCardsFlag(inputs, flag);
+        new Notice(flag === 0 ? t("FLAGS_CLEARED") : t("FLAG_SET"));
+    }
+
+    private getCurrentCardInputs(includeSiblings: boolean): LegacyCardInput[] {
+        const current = this.sessionData?.cardData.currentCard;
+        if (!current) return [];
+        const cards = includeSiblings ? current.question.cards : [current];
+        return cards.map((card) => {
+            const stored = this.dataManager.collectionStore.getCardByLegacyStableId(card.stableId);
+            return {
+                sourcePath:
+                    card.storageInfo?.notePath ?? this.sessionData?.currentNote.filePath ?? "",
+                questionId: card.storageInfo?.questionId ?? null,
+                ordinal: card.cardIdx,
+                deckPath: stored?.deckPath ?? "",
+                front: card.front,
+                back: card.back,
+            };
+        });
+    }
+
+    private nextLocalDayStart(): number {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(0, 0, 0, 0);
+        return tomorrow.getTime();
     }
 
     private _displayCurrentCardInfoNotice() {
@@ -612,12 +673,9 @@ export default class ContentManager {
 
             this.reviewSequencer = await this.reviewQueueLoader.loadReviewQueue();
             const stableId = snapshot.card.stableId;
-            const restoredCard = (
-                this.reviewSequencer.originalDeckTree.getFlattenedRepItemArray(
-                    RepItemState.AnyItem,
-                    true,
-                ) as Card[]
-            ).find((card) => card.stableId === stableId);
+            const restoredCard = this.reviewSequencer.originalDeckTree
+                .getFlattenedRepItemArray(RepItemState.AnyItem, true)
+                .find((card) => card.stableId === stableId);
             const restoredCardSelected =
                 restoredCard !== undefined &&
                 this.reviewSequencer.selectCard(restoredCard, snapshot.chosenDeckPath);
@@ -703,6 +761,41 @@ export default class ContentManager {
         } else {
             await this._showDecksList();
         }
+    }
+
+    private _openCustomStudy(deck: Deck): void {
+        new CustomStudyModal(this.app, deck.deckName, deck.getTopicPath().path, (options) =>
+            this._startCustomStudy(deck, options),
+        ).open();
+    }
+
+    private async _startCustomStudy(deck: Deck, options: CustomStudyOptions): Promise<void> {
+        this.reviewQueueLoader.setReviewMode(FlashcardReviewMode.Cram);
+        this.reviewQueueLoader.setCustomStudyOptions(options);
+        this.reviewMode = FlashcardReviewMode.Cram;
+        try {
+            this.reviewSequencer = await this.reviewQueueLoader.loadReviewQueue();
+        } finally {
+            this.reviewQueueLoader.setCustomStudyOptions(null);
+        }
+        const filteredDeck = this.reviewSequencer.originalDeckTree.getDeck(deck.getTopicPath());
+        if (!filteredDeck) {
+            this.reviewMode = FlashcardReviewMode.Review;
+            this.reviewQueueLoader.setReviewMode(FlashcardReviewMode.Review);
+            new Notice(t("ALL_CAUGHT_UP"));
+            await this._showDecksList(true);
+            return;
+        }
+        const stats = this.reviewSequencer.getDeckStats(filteredDeck.getTopicPath());
+        if (stats.cardsInQueueCount === 0) {
+            this.reviewMode = FlashcardReviewMode.Review;
+            this.reviewQueueLoader.setReviewMode(FlashcardReviewMode.Review);
+            new Notice(t("ALL_CAUGHT_UP"));
+            await this._showDecksList(true);
+            return;
+        }
+        this.customStudyActive = true;
+        await this._startReviewOfDeck(filteredDeck);
     }
 
     private async _changeReviewMode(reviewMode: FlashcardReviewMode) {

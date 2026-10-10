@@ -1,5 +1,6 @@
 import { Menu } from "obsidian";
 
+import { CardFlag } from "src/data/collection/collection-types";
 import { t } from "src/lang/helpers";
 import MenuButtonComponent from "src/ui/obsidian-ui-components/content-container/menu-button";
 
@@ -16,6 +17,8 @@ export default class CardMenuButtonComponent extends MenuButtonComponent {
         jumpToCurrentCard: () => Promise<void>,
         displayCurrentCardInfoNotice: () => void,
         buryCurrentCard: () => Promise<void>,
+        suspendCurrentCard: () => Promise<void>,
+        setCurrentCardFlag: (flag: CardFlag) => Promise<void>,
         skipCurrentCard: () => void,
         onOpenResetModalClick: () => void,
         closeModal?: () => void,
@@ -37,6 +40,8 @@ export default class CardMenuButtonComponent extends MenuButtonComponent {
                     jumpToCurrentCard,
                     displayCurrentCardInfoNotice,
                     buryCurrentCard,
+                    suspendCurrentCard,
+                    setCurrentCardFlag,
                     deleteCurrentCard,
                     closeModal,
                 );
@@ -63,6 +68,8 @@ export default class CardMenuButtonComponent extends MenuButtonComponent {
         jumpToCurrentCard: () => Promise<void>,
         displayCurrentCardInfoNotice: () => void,
         buryCurrentCard: () => Promise<void>,
+        suspendCurrentCard: () => Promise<void>,
+        setCurrentCardFlag: (flag: CardFlag) => Promise<void>,
         deleteCurrentCard: () => void,
         closeModal?: () => void,
     ) {
@@ -127,9 +134,19 @@ export default class CardMenuButtonComponent extends MenuButtonComponent {
                 });
         });
         cardMenu.addItem((item) => {
-            item.setTitle(t("BURY_UNTIL_TOMORROW"))
+            item.setTitle(t("BURY_SIBLINGS"))
                 .setIcon("moon")
                 .onClick(() => void buryCurrentCard());
+        });
+        cardMenu.addItem((item) => {
+            item.setTitle(t("SUSPEND_CARD"))
+                .setIcon("pause-circle")
+                .onClick(() => void suspendCurrentCard());
+        });
+        cardMenu.addItem((item) => {
+            item.setTitle(t("FLAG_CURRENT_CARD"))
+                .setIcon("flag")
+                .onClick((event) => this.openFlagMenu(event, setCurrentCardFlag));
         });
         if (showDeleteButton) {
             cardMenu.addSeparator();
@@ -142,5 +159,36 @@ export default class CardMenuButtonComponent extends MenuButtonComponent {
                     });
             });
         }
+    }
+
+    private openFlagMenu(
+        event: MouseEvent | KeyboardEvent,
+        setCurrentCardFlag: (flag: CardFlag) => Promise<void>,
+    ): void {
+        const menu = new Menu();
+        const labels = [
+            t("NO_FLAG"),
+            t("FLAG_RED"),
+            t("FLAG_ORANGE"),
+            t("FLAG_GREEN"),
+            t("FLAG_BLUE"),
+            t("FLAG_PINK"),
+            t("FLAG_TURQUOISE"),
+            t("FLAG_PURPLE"),
+        ];
+        for (const value of [0, 1, 2, 3, 4, 5, 6, 7] as CardFlag[]) {
+            menu.addItem((item) =>
+                item
+                    .setTitle(labels[value])
+                    .setIcon(value === 0 ? "x" : "flag")
+                    .onClick(() => void setCurrentCardFlag(value)),
+            );
+        }
+        if (event instanceof MouseEvent) menu.showAtMouseEvent(event);
+        else
+            menu.showAtPosition({
+                x: activeWindow.innerWidth / 2,
+                y: activeWindow.innerHeight / 2,
+            });
     }
 }

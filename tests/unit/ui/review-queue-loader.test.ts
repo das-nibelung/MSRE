@@ -3,7 +3,11 @@ import { Card } from "src/data/data-structures/card/card";
 import { Deck } from "src/data/data-structures/deck/deck";
 import { TopicPath } from "src/data/data-structures/deck/topic-path";
 import { RepItemState } from "src/scheduling/algorithms/base/repetition-item";
-import { applyCardLifecycleToQueue, applyDeckOptionsToQueue } from "src/ui/review-queue-loader";
+import {
+    applyCardLifecycleToQueue,
+    applyCustomStudyOptionsToQueue,
+    applyDeckOptionsToQueue,
+} from "src/ui/review-queue-loader";
 
 describe("deck option queue limits", () => {
     it("limits each deck independently without mutating the shared tree", () => {
@@ -52,5 +56,30 @@ describe("persistent card lifecycle queue filter", () => {
             active,
             suspended,
         ]);
+    });
+});
+
+describe("custom study queue", () => {
+    it("scopes a temporary session to one deck, state, and card limit", () => {
+        const root = new Deck("root", null);
+        const medicine = root.getOrCreateDeck(new TopicPath(["flashcards", "Medicine"]));
+        const law = root.getOrCreateDeck(new TopicPath(["flashcards", "Law"]));
+        medicine.newRepItems = [new Card(), new Card()];
+        medicine.dueRepItems = [new Card(), new Card(), new Card()];
+        law.dueRepItems = [new Card(), new Card()];
+
+        const filtered = applyCustomStudyOptionsToQueue(root, {
+            targetDeckPath: ["flashcards", "Medicine"],
+            scope: "due",
+            limit: 2,
+            order: "due-first",
+        });
+
+        const filteredMedicine = filtered.getDeck(new TopicPath(["flashcards", "Medicine"]));
+        expect(filteredMedicine?.dueRepItems).toHaveLength(2);
+        expect(filteredMedicine?.newRepItems).toHaveLength(0);
+        expect(filtered.getDeck(new TopicPath(["flashcards", "Law"]))).toBeNull();
+        expect(medicine.dueRepItems).toHaveLength(3);
+        expect(medicine.newRepItems).toHaveLength(2);
     });
 });

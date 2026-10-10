@@ -102,13 +102,26 @@ export function renderNoteTypeTemplate(
     template: string,
     noteType: NoteTypeDefinition,
     fields: Record<string, string>,
+    frontSide = "",
 ): string {
     let result = template;
     for (const field of noteType.fields) {
         const value = fields[field.id] ?? "";
+        for (const token of [field.name, field.id]) {
+            const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            result = result.replace(
+                new RegExp(`{{#${escaped}}}([\\s\\S]*?){{\\/${escaped}}}`, "g"),
+                value.trim() ? "$1" : "",
+            );
+            result = result.replace(
+                new RegExp(`{{\\^${escaped}}}([\\s\\S]*?){{\\/${escaped}}}`, "g"),
+                value.trim() ? "" : "$1",
+            );
+        }
         result = result.split(`{{${field.name}}}`).join(value);
         result = result.split(`{{${field.id}}}`).join(value);
     }
+    result = result.split("{{FrontSide}}").join(frontSide);
     return result.trim();
 }
 
@@ -143,7 +156,12 @@ export function serializeStructuredNoteBody(
             const questionId = `${baseQuestionId}-${template.ordinal + 1}`;
             legacyQuestionIds[template.ordinal] = questionId;
             const question = renderNoteTypeTemplate(template.questionFormat, noteType, fields);
-            const answer = renderNoteTypeTemplate(template.answerFormat, noteType, fields);
+            const answer = renderNoteTypeTemplate(
+                template.answerFormat,
+                noteType,
+                fields,
+                question,
+            );
             if (!question || !answer) throw new Error("empty-generated-card");
             return `${question}\n${settings.multilineCardSeparator}\n${answer} ${questionId}`;
         });
@@ -642,6 +660,51 @@ export class NativeCardStore {
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
         return file;
+    }
+
+    /** Rebuilds managed card sources after a note type's templates or styling change. */
+    async refreshStructuredNotesForType(noteTypeId: string): Promise<number> {
+        const collection = this.plugin.dataManager.collectionStore;
+        const noteType = collection.getNoteType(noteTypeId);
+        if (!noteType || noteType.kind === "image-occlusion") return 0;
+        const snapshot = collection.getCollectionSnapshot();
+        const notes = Object.values(snapshot.notes).filter(
+            (note) =>
+                !note.deletedAt && note.noteTypeId === noteTypeId && note.source.kind === "managed",
+        );
+        const settings = this.plugin.dataManager.data.settings;
+        const rootTag = (settings.flashcardTags[0] ?? FALLBACK_ROOT_TAG).replace(/\/+$/g, "");
+        let refreshed = 0;
+        for (const note of notes) {
+            const file = this.plugin.app.vault.getAbstractFileByPath(note.source.path);
+            if (!(file instanceof TFile)) continue;
+            const card = Object.values(snapshot.cards).find(
+                (candidate) => !candidate.deletedAt && candidate.noteId === note.id,
+            );
+            const deckPath = normalizeManagedDeckPath(card?.deckPath ?? "");
+            const tag = deckPath ? `${rootTag}/${deckPath}` : rootTag;
+            const baseQuestionId = note.source.questionId ?? `^sr-data-id-${note.id}`;
+            const { body, legacyQuestionIds } = serializeStructuredNoteBody(
+                noteType,
+                note.fields,
+                settings,
+                baseQuestionId,
+            );
+            await this.plugin.app.vault.modify(file, `${tag}\n\n${body}\n`);
+            await collection.updateNote(note.id, {
+                fields: note.fields,
+                tags: note.tags,
+                deckPath,
+                source: { ...note.source, questionId: baseQuestionId },
+                legacyQuestionIds: noteType.kind === "standard" ? legacyQuestionIds : undefined,
+            });
+            refreshed++;
+        }
+        if (refreshed > 0) {
+            await this.plugin.dataManager.sync();
+            this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+        }
+        return refreshed;
     }
 
     private async ensureFolder(path: string): Promise<void> {

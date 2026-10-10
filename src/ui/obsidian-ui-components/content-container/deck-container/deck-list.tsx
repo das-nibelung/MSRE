@@ -29,6 +29,7 @@ export default class DeckListComponent {
     private readonly store: NativeCardStore;
 
     private readonly startReviewOfDeck: (deck: Deck) => void;
+    private readonly startCustomStudyOfDeck: (deck: Deck) => void;
     private readonly openCardBrowser: () => void | Promise<void>;
     private readonly createCard: (deckPath?: string) => void;
     private readonly createDeck: (deckPath?: string, areaId?: string) => void;
@@ -38,6 +39,7 @@ export default class DeckListComponent {
     public constructor(
         parentEl: HTMLElement,
         startReviewOfDeck: (deck: Deck) => void,
+        startCustomStudyOfDeck: (deck: Deck) => void,
         openCardBrowser: () => void | Promise<void>,
         createCard: (deckPath?: string) => void,
         createDeck: (deckPath?: string, areaId?: string) => void,
@@ -46,6 +48,7 @@ export default class DeckListComponent {
         plugin: SRPlugin,
     ) {
         this.startReviewOfDeck = startReviewOfDeck;
+        this.startCustomStudyOfDeck = startCustomStudyOfDeck;
         this.openCardBrowser = openCardBrowser;
         this.createCard = createCard;
         this.createDeck = createDeck;
@@ -327,6 +330,15 @@ export default class DeckListComponent {
                 .setIcon("square-pen")
                 .onClick(() => this.createCard(deckPath)),
         );
+        const deck = this.findDeckByVisiblePath(deckPath);
+        if (deck) {
+            menu.addItem((item) =>
+                item
+                    .setTitle(t("CUSTOM_STUDY"))
+                    .setIcon("sliders-horizontal")
+                    .onClick(() => this.startCustomStudyOfDeck(deck)),
+            );
+        }
         menu.addItem((item) =>
             item
                 .setTitle(t("NEW_DECK"))
@@ -405,7 +417,8 @@ export default class DeckListComponent {
         details.createSpan({
             text: t("DECKS_READY", { count: stats.decksInQueueOfThisDeckCount }),
         });
-        const start = new ButtonComponent(this.overview)
+        const actions = this.overview.createDiv("sr-deck-overview-actions");
+        const start = new ButtonComponent(actions)
             .setButtonText(t("START_REVIEW"))
             .setCta()
             .setDisabled(stats.cardsInQueueCount === 0)
@@ -414,6 +427,25 @@ export default class DeckListComponent {
         setIcon(startIcon, "play");
         start.buttonEl.prepend(startIcon);
         start.buttonEl.addClass("sr-deck-overview-start");
+        const custom = new ButtonComponent(actions)
+            .setIcon("sliders-horizontal")
+            .setTooltip(t("CUSTOM_STUDY"))
+            .onClick(() => this.startCustomStudyOfDeck(deck));
+        custom.buttonEl.addClass("sr-deck-overview-custom");
+    }
+
+    private findDeckByVisiblePath(deckPath: string): Deck | null {
+        const root = this.currentReviewSequencer?.originalDeckTree;
+        if (!root) return null;
+        const visit = (deck: Deck): Deck | null => {
+            if (this.getVisibleDeckPath(deck) === deckPath) return deck;
+            for (const child of deck.subdecks) {
+                const match = visit(child);
+                if (match) return match;
+            }
+            return null;
+        };
+        return visit(root);
     }
 
     private createStats(parent: HTMLElement, stats: DeckStats): void {

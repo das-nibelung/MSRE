@@ -1,5 +1,6 @@
 import "src/ui/obsidian-ui-components/content-container/card-container/toolbar/toolbar.css";
 
+import { CardFlag } from "src/data/collection/collection-types";
 import { Deck } from "src/data/data-structures/deck/deck";
 import { t } from "src/lang/helpers";
 import { DeckStats } from "src/scheduling/flashcard-review-sequencer";
@@ -28,6 +29,8 @@ export default class CardToolbarComponent {
         jumpToCurrentCard: () => Promise<void>,
         displayCurrentCardInfoNotice: () => void,
         buryCurrentCard: () => Promise<void>,
+        suspendCurrentCard: () => Promise<void>,
+        setCurrentCardFlag: (flag: CardFlag) => Promise<void>,
         skipCurrentCard: () => void,
         undoLastReview: () => Promise<void>,
         onOpenResetModalClick: () => void,
@@ -95,6 +98,8 @@ export default class CardToolbarComponent {
             jumpToCurrentCard,
             displayCurrentCardInfoNotice,
             buryCurrentCard,
+            suspendCurrentCard,
+            setCurrentCardFlag,
             skipCurrentCard,
             onOpenResetModalClick,
             closeModal,
@@ -112,6 +117,8 @@ export default class CardToolbarComponent {
             jumpToCurrentCard,
             displayCurrentCardInfoNotice,
             buryCurrentCard,
+            suspendCurrentCard,
+            setCurrentCardFlag,
             skipCurrentCard,
             onOpenResetModalClick,
             closeModal,

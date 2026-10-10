@@ -22,6 +22,7 @@ export class DeckContainer {
         plugin: SRPlugin,
         changeReviewMode: (reviewMode: FlashcardReviewMode) => void,
         startReviewOfDeck: (deck: Deck) => void,
+        startCustomStudyOfDeck: (deck: Deck) => void,
         openCardBrowser: () => void | Promise<void>,
         createCard: (deckPath?: string) => void,
         createDeck: (deckPath?: string) => void,
@@ -46,6 +47,7 @@ export class DeckContainer {
         this.deckList = new DeckListComponent(
             this.containerEl,
             startReviewOfDeck,
+            startCustomStudyOfDeck,
             openCardBrowser,
             createCard,
             createDeck,

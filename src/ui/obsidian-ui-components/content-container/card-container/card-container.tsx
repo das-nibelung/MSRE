@@ -6,6 +6,7 @@ import {
     IMAGE_OCCLUSION_NOTE_TYPE_ID,
     OCCLUSION_ASSETS_FIELD_ID,
 } from "src/data/collection/builtin-note-types";
+import { CardFlag } from "src/data/collection/collection-types";
 import { CardType } from "src/data/data-structures/card/questions/question";
 import { SRSettings } from "src/data/settings";
 import { t } from "src/lang/helpers";
@@ -56,6 +57,10 @@ export class CardContainer {
     private jumpToCardHandler: () => Promise<void>;
     private backToDeckHandler: () => Promise<void>;
     private undoLastReviewHandler: () => Promise<void>;
+    private editCardHandler: () => void;
+    private buryCurrentCardHandler: () => Promise<void>;
+    private suspendCurrentCardHandler: () => Promise<void>;
+    private setCurrentCardFlagHandler: (flag: CardFlag) => Promise<void>;
     private gestureStart: {
         pointerId: number;
         x: number;
@@ -95,6 +100,8 @@ export class CardContainer {
         jumpToCurrentCardHandler: () => Promise<void>,
         displayCurrentCardInfoNoticeHandler: () => void,
         buryCurrentCardHandler: () => Promise<void>,
+        suspendCurrentCardHandler: () => Promise<void>,
+        setCurrentCardFlagHandler: (flag: CardFlag) => Promise<void>,
         undoLastReviewHandler: () => Promise<void>,
         closeModal?: () => void,
     ) {
@@ -108,6 +115,10 @@ export class CardContainer {
         this.jumpToCardHandler = jumpToCurrentCardHandler;
         this.backToDeckHandler = backToDeckHandler;
         this.undoLastReviewHandler = undoLastReviewHandler;
+        this.editCardHandler = editCardHandler;
+        this.buryCurrentCardHandler = buryCurrentCardHandler;
+        this.suspendCurrentCardHandler = suspendCurrentCardHandler;
+        this.setCurrentCardFlagHandler = setCurrentCardFlagHandler;
 
         // Build ui
         this.view = parentEl.createDiv();
@@ -124,6 +135,8 @@ export class CardContainer {
             jumpToCurrentCardHandler,
             displayCurrentCardInfoNoticeHandler,
             buryCurrentCardHandler,
+            suspendCurrentCardHandler,
+            setCurrentCardFlagHandler,
             this.skipCardHandler,
             undoLastReviewHandler,
             () => {
@@ -259,6 +272,7 @@ export class CardContainer {
         this.content.empty();
 
         const cardSurface = this.content.createDiv("sr-study-card");
+        this.applyNoteTypeAppearance(cardSurface, sessionData);
 
         // Create context section
         this.drawCardContext(sessionData, settings, cardSurface);
@@ -505,6 +519,7 @@ export class CardContainer {
         } else {
             this.content.empty();
             cardSurface = this.content.createDiv("sr-study-card");
+            this.applyNoteTypeAppearance(cardSurface, sessionData);
             this.drawCardContext(sessionData, settings, cardSurface);
         }
 
@@ -632,6 +647,19 @@ export class CardContainer {
 
     public setUndoAvailable(available: boolean): void {
         this.toolbar.setUndoAvailable(available);
+    }
+
+    private applyNoteTypeAppearance(cardSurface: HTMLElement, sessionData: SessionData): void {
+        const card = sessionData.cardData.currentCard;
+        const note = this.plugin.dataManager.collectionStore.findNoteBySource(
+            sessionData.currentNote.filePath,
+            card?.storageInfo?.questionId,
+        );
+        if (!note) return;
+        const noteType = this.plugin.dataManager.collectionStore.getNoteType(note.noteTypeId);
+        if (!noteType) return;
+        cardSurface.dataset.noteType = noteType.id;
+        if (noteType.css.trim()) cardSurface.setAttribute("style", noteType.css);
     }
 
     private createSummaryStat(parent: HTMLElement, value: string | number, label: string): void {
@@ -1101,9 +1129,33 @@ export class CardContainer {
             return;
         }
 
+        if (e.shiftKey && /^Digit[1-7]$/.test(e.code)) {
+            void this.setCurrentCardFlagHandler(Number(e.code.slice(-1)) as CardFlag);
+            consumeKeyEvent();
+            return;
+        }
+
+        if (e.shiftKey && e.code === "Digit0") {
+            void this.setCurrentCardFlagHandler(0);
+            consumeKeyEvent();
+            return;
+        }
+
         if (this.cardState === CardState.Closed) return;
 
         switch (e.code) {
+            case "KeyE":
+                this.editCardHandler();
+                consumeKeyEvent();
+                break;
+            case "KeyB":
+                void this.buryCurrentCardHandler();
+                consumeKeyEvent();
+                break;
+            case "KeyU":
+                void this.suspendCurrentCardHandler();
+                consumeKeyEvent();
+                break;
             case "KeyS":
                 this.skipCardHandler();
                 consumeKeyEvent();

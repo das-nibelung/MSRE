@@ -38,6 +38,7 @@ import {
     NativeCardStore,
     NativeCardType,
     normalizeManagedDeckPath,
+    renderNoteTypeTemplate,
 } from "src/data/native-card-store";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
@@ -1861,7 +1862,18 @@ export class NativeCreatorView extends ItemView {
             });
             name.value = field.name;
             name.addEventListener("input", () => {
+                const previousName = field.name;
                 field.name = name.value;
+                if (previousName && previousName !== field.name) {
+                    for (const template of draft.templates) {
+                        template.questionFormat = template.questionFormat
+                            .split(`{{${previousName}}}`)
+                            .join(`{{${field.name}}}`);
+                        template.answerFormat = template.answerFormat
+                            .split(`{{${previousName}}}`)
+                            .join(`{{${field.name}}}`);
+                    }
+                }
                 this.clearError();
             });
             const kind = row.createEl("select", {
@@ -1923,6 +1935,14 @@ export class NativeCreatorView extends ItemView {
             });
             name.value = template.name;
             name.addEventListener("input", () => (template.name = name.value));
+            const enabled = top.createEl("label", { cls: "sr-note-template-enabled" });
+            const enabledInput = enabled.createEl("input", { attr: { type: "checkbox" } });
+            enabledInput.checked = template.enabled;
+            enabledInput.addEventListener("change", () => {
+                template.enabled = enabledInput.checked;
+                card.toggleClass("is-disabled", !template.enabled);
+            });
+            enabled.createSpan({ text: t("TEMPLATE_ENABLED") });
             new ButtonComponent(top)
                 .setIcon("trash-2")
                 .setTooltip(t("REMOVE_TEMPLATE"))
@@ -1936,37 +1956,151 @@ export class NativeCreatorView extends ItemView {
                 card,
                 t("QUESTION_TEMPLATE"),
                 template.questionFormat,
+                draft,
                 (value) => {
                     template.questionFormat = value;
+                    this.renderTemplatePreview(preview, draft, template);
                 },
             );
             this.createTemplateTextarea(
                 card,
                 t("ANSWER_TEMPLATE"),
                 template.answerFormat,
+                draft,
                 (value) => {
                     template.answerFormat = value;
+                    this.renderTemplatePreview(preview, draft, template);
                 },
             );
+
+            const deck = card.createDiv("sr-note-template-deck");
+            const deckCopy = deck.createDiv();
+            deckCopy.createEl("strong", { text: t("TEMPLATE_DECK") });
+            deckCopy.createSpan({ text: t("TEMPLATE_DECK_HELP") });
+            const deckButton = new ButtonComponent(deck)
+                .setButtonText(template.deckOverride || t("INHERIT_NOTE_DECK"))
+                .onClick(() => {
+                    new DeckPickerModal(this.app, {
+                        decks: this.store.getDeckPaths(),
+                        current: template.deckOverride ?? "",
+                        allowAll: true,
+                        onChoose: (path) => {
+                            template.deckOverride = path === "all" ? null : path;
+                            this.render();
+                        },
+                        onCreate: (path) => this.store.createDeck(path),
+                    }).open();
+                });
+            deckButton.buttonEl.addClass("sr-note-template-deck-button");
+
+            const preview = card.createDiv("sr-note-template-preview");
+            this.renderTemplatePreview(preview, draft, template);
         });
+
+        this.renderNoteTypeStyleEditor(parent, draft);
     }
 
     private createTemplateTextarea(
         parent: HTMLElement,
         label: string,
         value: string,
+        draft: NoteTypeEditorDraft,
         onChange: (value: string) => void,
     ): void {
         const field = parent.createDiv("sr-note-template-field");
-        field.createEl("label", { text: label });
+        const header = field.createDiv("sr-note-template-field-header");
+        header.createEl("label", { text: label });
+        const tokens = header.createDiv("sr-note-template-tokens");
         const textarea = field.createEl("textarea", {
             cls: "sr-native-textarea sr-note-template-textarea",
             attr: { rows: "3", spellcheck: "false" },
         });
         textarea.value = value;
+        for (const noteField of draft.fields) {
+            const token = tokens.createEl("button", {
+                text: noteField.name,
+                attr: { type: "button", title: t("INSERT_FIELD") },
+            });
+            token.addEventListener("click", () => {
+                const insertion = `{{${noteField.name}}}`;
+                const start = textarea.selectionStart;
+                const end = textarea.selectionEnd;
+                textarea.setRangeText(insertion, start, end, "end");
+                onChange(textarea.value);
+                textarea.focus();
+                this.clearError();
+            });
+        }
         textarea.addEventListener("input", () => {
             onChange(textarea.value);
             this.clearError();
+        });
+    }
+
+    private renderTemplatePreview(
+        parent: HTMLElement,
+        draft: NoteTypeEditorDraft,
+        template: CardTemplateDefinition,
+    ): void {
+        parent.empty();
+        parent.createDiv({ cls: "sr-note-template-preview-label", text: t("LIVE_PREVIEW") });
+        const sampleFields = Object.fromEntries(
+            draft.fields.map((field) => [field.id, `${field.name}`]),
+        );
+        for (const field of draft.fields) sampleFields[field.name] = field.name;
+        const faces = parent.createDiv("sr-note-template-preview-faces");
+        for (const [label, value] of [
+            [t("CARD_TEMPLATE_QUESTION"), template.questionFormat],
+            [t("CARD_TEMPLATE_ANSWER"), template.answerFormat],
+        ] as const) {
+            const face = faces.createDiv("sr-note-template-preview-face");
+            face.createSpan({ text: label });
+            const body = face.createDiv("sr-note-template-preview-body");
+            body.setAttribute("style", draft.css);
+            void MarkdownRenderer.render(
+                this.app,
+                renderNoteTypeTemplate(value, draft as NoteTypeDefinition, sampleFields),
+                body,
+                "",
+                this,
+            );
+        }
+    }
+
+    private renderNoteTypeStyleEditor(parent: HTMLElement, draft: NoteTypeEditorDraft): void {
+        const section = parent.createDiv("sr-note-type-section sr-note-style-section");
+        const heading = section.createDiv("sr-note-type-section-heading");
+        const copy = heading.createDiv();
+        copy.createEl("h3", { text: t("CARD_APPEARANCE") });
+        copy.createEl("p", { text: t("CARD_APPEARANCE_HELP") });
+        const presets = section.createDiv("sr-note-style-presets");
+        for (const [label, css] of [
+            [t("STYLE_DEFAULT"), ""],
+            [t("STYLE_CENTERED"), "text-align: center; font-size: 1.15em;"],
+            [t("STYLE_COMPACT"), "font-size: .92em; line-height: 1.35;"],
+            [
+                t("STYLE_READING"),
+                "font-size: 1.08em; line-height: 1.7; max-width: 42rem; margin: auto;",
+            ],
+        ] as const) {
+            const button = new ButtonComponent(presets).setButtonText(label).onClick(() => {
+                draft.css = css;
+                this.render();
+            });
+            button.buttonEl.toggleClass("is-active", draft.css === css);
+        }
+        const textarea = section.createEl("textarea", {
+            cls: "sr-native-textarea sr-note-style-textarea",
+            attr: { rows: "4", spellcheck: "false", placeholder: "font-size: 1.1em;" },
+        });
+        textarea.value = draft.css;
+        textarea.addEventListener("input", () => {
+            draft.css = textarea.value;
+            for (const preview of parent.querySelectorAll<HTMLElement>(
+                ".sr-note-template-preview-body",
+            )) {
+                preview.setAttribute("style", draft.css);
+            }
         });
     }
 
@@ -2104,6 +2238,7 @@ export class NativeCreatorView extends ItemView {
                     ordinal,
                 })),
             });
+            await this.store.refreshStructuredNotesForType(draft.id);
             this.busy = false;
             this.noteTypeDraft = null;
             new Notice(t("NOTE_TYPE_SAVED"));

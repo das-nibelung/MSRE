@@ -145,6 +145,25 @@ describe("native card storage", () => {
         );
     });
 
+    it("supports conditional fields and FrontSide in visual card templates", () => {
+        const basic = getBuiltinNoteTypes()[0];
+        expect(
+            renderNoteTypeTemplate(
+                "{{#Back}}Extra: {{Back}}{{/Back}}{{^Back}}No answer{{/Back}}",
+                basic,
+                { front: "Question", back: "Answer" },
+            ),
+        ).toBe("Extra: Answer");
+        expect(
+            renderNoteTypeTemplate(
+                "{{FrontSide}}<hr>{{Back}}",
+                basic,
+                { front: "Question", back: "Answer" },
+                "Rendered question",
+            ),
+        ).toBe("Rendered question<hr>Answer");
+    });
+
     it("serializes multi-template and multi-cloze notes into reviewable questions", () => {
         const [, reversed, cloze] = getBuiltinNoteTypes();
         const standardBody = serializeStructuredNoteBody(

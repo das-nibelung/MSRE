@@ -11,9 +11,11 @@ import {
     IIteratorOrder,
     RepItemOrder,
 } from "src/data/data-structures/deck/deck-tree-iterator";
+import { TopicPath } from "src/data/data-structures/deck/topic-path";
 import { SRSettings } from "src/data/settings";
 import SRPlugin from "src/main";
 import { Note } from "src/note/note";
+import { RepItemState } from "src/scheduling/algorithms/base/repetition-item";
 import { SRAlgorithm } from "src/scheduling/algorithms/base/sr-algorithm";
 import {
     FlashcardReviewMode,
@@ -34,6 +36,46 @@ function shuffleCards<T>(cards: T[]): T[] {
         [result[index], result[other]] = [result[other], result[index]];
     }
     return result;
+}
+
+export interface CustomStudyOptions {
+    targetDeckPath: string[];
+    scope: "due" | "new" | "all";
+    limit: number;
+    order: "due-first" | "random";
+}
+
+/** Creates a temporary, deck-scoped queue without changing card schedules. */
+export function applyCustomStudyOptionsToQueue(deckTree: Deck, options: CustomStudyOptions): Deck {
+    const target = deckTree.getDeck(new TopicPath([...options.targetDeckPath]));
+    if (!target) return deckTree.copyWithRepItemFilter(() => false);
+
+    const state =
+        options.scope === "new"
+            ? RepItemState.NewItem
+            : options.scope === "due"
+              ? RepItemState.DueItem
+              : RepItemState.AnyItem;
+    let candidates = [...new Set(target.getFlattenedRepItemArray(state, true))];
+    if (options.scope === "all" && options.order === "due-first") {
+        candidates = [
+            ...new Set(target.getFlattenedRepItemArray(RepItemState.DueItem, true)),
+            ...new Set(target.getFlattenedRepItemArray(RepItemState.NewItem, true)),
+        ];
+    }
+    if (options.order === "random") candidates = shuffleCards(candidates);
+    const selected = new Set(candidates.slice(0, Math.max(1, options.limit)));
+    const filtered = deckTree.copyWithRepItemFilter((item) => selected.has(item));
+    if (options.order === "random") {
+        const randomize = (deck: Deck): void => {
+            deck.newRepItems = shuffleCards(deck.newRepItems);
+            deck.dueRepItems = shuffleCards(deck.dueRepItems);
+            for (const child of deck.subdecks) randomize(child);
+        };
+        randomize(filtered);
+    }
+    filtered.pruneEmptySubdecks();
+    return filtered;
 }
 
 /** Applies Anki-style per-deck daily limits without mutating the vault-wide deck tree. */
@@ -74,6 +116,7 @@ export class ReviewQueueLoader {
     private osrCore: OsrCore;
     private singleNote: TFile | null = null;
     private reviewMode: FlashcardReviewMode;
+    private customStudyOptions: CustomStudyOptions | null = null;
 
     constructor(
         plugin: SRPlugin,
@@ -97,6 +140,10 @@ export class ReviewQueueLoader {
 
     setReviewMode(reviewMode: FlashcardReviewMode) {
         this.reviewMode = reviewMode;
+    }
+
+    setCustomStudyOptions(options: CustomStudyOptions | null): void {
+        this.customStudyOptions = options;
     }
 
     public async loadReviewQueue(): Promise<IFlashcardReviewSequencer> {
@@ -135,7 +182,19 @@ export class ReviewQueueLoader {
             collection.isLegacyCardReviewable(stableId),
         );
 
-        if (this.reviewMode === FlashcardReviewMode.Review && !this.singleNote) {
+        if (this.customStudyOptions) {
+            deckTree = applyCustomStudyOptionsToQueue(deckTree, this.customStudyOptions);
+            remainingDeckTree = applyCustomStudyOptionsToQueue(
+                remainingDeckTree,
+                this.customStudyOptions,
+            );
+        }
+
+        if (
+            this.reviewMode === FlashcardReviewMode.Review &&
+            !this.singleNote &&
+            !this.customStudyOptions
+        ) {
             const rootTag = this.plugin.dataManager.data.settings.flashcardTags[0] ?? "#flashcards";
             remainingDeckTree = applyDeckOptionsToQueue(remainingDeckTree, rootTag, (deckPath) =>
                 this.plugin.dataManager.collectionStore.getDeckOptionsForPath(deckPath),
