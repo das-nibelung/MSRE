@@ -15,12 +15,7 @@ import { DataStore } from "src/data/data-store/base/data-store";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
-import {
-    buryCardsUntilTomorrow,
-    editCardFromBrowser,
-    resetCardProgress,
-    resetCardsProgress,
-} from "src/ui/card-actions";
+import { buryCardsUntilTomorrow, resetCardProgress, resetCardsProgress } from "src/ui/card-actions";
 import {
     CardBrowserFilter,
     CardBrowserRecord,
@@ -128,7 +123,7 @@ export class CardBrowserView extends ItemView {
         const createButton = new ButtonComponent(headerActions)
             .setIcon("plus")
             .setTooltip(t("CREATE_CARD"))
-            .onClick(() => void this.plugin.uiManager.createStarterCardNote());
+            .onClick(() => void this.plugin.uiManager.openNativeCardCreator());
         createButton.buttonEl.addClass("sr-card-browser-create-button");
         if (!this.plugin.dataManager.isOsrCoreLoaded()) {
             this.renderEmpty(t("LOADING_CARDS"), "loader-circle", false);
@@ -322,7 +317,7 @@ export class CardBrowserView extends ItemView {
             new ButtonComponent(empty)
                 .setButtonText(t("CREATE_FIRST_CARD"))
                 .setCta()
-                .onClick(() => void this.plugin.uiManager.createStarterCardNote());
+                .onClick(() => void this.plugin.uiManager.openNativeCardCreator());
         }
         if (clearFilters !== undefined) {
             new ButtonComponent(empty).setButtonText(t("CLEAR_FILTERS")).onClick(clearFilters);
@@ -353,7 +348,7 @@ export class CardBrowserView extends ItemView {
             attr: {
                 role: "button",
                 tabindex: "0",
-                "aria-label": t("OPEN_SOURCE_NOTE"),
+                "aria-label": t("EDIT_CARD"),
             },
         });
         const main = body.createDiv("sr-card-browser-row-main");
@@ -383,11 +378,11 @@ export class CardBrowserView extends ItemView {
             .onClick((event) => this.openCardMenu(event, record));
         actionsButton.buttonEl.addEventListener("click", (event) => event.stopPropagation());
 
-        body.addEventListener("click", () => void this.openSource(record));
+        body.addEventListener("click", () => void this.editCard(record));
         body.addEventListener("keydown", (event) => {
             if (event.key !== "Enter" && event.key !== " ") return;
             event.preventDefault();
-            void this.openSource(record);
+            void this.editCard(record);
         });
         row.addEventListener("contextmenu", (event) => this.openCardMenu(event, record));
     }
@@ -474,11 +469,7 @@ export class CardBrowserView extends ItemView {
     }
 
     private async editCard(record: CardBrowserRecord): Promise<void> {
-        if (
-            await editCardFromBrowser(this.app, this.plugin.dataManager.data.settings, record.card)
-        ) {
-            this.render();
-        }
+        await this.plugin.uiManager.openNativeCardEditor(record.card, record.deckNames[0]);
     }
 
     private openCardMenu(event: MouseEvent, record: CardBrowserRecord): void {

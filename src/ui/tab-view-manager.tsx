@@ -1,9 +1,10 @@
 import { PaneType, WorkspaceLeaf } from "obsidian";
 
-import { CARD_BROWSER_VIEW_TYPE, SR_TAB_VIEW } from "src/data/constants";
+import { CARD_BROWSER_VIEW_TYPE, CARD_CREATOR_VIEW_TYPE, SR_TAB_VIEW } from "src/data/constants";
 import { SettingsManager } from "src/data/settings-manager";
 import SRPlugin from "src/main";
 import { CardBrowserView } from "src/ui/card-browser/card-browser-view";
+import { NativeCreatorRequest, NativeCreatorView } from "src/ui/native-creator/native-creator-view";
 import { SRTabView } from "src/ui/obsidian-ui-components/item-views/sr-tab-view";
 import { ReviewQueueLoader } from "src/ui/review-queue-loader";
 import { TabViewType } from "src/utils/types";
@@ -23,6 +24,7 @@ export default class TabViewManager {
     private plugin: SRPlugin;
     private settingsManager: SettingsManager;
     private reviewQueueLoader: ReviewQueueLoader | null = null;
+    private creatorRequest: NativeCreatorRequest = { mode: "card" };
 
     // Add any new other tab view types to this, then they'll be automatically registered
     private tabViewTypes: TabViewType[] = [
@@ -40,6 +42,14 @@ export default class TabViewManager {
         {
             type: CARD_BROWSER_VIEW_TYPE,
             viewCreator: (leaf) => new CardBrowserView(leaf, this.plugin),
+        },
+        {
+            type: CARD_CREATOR_VIEW_TYPE,
+            viewCreator: (leaf) => {
+                const view = new NativeCreatorView(leaf, this.plugin);
+                view.configure(this.creatorRequest);
+                return view;
+            },
         },
     ];
 
@@ -79,6 +89,12 @@ export default class TabViewManager {
         }
     }
 
+    public async openNativeCreator(request: NativeCreatorRequest): Promise<void> {
+        this.creatorRequest = request;
+        const leaf = await this.openTabView(CARD_CREATOR_VIEW_TYPE, true);
+        if (leaf?.view instanceof NativeCreatorView) leaf.view.configure(request);
+    }
+
     /**
      * Closes all open tab views in the application.
      *
@@ -86,9 +102,11 @@ export default class TabViewManager {
      * their corresponding leaves from the workspace, effectively closing them.
      */
     public closeAllTabViews() {
-        this.plugin.app.workspace
-            .getLeavesOfType(SR_TAB_VIEW)
-            .forEach((leaf: WorkspaceLeaf) => leaf.detach());
+        for (const { type } of this.tabViewTypes) {
+            this.plugin.app.workspace
+                .getLeavesOfType(type)
+                .forEach((leaf: WorkspaceLeaf) => leaf.detach());
+        }
     }
 
     public forEachTabViewType(callback: (type: TabViewType) => void) {

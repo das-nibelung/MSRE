@@ -32,6 +32,7 @@ export const SR_HTML_COMMENT_END = "-->";
 
 export const SR_TAB_VIEW = "spaced-repetition-tab-view";
 export const CARD_BROWSER_VIEW_TYPE = "spaced-repetition-card-browser";
+export const CARD_CREATOR_VIEW_TYPE = "spaced-repetition-card-creator";
 
 // Disables the error hiding workaround (see src/ui/sr-tab-view.tsx)
 // Enables emulated platform detection via the EmulatedPlatform() function

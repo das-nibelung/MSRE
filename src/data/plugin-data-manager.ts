@@ -48,6 +48,9 @@ export class PluginDataManager {
         if (loadedData?.settings) upgradeSettings(loadedData.settings);
         this._pluginData = Object.assign({}, DEFAULT_DATA, loadedData);
         this._pluginData.settings = Object.assign({}, DEFAULT_SETTINGS, this._pluginData.settings);
+        this._pluginData.managedDecks = Array.isArray(this._pluginData.managedDecks)
+            ? [...new Set(this._pluginData.managedDecks.filter((path) => typeof path === "string"))]
+            : [];
 
         setDebugParser(this._pluginData.settings.showParserDebugMessages);
     }

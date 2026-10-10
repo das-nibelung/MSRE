@@ -13,6 +13,7 @@ import {
 } from "obsidian";
 
 import { DataStore } from "src/data/data-store/base/data-store";
+import { Card } from "src/data/data-structures/card/card";
 import { SettingsManager } from "src/data/settings-manager";
 import { appIcon } from "src/icons/app-icon";
 import { t } from "src/lang/helpers";
@@ -452,6 +453,18 @@ export class UIManager {
 
     public async openCardBrowser(notePath: string | null = null): Promise<void> {
         await this.tabViewManager.openCardBrowser(notePath);
+    }
+
+    public async openNativeCardCreator(deckPath?: string): Promise<void> {
+        await this.tabViewManager.openNativeCreator({ mode: "card", deckPath });
+    }
+
+    public async openNativeCardEditor(card: Card, deckPath?: string): Promise<void> {
+        await this.tabViewManager.openNativeCreator({ mode: "card", deckPath, card });
+    }
+
+    public async openNativeDeckCreator(): Promise<void> {
+        await this.tabViewManager.openNativeCreator({ mode: "deck" });
     }
 
     /** Creates a small, valid starter note so a new user can enter the first card immediately. */

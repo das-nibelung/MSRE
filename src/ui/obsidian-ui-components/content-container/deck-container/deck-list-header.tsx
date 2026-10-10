@@ -1,5 +1,5 @@
 import "src/ui/obsidian-ui-components/content-container/deck-container/deck-list-header.css";
-import { ButtonComponent, setIcon } from "obsidian";
+import { ButtonComponent, Menu, setIcon } from "obsidian";
 
 import { t } from "src/lang/helpers";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
@@ -13,6 +13,8 @@ export default class DeckListHeaderComponent {
         parentEl: HTMLElement,
         changeReviewMode: (reviewMode: FlashcardReviewMode) => void,
         openCardBrowser: () => void | Promise<void>,
+        createCard: () => void,
+        createDeck: () => void,
         closeModal?: () => void,
     ) {
         this.header = parentEl.createDiv();
@@ -34,6 +36,21 @@ export default class DeckListHeaderComponent {
         browserIcon.addClass("sr-card-browser-icon");
         setIcon(browserIcon, "library-big");
         browserButton.buttonEl.prepend(browserIcon);
+
+        const createButton = new ButtonComponent(actions)
+            .setIcon("plus")
+            .setTooltip(t("NEW_CARD"))
+            .onClick((event) => {
+                const menu = new Menu();
+                menu.addItem((item) =>
+                    item.setTitle(t("NEW_CARD")).setIcon("square-pen").onClick(createCard),
+                );
+                menu.addItem((item) =>
+                    item.setTitle(t("NEW_DECK")).setIcon("layers-3").onClick(createDeck),
+                );
+                menu.showAtMouseEvent(event);
+            });
+        createButton.buttonEl.addClass("sr-deck-create-button");
 
         if (closeModal !== undefined) {
             new ModalCloseButtonComponent(actions, closeModal, [

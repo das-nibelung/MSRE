@@ -1,0 +1,292 @@
+.sr-native-creator-view {
+    --sr-native-radius: 18px;
+    --sr-native-control-height: 48px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    overflow-y: auto;
+    padding: 0 !important;
+}
+
+.sr-native-creator-page {
+    width: min(100%, 760px);
+    margin: 0 auto;
+    padding: max(20px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right))
+        max(32px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+}
+
+.sr-native-creator-top {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: start;
+    margin-bottom: 24px;
+}
+
+.sr-native-icon-button,
+.sr-native-switch-button {
+    min-width: 44px;
+    min-height: 44px;
+    border: 0;
+    border-radius: 14px;
+    box-shadow: none;
+}
+
+.sr-native-creator-heading h1 {
+    margin: 0;
+    font-size: clamp(24px, 4vw, 32px);
+    line-height: 1.15;
+    letter-spacing: -0.025em;
+}
+
+.sr-native-creator-heading p {
+    margin: 6px 0 0;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    line-height: 1.45;
+}
+
+.sr-native-creator-switcher {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 16px;
+    background: var(--background-secondary);
+}
+
+.sr-native-switch-button {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    padding: 0 13px;
+    background: transparent;
+    color: var(--text-muted);
+}
+
+.sr-native-switch-button.is-active {
+    background: var(--background-primary);
+    color: var(--text-normal);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.sr-native-switch-icon,
+.sr-native-switch-icon svg {
+    width: 17px;
+    height: 17px;
+}
+
+.sr-native-creator-surface {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    padding: clamp(20px, 4vw, 34px);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 24px;
+    background: var(--background-secondary);
+}
+
+.sr-native-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sr-native-field > label {
+    color: var(--text-normal);
+    font-size: var(--font-ui-medium);
+    font-weight: var(--font-semibold);
+}
+
+.sr-native-field > p {
+    margin: -3px 0 2px;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    line-height: 1.4;
+}
+
+.sr-native-input,
+.sr-native-textarea,
+.sr-native-picker,
+.sr-native-readonly-value {
+    width: 100%;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 14px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    box-shadow: none;
+    font-size: 16px;
+}
+
+.sr-native-input,
+.sr-native-picker,
+.sr-native-readonly-value {
+    min-height: var(--sr-native-control-height);
+}
+
+.sr-native-readonly-value {
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    color: var(--text-muted);
+}
+
+.sr-native-input {
+    padding: 0 14px;
+}
+
+.sr-native-textarea {
+    min-height: 116px;
+    padding: 14px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.sr-native-textarea-front {
+    min-height: 142px;
+}
+
+.sr-native-input:focus,
+.sr-native-textarea:focus,
+.sr-native-picker:focus-visible {
+    border-color: var(--interactive-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+}
+
+.sr-native-picker {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 14px;
+    text-align: start;
+}
+
+.sr-native-picker-chevron,
+.sr-native-picker-chevron svg {
+    width: 17px;
+    height: 17px;
+    flex: none;
+}
+
+.sr-native-card-type-switcher {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+    padding: 4px;
+    border-radius: 14px;
+    background: var(--background-primary);
+}
+
+.sr-native-card-type-switcher button {
+    min-height: 42px;
+    border: 0;
+    border-radius: 11px;
+    background: transparent;
+    color: var(--text-muted);
+    box-shadow: none;
+}
+
+.sr-native-card-type-switcher button.is-active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.sr-native-form-error {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(var(--color-red-rgb), 0.12);
+    color: var(--text-error);
+    font-size: var(--font-ui-small);
+}
+
+.sr-native-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding-top: 2px;
+}
+
+.sr-native-form-actions button {
+    min-height: 48px;
+    padding-inline: 22px;
+    border-radius: 14px;
+    font-weight: var(--font-semibold);
+}
+
+.sr-native-secondary-action {
+    background: var(--background-primary);
+}
+
+.sr-native-deck-preview {
+    display: flex;
+    gap: 13px;
+    align-items: center;
+    padding: 14px;
+    border-radius: 16px;
+    background: var(--background-primary);
+}
+
+.sr-native-deck-preview-icon {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+    color: var(--interactive-accent);
+}
+
+.sr-native-deck-preview div:last-child {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sr-native-deck-preview span {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}
+
+.sr-native-deck-preview strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+    .sr-native-creator-page {
+        padding-top: 16px;
+    }
+
+    .sr-native-creator-top {
+        grid-template-columns: 44px minmax(0, 1fr);
+        margin-bottom: 18px;
+    }
+
+    .sr-native-creator-switcher {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .sr-native-switch-button {
+        justify-content: center;
+    }
+
+    .sr-native-creator-surface {
+        gap: 19px;
+        padding: 18px;
+        border-radius: 20px;
+    }
+
+    .sr-native-card-type-switcher {
+        grid-template-columns: 1fr;
+    }
+
+    .sr-native-form-actions {
+        flex-direction: column-reverse;
+    }
+
+    .sr-native-form-actions button {
+        width: 100%;
+    }
+}

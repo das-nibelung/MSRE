@@ -301,6 +301,24 @@ export class CommandManager {
      */
     private addPluginCommands() {
         this.plugin.addCommand({
+            id: "open-native-card-creator",
+            name: t("NEW_CARD"),
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await this.uiManager.openNativeCardCreator();
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "open-native-deck-creator",
+            name: t("NEW_DECK"),
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await this.uiManager.openNativeDeckCreator();
+            },
+        });
+
+        this.plugin.addCommand({
             id: "create-basic-card",
             name: t("CREATE_CARD"),
             editorCallback: (editor: Editor, view: MarkdownView) => {

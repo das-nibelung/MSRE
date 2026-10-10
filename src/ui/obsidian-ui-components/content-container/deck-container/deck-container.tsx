@@ -21,7 +21,8 @@ export class DeckContainer {
         changeReviewMode: (reviewMode: FlashcardReviewMode) => void,
         startReviewOfDeck: (deck: Deck) => void,
         openCardBrowser: () => void | Promise<void>,
-        createStarterCardNote: () => void,
+        createCard: () => void,
+        createDeck: () => void,
         closeModal?: () => void,
     ) {
         // Build ui
@@ -32,6 +33,8 @@ export class DeckContainer {
             this.containerEl,
             changeReviewMode,
             openCardBrowser,
+            createCard,
+            createDeck,
             closeModal,
         );
 
@@ -39,7 +42,7 @@ export class DeckContainer {
             this.containerEl,
             startReviewOfDeck,
             openCardBrowser,
-            createStarterCardNote,
+            createCard,
         );
     }
 

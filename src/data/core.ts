@@ -47,6 +47,7 @@ export class OsrCore {
     private _dueDateFlashcardHistogram: CardDueDateHistogram;
     private _dueDateNoteHistogram: NoteDueDateHistogram;
     private loadedNotes = new Map<string, Note>();
+    private managedDeckPaths: TopicPath[] = [];
 
     constructor(
         questionPostponementList: QuestionPostponementList,
@@ -190,6 +191,11 @@ export class OsrCore {
         return this._cardStats;
     }
 
+    /** Keeps native, intentionally empty decks visible in the deck library. */
+    setManagedDeckPaths(paths: TopicPath[]): void {
+        this.managedDeckPaths = paths.map((path) => path.clone());
+    }
+
     /**
      * Returns every distinct card currently loaded from the vault.
      *
@@ -324,6 +330,10 @@ export class OsrCore {
             ? this.fullDeckTree.clone()
             : new Deck("root", null);
 
+        for (const path of this.managedDeckPaths) {
+            if (path.hasPath) this._reviewableDeckTree.getOrCreateDeck(path.clone());
+        }
+
         // sort the deck names
         this._reviewableDeckTree.sortSubdecksList();
         this._remainingDeckTree = DeckTreeFilter.filterForRemainingRepItems(
@@ -331,6 +341,9 @@ export class OsrCore {
             this._reviewableDeckTree,
             FlashcardReviewMode.Review,
         );
+        for (const path of this.managedDeckPaths) {
+            if (path.hasPath) this._remainingDeckTree.getOrCreateDeck(path.clone());
+        }
 
         const calc: DeckTreeStatsCalculator = new DeckTreeStatsCalculator();
         this._cardStats = calc.calculate(this._reviewableDeckTree);

@@ -26,17 +26,17 @@ export default class DeckListComponent {
 
     private startReviewOfDeck: (deck: Deck) => void;
     private openCardBrowser: () => void | Promise<void>;
-    private createStarterCardNote: () => void;
+    private createCard: () => void;
 
     public constructor(
         parentEl: HTMLElement,
         startReviewOfDeck: (deck: Deck) => void,
         openCardBrowser: () => void | Promise<void>,
-        createStarterCardNote: () => void,
+        createCard: () => void,
     ) {
         this.startReviewOfDeck = startReviewOfDeck;
         this.openCardBrowser = openCardBrowser;
-        this.createStarterCardNote = createStarterCardNote;
+        this.createCard = createCard;
         // Prep main container
         this.scrollWrapper = parentEl.createDiv();
         this.scrollWrapper.addClass("sr-scroll-wrapper");
@@ -131,7 +131,10 @@ export default class DeckListComponent {
 
         if (originDeckStats.totalCount === 0) {
             this.overview.addClass("sr-is-hidden");
-            this.treeHeaderRow.addClass("sr-is-hidden");
+            this.treeHeaderRow.toggleClass(
+                "sr-is-hidden",
+                reviewSequencer.originalDeckTree.subdecks.length === 0,
+            );
             const emptyState = this.treeContainer.createDiv("sr-deck-empty-state");
             const icon = emptyState.createDiv("sr-deck-empty-state-icon");
             setIcon(icon, "layers-3");
@@ -142,10 +145,19 @@ export default class DeckListComponent {
             new ButtonComponent(actions)
                 .setButtonText(t("CREATE_FIRST_CARD"))
                 .setCta()
-                .onClick(this.createStarterCardNote);
+                .onClick(this.createCard);
             new ButtonComponent(actions)
                 .setButtonText(t("BROWSE_CARDS"))
                 .onClick(this.openCardBrowser);
+            for (const subdeck of reviewSequencer.originalDeckTree.subdecks) {
+                this._createTree(
+                    subdeck,
+                    this.treeContainer,
+                    reviewSequencer,
+                    settings,
+                    this.startReviewOfDeck,
+                );
+            }
             return;
         }
 

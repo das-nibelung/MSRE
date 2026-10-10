@@ -137,6 +137,18 @@ export class DataManager {
             this.plugin.getObsidianRtlSetting(),
             this.cardIndex,
         );
+        this.applyManagedDecks();
+    }
+
+    /** Applies deck paths created through the native UI to the in-memory deck tree. */
+    applyManagedDecks(): void {
+        if (this._osrCore === null) return;
+        const rootTag = this.settingsManager.settings.flashcardTags[0] ?? "#flashcards";
+        const rootPath = TopicPath.getTopicPathFromTag(rootTag).path;
+        const paths = this.data.managedDecks.map(
+            (path) => new TopicPath([...rootPath, ...path.split("/").filter(Boolean)]),
+        );
+        this._osrCore.setManagedDeckPaths(paths);
     }
 
     private registerCardIndexEvents(): void {
@@ -374,6 +386,7 @@ export class DataManager {
 
         const now = window.moment(Date.now());
         this.osrCore.defaultTextDirection = this.plugin.getObsidianRtlSetting();
+        this.applyManagedDecks();
 
         await this.loadVault();
 

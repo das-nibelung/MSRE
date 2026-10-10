@@ -27,6 +27,8 @@ export interface PluginData {
     // which covers most of the cases
     buryList: string[];
     historyDeck: string | null;
+    /** Decks created in the native UI. Paths omit the configured root flashcard tag. */
+    managedDecks: string[];
     scheduleData: ISerializedScheduleData;
 }
 
@@ -35,6 +37,7 @@ export const DEFAULT_DATA: PluginData = {
     buryDate: "",
     buryList: [],
     historyDeck: null,
+    managedDecks: [],
     scheduleData: {
         version: 1,
         noteSchedules: {},

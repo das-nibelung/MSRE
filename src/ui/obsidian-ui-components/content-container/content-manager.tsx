@@ -140,7 +140,8 @@ export default class ContentManager {
             this._changeReviewMode.bind(this),
             this._startReviewOfDeck.bind(this),
             openCardBrowser,
-            this.uiManager.createStarterCardNote.bind(this.uiManager),
+            this.uiManager.openNativeCardCreator.bind(this.uiManager),
+            this.uiManager.openNativeDeckCreator.bind(this.uiManager),
             closeModal,
         );
 
