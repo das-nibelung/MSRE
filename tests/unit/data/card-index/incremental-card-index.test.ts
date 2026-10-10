@@ -62,8 +62,14 @@ Reverse:::Back
         await index.put(file, revision, await createNote(file));
 
         expect(await index.get(file, { ...revision, mtime: revision.mtime + 1 })).toBeUndefined();
+        const changeToken = index.getChangeToken();
         await index.invalidate(file.path);
+        expect(index.hasPendingChanges()).toBe(true);
         expect(await index.get(file, revision)).toBeUndefined();
+        index.markSynchronized(changeToken);
+        expect(index.hasPendingChanges()).toBe(true);
+        index.markSynchronized(index.getChangeToken());
+        expect(index.hasPendingChanges()).toBe(false);
     });
 
     test("invalidates cached parsing when parser settings change", async () => {
@@ -82,6 +88,8 @@ Reverse:::Back
             getCardIndexSettingsFingerprint(DEFAULT_SETTINGS),
         );
         expect(await changedIndex.get(file, revision)).toBeUndefined();
+        expect(changedIndex.setContext(DEFAULT_SETTINGS, TextDirection.Ltr)).toBe(true);
+        expect(changedIndex.setContext(DEFAULT_SETTINGS, TextDirection.Ltr)).toBe(false);
     });
 
     test("prunes entries for files that no longer exist", async () => {
