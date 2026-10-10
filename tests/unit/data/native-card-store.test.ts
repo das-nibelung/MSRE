@@ -187,6 +187,166 @@ describe("native card storage", () => {
         const clozeQuestions = parse(`#flashcards\n\n${clozeBody.body}\n`, DEFAULT_SETTINGS);
         expect(clozeQuestions).toHaveLength(1);
         expect(clozeQuestions[0].text).toContain("==Aspirin== blocks ==COX==");
+        expect(clozeBody.body).toContain("<br>Pharmacology");
+    });
+
+    it("serializes mixed generators and per-template typed answers from one note", () => {
+        const noteType = {
+            id: "mixed",
+            version: 1,
+            name: "Mixed",
+            kind: "standard" as const,
+            fields: [
+                { id: "term", name: "Term", ordinal: 0, kind: "text" as const, required: true },
+                { id: "answer", name: "Answer", ordinal: 1, kind: "text" as const, required: true },
+                {
+                    id: "case",
+                    name: "Case",
+                    ordinal: 2,
+                    kind: "rich-text" as const,
+                    required: false,
+                },
+            ],
+            templates: [
+                {
+                    id: "typed-basic",
+                    version: 1,
+                    name: "Typed",
+                    ordinal: 0,
+                    questionFormat: "{{Term}}",
+                    answerFormat: "{{Answer}}",
+                    deckOverride: null as string | null,
+                    enabled: true,
+                    generator: "standard" as const,
+                    answerMode: "type" as const,
+                    answerFieldId: "answer",
+                    condition: {
+                        operator: "always" as const,
+                        fieldId: null as string | null,
+                        value: "",
+                    },
+                },
+                {
+                    id: "case-cloze",
+                    version: 1,
+                    name: "Case",
+                    ordinal: 1,
+                    questionFormat: "{{cloze:Case}}",
+                    answerFormat: "{{Case}}",
+                    deckOverride: null as string | null,
+                    enabled: true,
+                    generator: "cloze" as const,
+                    answerMode: "reveal" as const,
+                    sourceFieldId: "case",
+                    condition: { operator: "not-empty" as const, fieldId: "case", value: "" },
+                },
+            ],
+            css: "",
+            createdAt: 0,
+            updatedAt: 0,
+        };
+        const result = serializeStructuredNoteBody(
+            noteType,
+            { term: "Diagnosis", answer: "Migraine", case: "{{c1::Aura}} precedes pain." },
+            DEFAULT_SETTINGS,
+            "^mixed",
+        );
+
+        expect(parse(`#flashcards\n\n${result.body}\n`, DEFAULT_SETTINGS)).toHaveLength(2);
+        expect(result.body).toContain("sr-answer-mode: type");
+        expect(result.body).toContain("sr-typed-answer: Migraine");
+        expect(result.body).toContain("==Aura== precedes pain.");
+        expect(result.legacyStableIds).toEqual({
+            0: "^mixed-1:0",
+            1: "^mixed-2:0",
+        });
+    });
+
+    it("applies conditional and image-occlusion templates without emitting empty cards", () => {
+        const baseTemplate = (
+            id: string,
+            ordinal: number,
+            operator: "always" | "not-empty" | "empty" | "equals" | "not-equals",
+            fieldId: string | null,
+            value = "",
+        ) => ({
+            id,
+            version: 1,
+            name: id,
+            ordinal,
+            questionFormat: "{{Question}}",
+            answerFormat: "{{Answer}}",
+            deckOverride: null as string | null,
+            enabled: true,
+            generator: "standard" as const,
+            answerMode: "reveal" as const,
+            condition: { operator, fieldId, value },
+        });
+        const noteType = {
+            id: "conditional",
+            version: 1,
+            name: "Conditional",
+            kind: "standard" as const,
+            fields: [
+                {
+                    id: "question",
+                    name: "Question",
+                    ordinal: 0,
+                    kind: "text" as const,
+                    required: true,
+                },
+                { id: "answer", name: "Answer", ordinal: 1, kind: "text" as const, required: true },
+                { id: "blank", name: "Blank", ordinal: 2, kind: "text" as const, required: false },
+                {
+                    id: "assets",
+                    name: "Assets",
+                    ordinal: 3,
+                    kind: "text" as const,
+                    required: false,
+                },
+            ],
+            templates: [
+                baseTemplate("present", 0, "not-empty", "answer"),
+                baseTemplate("empty", 1, "empty", "blank"),
+                baseTemplate("equals", 2, "equals", "answer", "A"),
+                baseTemplate("different", 3, "not-equals", "answer", "B"),
+                baseTemplate("skip", 4, "equals", "answer", "B"),
+                {
+                    ...baseTemplate("image", 5, "always", null),
+                    generator: "image-occlusion" as const,
+                    answerMode: "type" as const,
+                },
+                {
+                    ...baseTemplate("empty-card", 6, "always", null),
+                    questionFormat: "{{Blank}}",
+                },
+            ],
+            css: "",
+            createdAt: 0,
+            updatedAt: 0,
+        };
+        const result = serializeStructuredNoteBody(
+            noteType,
+            {
+                question: "Q",
+                answer: "A",
+                blank: "",
+                assets: JSON.stringify([
+                    {
+                        maskId: "m1",
+                        questionPath: "Media/q.png",
+                        answerPath: "Media/a.png",
+                        label: "Heart",
+                    },
+                ]),
+            },
+            DEFAULT_SETTINGS,
+            "^conditional",
+        );
+        expect(parse(`#flashcards\n\n${result.body}\n`, DEFAULT_SETTINGS)).toHaveLength(5);
+        expect(result.body).toContain("![[Media/q.png]]");
+        expect(result.body).toContain("sr-typed-answer: Heart");
+        expect(result.body).not.toContain("empty-card");
     });
 
     it("serializes two-way and cloze cards", () => {
@@ -218,6 +378,51 @@ describe("native card storage", () => {
             { ...DEFAULT_SETTINGS, clozePatterns: ["**"] },
         );
         expect(boldCloze).toContain("**nucleus**");
+
+        const braceCloze = serializeNativeCard(
+            {
+                deckPath: "Biology",
+                type: "cloze",
+                front: "The cell has a membrane.",
+                back: "membrane",
+            },
+            { ...DEFAULT_SETTINGS, clozePatterns: ["{{"] },
+        );
+        expect(braceCloze).toContain("{{membrane}}");
+        expect(() =>
+            serializeNativeCard(
+                { deckPath: "", type: "cloze", front: "Question", back: "Question" },
+                { ...DEFAULT_SETTINGS, clozePatterns: [] },
+            ),
+        ).toThrow("cloze-pattern-unavailable");
+        expect(() =>
+            serializeNativeCard(
+                { deckPath: "", type: "cloze", front: "Question", back: "missing" },
+                DEFAULT_SETTINGS,
+            ),
+        ).toThrow("cloze-answer-not-found");
+    });
+
+    it("rejects structured generators that cannot produce a safe card", () => {
+        const imageType = getBuiltinNoteTypes()[3];
+        expect(() =>
+            serializeStructuredNoteBody(
+                imageType,
+                { source: "image.png", masks: "[]", assets: "not-json", mode: "hide-all" },
+                DEFAULT_SETTINGS,
+                "^broken-image",
+            ),
+        ).toThrow("empty-generated-card");
+
+        const clozeType = getBuiltinNoteTypes()[2];
+        expect(() =>
+            serializeStructuredNoteBody(
+                clozeType,
+                { text: "No cloze here", extra: "" },
+                DEFAULT_SETTINGS,
+                "^broken-cloze",
+            ),
+        ).toThrow("empty-generated-card");
     });
 
     it("serializes labelled image occlusion siblings with typed-answer metadata", () => {

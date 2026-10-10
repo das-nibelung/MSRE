@@ -442,6 +442,7 @@ export class DataPage extends SettingsPage {
             "invalid-schedule": "INTEGRITY_INVALID_SCHEDULE",
             "missing-source": "INTEGRITY_MISSING_SOURCE",
             "missing-media": "INTEGRITY_MISSING_MEDIA",
+            "empty-generated-card": "INTEGRITY_EMPTY_GENERATED_CARD",
             "orphan-review": "INTEGRITY_ORPHAN_REVIEW",
             "sync-conflict": "INTEGRITY_SYNC_CONFLICT",
         };

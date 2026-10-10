@@ -357,22 +357,42 @@ export class CardContainer {
             sessionData.currentNote.filePath,
             card.storageInfo?.questionId,
         );
-        if (note?.answerMode === "type") return null;
+        const snapshot = this.plugin.dataManager.collectionStore.getCollectionSnapshot();
+        const questionId = card.storageInfo?.questionId;
+        const storedCard = note
+            ? (Object.values(snapshot.cards).find(
+                  (candidate) =>
+                      !candidate.deletedAt &&
+                      candidate.noteId === note.id &&
+                      Boolean(questionId) &&
+                      candidate.legacyStableId === `${questionId}:${card.cardIdx}`,
+              ) ??
+              Object.values(snapshot.cards).find(
+                  (candidate) =>
+                      !candidate.deletedAt &&
+                      candidate.noteId === note.id &&
+                      Boolean(questionId) &&
+                      candidate.legacyStableId?.startsWith(`${questionId}:`),
+              ))
+            : undefined;
+        const template =
+            note && storedCard
+                ? snapshot.noteTypes[note.noteTypeId]?.templates.find(
+                      (candidate) => candidate.id === storedCard.templateId,
+                  )
+                : undefined;
+        if (template?.answerMode === "type") {
+            const expected = template.answerFieldId
+                ? note?.fields[template.answerFieldId]?.trim()
+                : undefined;
+            if (expected) return expected;
+        }
+        if (note?.answerMode === "type" || template?.answerMode === "type") return null;
         if (note?.noteTypeId === IMAGE_OCCLUSION_NOTE_TYPE_ID) {
             try {
                 const assets = JSON.parse(note.fields[OCCLUSION_ASSETS_FIELD_ID] ?? "[]") as Array<{
                     label?: string;
                 }>;
-                const questionId = card.storageInfo?.questionId;
-                const storedCard = Object.values(
-                    this.plugin.dataManager.collectionStore.getCollectionSnapshot().cards,
-                ).find(
-                    (candidate) =>
-                        !candidate.deletedAt &&
-                        candidate.noteId === note.id &&
-                        Boolean(questionId) &&
-                        candidate.legacyStableId?.startsWith(`${questionId}:`),
-                );
                 const ordinal = storedCard?.ordinal ?? card.cardIdx;
                 const label = assets[ordinal]?.label?.trim();
                 if (label) return label;
@@ -662,7 +682,20 @@ export class CardContainer {
         const noteType = this.plugin.dataManager.collectionStore.getNoteType(note.noteTypeId);
         if (!noteType) return;
         cardSurface.dataset.noteType = noteType.id;
-        if (noteType.css.trim()) cardSurface.setAttribute("style", noteType.css);
+        const snapshot = this.plugin.dataManager.collectionStore.getCollectionSnapshot();
+        const questionId = card?.storageInfo?.questionId;
+        const storedCard = Object.values(snapshot.cards).find(
+            (candidate) =>
+                !candidate.deletedAt &&
+                candidate.noteId === note.id &&
+                Boolean(questionId) &&
+                candidate.legacyStableId?.startsWith(`${questionId}:`),
+        );
+        const templateCss = noteType.templates.find(
+            (template) => template.id === storedCard?.templateId,
+        )?.css;
+        const style = [noteType.css, templateCss].filter((value) => value?.trim()).join(";");
+        if (style) cardSurface.setAttribute("style", style);
     }
 
     private createSummaryStat(parent: HTMLElement, value: string | number, label: string): void {

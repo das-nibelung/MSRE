@@ -1,9 +1,12 @@
 import { ISerializedScheduleEntry } from "src/data/plugin-data";
 
-export const COLLECTION_SCHEMA_VERSION = 5;
+export const COLLECTION_SCHEMA_VERSION = 6;
 export const REVIEW_LOG_SCHEMA_VERSION = 1;
 
 export type NoteTypeKind = "standard" | "cloze" | "image-occlusion";
+export type CardTemplateGenerator = NoteTypeKind;
+export type CardAnswerMode = "reveal" | "type";
+export type TemplateConditionOperator = "always" | "not-empty" | "empty" | "equals" | "not-equals";
 export type FieldKind = "text" | "rich-text" | "media" | "number" | "formula";
 export type CardLifecycleState = "active" | "suspended" | "buried";
 export type CardFlag = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -27,6 +30,22 @@ export interface CardTemplateDefinition {
     answerFormat: string;
     deckOverride: string | null;
     enabled: boolean;
+    /** Generation is a property of a card template, so one note can mix card families. */
+    generator?: CardTemplateGenerator;
+    /** Review interaction for cards emitted by this template. */
+    answerMode?: CardAnswerMode;
+    /** Field whose value is checked for typed answers. Null falls back to the rendered answer. */
+    answerFieldId?: string | null;
+    /** For cloze templates, limits cloze discovery to one field. */
+    sourceFieldId?: string | null;
+    /** Optional card creation rule. */
+    condition?: {
+        operator: TemplateConditionOperator;
+        fieldId: string | null;
+        value: string;
+    };
+    /** Template-only presentation overrides applied after the note type style. */
+    css?: string;
 }
 
 export interface NoteTypeDefinition {
@@ -151,6 +170,7 @@ export type IntegrityIssueCode =
     | "invalid-schedule"
     | "missing-source"
     | "missing-media"
+    | "empty-generated-card"
     | "orphan-review"
     | "sync-conflict";
 
@@ -197,6 +217,22 @@ export interface NoteTypeChangePreview {
     changedTemplates: number;
 }
 
+export interface NoteConversionPreview {
+    noteId: string;
+    fromNoteTypeId: string;
+    toNoteTypeId: string;
+    preservedCards: number;
+    createdCards: number;
+    retiredCards: number;
+    emptyFields: string[];
+}
+
+export interface EmptyGeneratedCard {
+    noteId: string;
+    templateId: string;
+    variantId: string;
+}
+
 export type ReviewRating = 1 | 2 | 3 | 4;
 
 export interface ReviewLogEntry {
@@ -240,6 +276,8 @@ export interface CollectionNoteInput {
     source: NoteSource;
     /** Per-card block IDs used by the temporary Markdown scheduling bridge. */
     legacyQuestionIds?: Record<number, string>;
+    /** Exact question/card identities for generators that emit sibling cards. */
+    legacyStableIds?: Record<number, string>;
 }
 
 export interface LegacyCardInput {

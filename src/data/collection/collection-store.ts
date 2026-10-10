@@ -25,8 +25,10 @@ import {
     CollectionNote,
     CollectionNoteInput,
     DeckOptionsDefinition,
+    EmptyGeneratedCard,
     LegacyCardInput,
     NativeNoteInput,
+    NoteConversionPreview,
     NoteTypeChangePreview,
     NoteTypeDefinition,
     RecordReviewInput,
@@ -192,6 +194,55 @@ function getImageOcclusionVariantIds(note: CollectionNote): string[] {
     }
 }
 
+function normalizeTemplate(
+    template: NoteTypeDefinition["templates"][number],
+    fallbackKind: NoteTypeDefinition["kind"],
+): NoteTypeDefinition["templates"][number] {
+    return {
+        ...template,
+        version: Math.max(1, Number(template.version) || 1),
+        generator: template.generator ?? fallbackKind,
+        answerMode: template.answerMode ?? "reveal",
+        answerFieldId: template.answerFieldId ?? null,
+        sourceFieldId: template.sourceFieldId ?? null,
+        condition: template.condition ?? { operator: "always", fieldId: null, value: "" },
+        css: template.css ?? "",
+    };
+}
+
+function templateConditionMatches(
+    note: CollectionNote,
+    template: NoteTypeDefinition["templates"][number],
+): boolean {
+    const condition = template.condition;
+    if (!condition || condition.operator === "always") return true;
+    const value = condition.fieldId ? (note.fields[condition.fieldId] ?? "").trim() : "";
+    const expected = condition.value.trim();
+    if (condition.operator === "not-empty") return value.length > 0;
+    if (condition.operator === "empty") return value.length === 0;
+    if (condition.operator === "equals") return value === expected;
+    return value !== expected;
+}
+
+function renderTemplateText(
+    format: string,
+    note: CollectionNote,
+    noteType: Pick<NoteTypeDefinition, "fields">,
+): string {
+    let result = format;
+    for (const field of noteType.fields) {
+        const value = note.fields[field.id] ?? "";
+        result = result.split(`{{${field.id}}}`).join(value);
+        result = result.split(`{{${field.name}}}`).join(value);
+        result = result.split(`{{cloze:${field.id}}}`).join(value);
+        result = result.split(`{{cloze:${field.name}}}`).join(value);
+    }
+    return result
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 function deriveLegacyVariantId(
     card: CollectionCard,
     note: CollectionNote | undefined,
@@ -226,10 +277,9 @@ export function migrateCollection(value: unknown): CollectionData {
                 ...noteType,
                 version: Math.max(1, Number(noteType.version) || 1),
                 fields: (noteType.fields ?? []).map((field) => ({ ...field })),
-                templates: (noteType.templates ?? []).map((template) => ({
-                    ...template,
-                    version: Math.max(1, Number(template.version) || 1),
-                })),
+                templates: (noteType.templates ?? []).map((template) =>
+                    normalizeTemplate(template, noteType.kind),
+                ),
             },
         ]),
     );
@@ -778,6 +828,15 @@ export class CollectionStore {
                     mediaReferences += paths.length;
                     for (const path of paths) await checkPath("missing-media", note.id, path);
                 }
+                for (const spec of this.getGeneratedCardSpecs(note, noteType, true)) {
+                    if (!spec.empty) continue;
+                    issues.push({
+                        code: "empty-generated-card",
+                        severity: "warning",
+                        entityId: note.id,
+                        details: spec.template.name,
+                    });
+                }
             }
             await checkPath("missing-source", note.id, note.source.path);
         }
@@ -1032,10 +1091,13 @@ export class CollectionStore {
                 !previous ||
                 canonicalJson(this.templateContent(previous)) !==
                     canonicalJson(this.templateContent(template));
-            return {
-                ...template,
-                version: previous ? previous.version + (changed ? 1 : 0) : 1,
-            };
+            return normalizeTemplate(
+                {
+                    ...template,
+                    version: previous ? previous.version + (changed ? 1 : 0) : 1,
+                },
+                definition.kind,
+            );
         });
         const changed =
             !existing ||
@@ -1177,6 +1239,7 @@ export class CollectionStore {
             input.source.questionId ?? `^sr-data-id-${id}`,
             timestamp,
             input.legacyQuestionIds,
+            input.legacyStableIds,
         );
         await this.persistCollection();
         return note;
@@ -1209,9 +1272,118 @@ export class CollectionStore {
             input.source.questionId ?? `^sr-data-id-${note.id}`,
             timestamp,
             input.legacyQuestionIds,
+            input.legacyStableIds,
         );
         await this.persistCollection();
         return note;
+    }
+
+    previewNoteConversion(
+        noteId: string,
+        toNoteTypeId: string,
+        fieldMapping: Record<string, string> = {},
+    ): NoteConversionPreview {
+        const note = this.collection.notes[noteId];
+        const target = this.collection.noteTypes[toNoteTypeId];
+        if (!note || note.deletedAt) throw new Error("note-not-found");
+        if (!target || target.deletedAt) throw new Error("note-type-not-found");
+        const fields = Object.fromEntries(
+            target.fields.map((field) => [
+                field.id,
+                note.fields[fieldMapping[field.id] ?? field.id] ?? "",
+            ]),
+        );
+        const converted = { ...note, noteTypeId: target.id, fields };
+        const currentCards = Object.values(this.collection.cards).filter(
+            (card) => !card.deletedAt && card.noteId === note.id,
+        );
+        const nextSpecs = this.getGeneratedCardSpecs(converted, target);
+        const nextKeys = new Set(
+            nextSpecs.map(({ template, variantId }) =>
+                createCardStableKey(note.id, template.id, variantId),
+            ),
+        );
+        const preservedCards = nextSpecs.filter(({ template, variantId, ordinal }) =>
+            currentCards.some(
+                (card) =>
+                    card.stableKey === createCardStableKey(note.id, template.id, variantId) ||
+                    card.ordinal === ordinal,
+            ),
+        ).length;
+        return {
+            noteId,
+            fromNoteTypeId: note.noteTypeId,
+            toNoteTypeId,
+            preservedCards,
+            createdCards: Math.max(0, nextKeys.size - preservedCards),
+            retiredCards: Math.max(0, currentCards.length - preservedCards),
+            emptyFields: target.fields
+                .filter((field) => !fields[field.id]?.trim())
+                .map((field) => field.id),
+        };
+    }
+
+    async convertNoteType(
+        noteId: string,
+        toNoteTypeId: string,
+        fieldMapping: Record<string, string>,
+        deckPath: string,
+        fieldsOverride?: Record<string, string>,
+    ): Promise<CollectionNote> {
+        await this.initialize();
+        const note = this.collection.notes[noteId];
+        const target = this.collection.noteTypes[toNoteTypeId];
+        if (!note || note.deletedAt) throw new Error("note-not-found");
+        if (!target || target.deletedAt) throw new Error("note-type-not-found");
+        const fields = fieldsOverride
+            ? { ...fieldsOverride }
+            : Object.fromEntries(
+                  target.fields.map((field) => [
+                      field.id,
+                      note.fields[fieldMapping[field.id] ?? field.id] ?? "",
+                  ]),
+              );
+        for (const field of target.fields) {
+            if (field.required && !fields[field.id]?.trim()) {
+                throw new Error(`required-field-empty:${field.id}`);
+            }
+        }
+        await this.writeBackupSnapshot("before-note-conversion", this.collection, this.reviewLog);
+        const timestamp = this.now();
+        note.noteTypeId = target.id;
+        note.fields = fields;
+        note.updatedAt = timestamp;
+        const deck = this.ensureDeckPathInMemory(deckPath, timestamp);
+        this.replaceGeneratedCards(
+            note,
+            target,
+            deck,
+            note.source.questionId ?? `^sr-data-id-${note.id}`,
+            timestamp,
+            undefined,
+            undefined,
+            true,
+        );
+        await this.persistCollection();
+        return cloneJson(note);
+    }
+
+    findEmptyGeneratedCards(noteTypeId?: string): EmptyGeneratedCard[] {
+        const result: EmptyGeneratedCard[] = [];
+        for (const note of Object.values(this.collection.notes)) {
+            if (note.deletedAt || (noteTypeId && note.noteTypeId !== noteTypeId)) continue;
+            const noteType = this.collection.noteTypes[note.noteTypeId];
+            if (!noteType || noteType.deletedAt) continue;
+            for (const spec of this.getGeneratedCardSpecs(note, noteType, true)) {
+                if (!spec.empty) continue;
+                result.push({
+                    noteId: note.id,
+                    templateId: spec.template.id,
+                    variantId: spec.variantId,
+                });
+            }
+        }
+        return result;
     }
 
     async deleteNote(noteId: string): Promise<void> {
@@ -1446,6 +1618,8 @@ export class CollectionStore {
         questionId: string,
         timestamp: number,
         legacyQuestionIds?: Record<number, string>,
+        legacyStableIds?: Record<number, string>,
+        preserveByOrdinal = false,
     ): void {
         const existing = Object.values(this.collection.cards).filter(
             (card) => card.noteId === note.id && !card.deletedAt,
@@ -1470,17 +1644,22 @@ export class CollectionStore {
             const current = existing.find(
                 (card) =>
                     card.stableKey === stableKey ||
-                    (card.templateId === template.id && card.ordinal === ordinal),
+                    (card.templateId === template.id && card.ordinal === ordinal) ||
+                    (preserveByOrdinal && card.ordinal === ordinal),
             );
             if (current) {
+                delete current.deletedAt;
+                current.templateId = template.id;
                 current.deckId = targetDeck.id;
                 current.deckPath = targetDeck.name;
                 current.ordinal = ordinal;
                 current.variantId = variantId;
                 current.stableKey = stableKey;
-                current.legacyStableId = legacyQuestionIds?.[ordinal]
-                    ? `${legacyQuestionIds[ordinal]}:0`
-                    : `${questionId}:${ordinal}`;
+                current.legacyStableId =
+                    legacyStableIds?.[ordinal] ??
+                    (legacyQuestionIds?.[ordinal]
+                        ? `${legacyQuestionIds[ordinal]}:0`
+                        : `${questionId}:${ordinal}`);
                 current.updatedAt = timestamp;
                 continue;
             }
@@ -1501,9 +1680,11 @@ export class CollectionStore {
                 reps: 0,
                 lapses: 0,
                 lastReviewAt: null,
-                legacyStableId: legacyQuestionIds?.[ordinal]
-                    ? `${legacyQuestionIds[ordinal]}:0`
-                    : `${questionId}:${ordinal}`,
+                legacyStableId:
+                    legacyStableIds?.[ordinal] ??
+                    (legacyQuestionIds?.[ordinal]
+                        ? `${legacyQuestionIds[ordinal]}:0`
+                        : `${questionId}:${ordinal}`),
                 createdAt: timestamp,
                 updatedAt: timestamp,
             };
@@ -1513,33 +1694,53 @@ export class CollectionStore {
 
     private getGeneratedCardSpecs(
         note: CollectionNote,
-        noteType: Pick<NoteTypeDefinition, "kind" | "templates">,
+        noteType: Pick<NoteTypeDefinition, "kind" | "templates" | "fields">,
+        includeEmpty = false,
     ): Array<{
         template: NoteTypeDefinition["templates"][number];
         ordinal: number;
         variantId: string;
+        empty?: boolean;
     }> {
-        const templates = noteType.templates.filter((template) => template.enabled);
-        if (noteType.kind === "cloze") {
-            return this.getClozeOrdinals(note).flatMap((ordinal) =>
-                templates.map((template) => ({
-                    template,
-                    ordinal,
-                    variantId: `cloze-${ordinal + 1}`,
-                })),
-            );
+        let ordinal = 0;
+        const specs: Array<{
+            template: NoteTypeDefinition["templates"][number];
+            ordinal: number;
+            variantId: string;
+            empty?: boolean;
+        }> = [];
+        for (const rawTemplate of noteType.templates
+            .filter((template) => template.enabled)
+            .sort((left, right) => left.ordinal - right.ordinal)) {
+            const template = normalizeTemplate(rawTemplate, noteType.kind);
+            if (!templateConditionMatches(note, template)) continue;
+            const generator = template.generator ?? noteType.kind;
+            let variants: string[];
+            if (generator === "cloze") {
+                const source = template.sourceFieldId
+                    ? {
+                          ...note,
+                          fields: {
+                              [template.sourceFieldId]: note.fields[template.sourceFieldId] ?? "",
+                          },
+                      }
+                    : note;
+                variants = this.getClozeOrdinals(source).map((index) => `cloze-${index + 1}`);
+            } else if (generator === "image-occlusion") {
+                variants = getImageOcclusionVariantIds(note);
+            } else {
+                variants = ["base"];
+            }
+            for (const variantId of variants) {
+                const empty =
+                    generator === "standard" &&
+                    (!renderTemplateText(template.questionFormat, note, noteType) ||
+                        !renderTemplateText(template.answerFormat, note, noteType));
+                if (!empty || includeEmpty) specs.push({ template, ordinal, variantId, empty });
+                ordinal++;
+            }
         }
-        if (noteType.kind === "image-occlusion") {
-            const variants = getImageOcclusionVariantIds(note);
-            return variants.flatMap((variantId, ordinal) =>
-                templates.map((template) => ({ template, ordinal, variantId })),
-            );
-        }
-        return templates.map((template) => ({
-            template,
-            ordinal: template.ordinal,
-            variantId: "base",
-        }));
+        return specs;
     }
 
     private getClozeOrdinals(note: CollectionNote): number[] {
@@ -1550,7 +1751,7 @@ export class CollectionStore {
                 if (number > 0) numbers.add(number - 1);
             }
         }
-        return numbers.size > 0 ? [...numbers].sort((left, right) => left - right) : [0];
+        return [...numbers].sort((left, right) => left - right);
     }
 
     private ensureDeckPathInMemory(deckPath: string, timestamp: number): CollectionDeck {
@@ -1598,6 +1799,12 @@ export class CollectionStore {
             answerFormat: template.answerFormat,
             deckOverride: template.deckOverride,
             enabled: template.enabled,
+            generator: template.generator,
+            answerMode: template.answerMode,
+            answerFieldId: template.answerFieldId,
+            sourceFieldId: template.sourceFieldId,
+            condition: template.condition,
+            css: template.css,
         };
     }
 

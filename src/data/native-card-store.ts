@@ -134,27 +134,106 @@ export function serializeStructuredNoteBody(
     fields: Record<string, string>,
     settings: SRSettings,
     baseQuestionId: string,
-): { body: string; legacyQuestionIds: Record<number, string> } {
+): {
+    body: string;
+    legacyQuestionIds: Record<number, string>;
+    legacyStableIds: Record<number, string>;
+} {
     const legacyQuestionIds: Record<number, string> = {};
-    if (noteType.kind === "cloze") {
-        const clozeText = Object.values(fields).find((value) => /{{c\d+::/i.test(value));
-        if (!clozeText) throw new Error("cloze-pattern-required");
-        const extras = noteType.fields
-            .map((field) => fields[field.id]?.trim() ?? "")
-            .filter((value) => value && value !== clozeText);
-        const extraHtml = extras.map((value) => value.replace(/\r?\n/g, "<br>")).join("<br>");
-        return {
-            body: `${convertAnkiClozesToLegacy(clozeText)}${extraHtml ? `<br>${extraHtml}` : ""} ${baseQuestionId}`,
-            legacyQuestionIds,
-        };
-    }
-
-    const cards = noteType.templates
+    const legacyStableIds: Record<number, string> = {};
+    let generatedOrdinal = 0;
+    const cards: string[] = [];
+    const matchesCondition = (template: NoteTypeDefinition["templates"][number]): boolean => {
+        const condition = template.condition;
+        if (!condition || condition.operator === "always") return true;
+        const value = condition.fieldId ? (fields[condition.fieldId] ?? "").trim() : "";
+        const expected = condition.value.trim();
+        if (condition.operator === "not-empty") return Boolean(value);
+        if (condition.operator === "empty") return !value;
+        if (condition.operator === "equals") return value === expected;
+        return value !== expected;
+    };
+    const typedMarker = (
+        template: NoteTypeDefinition["templates"][number],
+        renderedAnswer: string,
+    ): string => {
+        if ((template.answerMode ?? "reveal") !== "type") return "";
+        const expected = template.answerFieldId
+            ? (fields[template.answerFieldId] ?? renderedAnswer)
+            : renderedAnswer
+                  .replace(/<[^>]+>/g, " ")
+                  .replace(/\s+/g, " ")
+                  .trim();
+        return `\n<!-- sr-answer-mode: type -->\n<!-- sr-typed-answer: ${encodeURIComponent(expected)} -->`;
+    };
+    for (const template of noteType.templates
         .filter((template) => template.enabled)
-        .sort((left, right) => left.ordinal - right.ordinal)
-        .map((template) => {
-            const questionId = `${baseQuestionId}-${template.ordinal + 1}`;
-            legacyQuestionIds[template.ordinal] = questionId;
+        .sort((left, right) => left.ordinal - right.ordinal)) {
+        if (!matchesCondition(template)) continue;
+        const generator = template.generator ?? noteType.kind;
+        const questionId = `${baseQuestionId}-${template.ordinal + 1}`;
+        if (generator === "cloze") {
+            const clozeText = template.sourceFieldId
+                ? fields[template.sourceFieldId]
+                : Object.values(fields).find((value) => /{{c\d+::/i.test(value));
+            if (!clozeText || !/{{c\d+::/i.test(clozeText)) continue;
+            const clozeNumbers = [...clozeText.matchAll(/{{c(\d+)::/gi)]
+                .map((match) => Number(match[1]))
+                .filter((value, index, all) => value > 0 && all.indexOf(value) === index)
+                .sort((left, right) => left - right);
+            const sourceField = template.sourceFieldId
+                ? noteType.fields.find((field) => field.id === template.sourceFieldId)
+                : noteType.fields.find((field) => fields[field.id] === clozeText);
+            let supplementalFormat = template.answerFormat
+                .replace(/{{cloze:[^}]+}}/gi, "")
+                .replaceAll("{{FrontSide}}", "");
+            if (sourceField) {
+                supplementalFormat = supplementalFormat
+                    .split(`{{${sourceField.id}}}`)
+                    .join("")
+                    .split(`{{${sourceField.name}}}`)
+                    .join("");
+            }
+            const supplemental = renderNoteTypeTemplate(
+                supplementalFormat.replace(/<hr\s*\/?\s*>/gi, ""),
+                noteType,
+                fields,
+            );
+            const renderedAnswer = renderNoteTypeTemplate(template.answerFormat, noteType, fields);
+            cards.push(
+                `${convertAnkiClozesToLegacy(clozeText)}${supplemental ? `<br>${supplemental}` : ""}${typedMarker(template, renderedAnswer)} ${questionId}`,
+            );
+            clozeNumbers.forEach((_number, cardIndex) => {
+                legacyQuestionIds[generatedOrdinal] = questionId;
+                legacyStableIds[generatedOrdinal] = `${questionId}:${cardIndex}`;
+                generatedOrdinal++;
+            });
+            continue;
+        }
+        if (generator === "image-occlusion") {
+            try {
+                const assets = JSON.parse(
+                    fields[OCCLUSION_ASSETS_FIELD_ID] ?? "[]",
+                ) as ImageOcclusionAssetDraft[];
+                for (const asset of assets) {
+                    const assetQuestionId = `${questionId}-${generatedOrdinal + 1}`;
+                    const answer = [`![[${asset.answerPath}]]`, asset.label.trim()]
+                        .filter(Boolean)
+                        .join("\n\n");
+                    const marker = asset.label.trim() ? typedMarker(template, asset.label) : "";
+                    cards.push(
+                        `![[${asset.questionPath}]]\n${settings.multilineCardSeparator}\n${answer}${marker} ${assetQuestionId}`,
+                    );
+                    legacyQuestionIds[generatedOrdinal] = assetQuestionId;
+                    legacyStableIds[generatedOrdinal] = `${assetQuestionId}:0`;
+                    generatedOrdinal++;
+                }
+            } catch {
+                // Invalid assets are omitted and surfaced by collection diagnostics.
+            }
+            continue;
+        }
+        {
             const question = renderNoteTypeTemplate(template.questionFormat, noteType, fields);
             const answer = renderNoteTypeTemplate(
                 template.answerFormat,
@@ -162,11 +241,17 @@ export function serializeStructuredNoteBody(
                 fields,
                 question,
             );
-            if (!question || !answer) throw new Error("empty-generated-card");
-            return `${question}\n${settings.multilineCardSeparator}\n${answer} ${questionId}`;
-        });
+            if (!question || !answer) continue;
+            legacyQuestionIds[generatedOrdinal] = questionId;
+            legacyStableIds[generatedOrdinal] = `${questionId}:0`;
+            cards.push(
+                `${question}\n${settings.multilineCardSeparator}\n${answer}${typedMarker(template, answer)} ${questionId}`,
+            );
+            generatedOrdinal++;
+        }
+    }
     if (cards.length === 0) throw new Error("empty-generated-card");
-    return { body: cards.join("\n\n"), legacyQuestionIds };
+    return { body: cards.join("\n\n"), legacyQuestionIds, legacyStableIds };
 }
 
 export function serializeNativeCard(
@@ -506,7 +591,7 @@ export class NativeCardStore {
         const tag = normalizedDeck ? `${rootTag}/${normalizedDeck}` : rootTag;
         const noteId = collection.createId("note");
         const baseQuestionId = `^sr-data-id-${noteId}`;
-        const { body, legacyQuestionIds } = serializeStructuredNoteBody(
+        const { body, legacyQuestionIds, legacyStableIds } = serializeStructuredNoteBody(
             noteType,
             draft.fields,
             settings,
@@ -540,7 +625,8 @@ export class NativeCardStore {
             tags: draft.tags,
             deckPath: normalizedDeck,
             source: { kind: "managed", path: file.path, questionId: baseQuestionId },
-            legacyQuestionIds: noteType.kind === "standard" ? legacyQuestionIds : undefined,
+            legacyQuestionIds,
+            legacyStableIds,
         });
         await this.waitForMetadata(this.plugin.app, file);
         await this.plugin.dataManager.sync();
@@ -632,7 +718,7 @@ export class NativeCardStore {
 
     async updateStructuredNote(note: CollectionNote, draft: StructuredNoteDraft): Promise<TFile> {
         const collection = this.plugin.dataManager.collectionStore;
-        const noteType = collection.getNoteType(note.noteTypeId);
+        const noteType = collection.getNoteType(draft.noteTypeId);
         if (!noteType) throw new Error("note-type-not-found");
         const file = this.plugin.app.vault.getAbstractFileByPath(note.source.path);
         if (!(file instanceof TFile)) throw new Error("note-source-not-found");
@@ -642,19 +728,44 @@ export class NativeCardStore {
         const rootTag = (settings.flashcardTags[0] ?? FALLBACK_ROOT_TAG).replace(/\/+$/g, "");
         const tag = normalizedDeck ? `${rootTag}/${normalizedDeck}` : rootTag;
         const baseQuestionId = note.source.questionId ?? `^sr-data-id-${note.id}`;
-        const { body, legacyQuestionIds } = serializeStructuredNoteBody(
+        const { body, legacyQuestionIds, legacyStableIds } = serializeStructuredNoteBody(
             noteType,
             draft.fields,
             settings,
             baseQuestionId,
         );
         await this.plugin.app.vault.modify(file, `${tag}\n\n${body}\n`);
+        if (note.noteTypeId !== noteType.id) {
+            const previousType = collection.getNoteType(note.noteTypeId);
+            const fieldMapping = Object.fromEntries(
+                noteType.fields.map((field) => {
+                    const sameName = previousType?.fields.find(
+                        (candidate) =>
+                            candidate.name.localeCompare(field.name, undefined, {
+                                sensitivity: "base",
+                            }) === 0,
+                    );
+                    return [
+                        field.id,
+                        note.fields[field.id] !== undefined ? field.id : (sameName?.id ?? field.id),
+                    ];
+                }),
+            );
+            await collection.convertNoteType(
+                note.id,
+                noteType.id,
+                fieldMapping,
+                normalizedDeck,
+                draft.fields,
+            );
+        }
         await collection.updateNote(note.id, {
             fields: draft.fields,
             tags: draft.tags,
             deckPath: normalizedDeck,
             source: { ...note.source, questionId: baseQuestionId },
-            legacyQuestionIds: noteType.kind === "standard" ? legacyQuestionIds : undefined,
+            legacyQuestionIds,
+            legacyStableIds,
         });
         await this.waitForMetadata(this.plugin.app, file);
         await this.plugin.dataManager.sync();
@@ -684,7 +795,7 @@ export class NativeCardStore {
             const deckPath = normalizeManagedDeckPath(card?.deckPath ?? "");
             const tag = deckPath ? `${rootTag}/${deckPath}` : rootTag;
             const baseQuestionId = note.source.questionId ?? `^sr-data-id-${note.id}`;
-            const { body, legacyQuestionIds } = serializeStructuredNoteBody(
+            const { body, legacyQuestionIds, legacyStableIds } = serializeStructuredNoteBody(
                 noteType,
                 note.fields,
                 settings,
@@ -696,7 +807,8 @@ export class NativeCardStore {
                 tags: note.tags,
                 deckPath,
                 source: { ...note.source, questionId: baseQuestionId },
-                legacyQuestionIds: noteType.kind === "standard" ? legacyQuestionIds : undefined,
+                legacyQuestionIds,
+                legacyStableIds,
             });
             refreshed++;
         }

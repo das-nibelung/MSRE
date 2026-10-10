@@ -30,6 +30,8 @@ function template(
     ordinal: number,
     questionFormat: string,
     answerFormat: string,
+    generator: NoteTypeDefinition["kind"] = "standard",
+    answerFieldId: string | null = null,
 ): CardTemplateDefinition {
     return {
         id,
@@ -40,6 +42,12 @@ function template(
         answerFormat,
         deckOverride: null,
         enabled: true,
+        generator,
+        answerMode: "reveal",
+        answerFieldId,
+        sourceFieldId: null,
+        condition: { operator: "always", fieldId: null, value: "" },
+        css: "",
     };
 }
 
@@ -58,6 +66,8 @@ export function getBuiltinNoteTypes(): NoteTypeDefinition[] {
                     0,
                     "{{Front}}",
                     "{{Front}}\n<hr>\n{{Back}}",
+                    "standard",
+                    BACK_FIELD_ID,
                 ),
             ],
             css: "",
@@ -77,6 +87,8 @@ export function getBuiltinNoteTypes(): NoteTypeDefinition[] {
                     0,
                     "{{Front}}",
                     "{{Front}}\n<hr>\n{{Back}}",
+                    "standard",
+                    BACK_FIELD_ID,
                 ),
                 template(
                     "builtin-reversed-backward",
@@ -84,6 +96,8 @@ export function getBuiltinNoteTypes(): NoteTypeDefinition[] {
                     1,
                     "{{Back}}",
                     "{{Back}}\n<hr>\n{{Front}}",
+                    "standard",
+                    FRONT_FIELD_ID,
                 ),
             ],
             css: "",
@@ -103,6 +117,8 @@ export function getBuiltinNoteTypes(): NoteTypeDefinition[] {
                     0,
                     "{{cloze:Text}}",
                     "{{cloze:Text}}\n<hr>\n{{Extra}}",
+                    "cloze",
+                    TEXT_FIELD_ID,
                 ),
             ],
             css: "",
@@ -127,6 +143,7 @@ export function getBuiltinNoteTypes(): NoteTypeDefinition[] {
                     0,
                     "{{Source}}",
                     "{{Source}}",
+                    "image-occlusion",
                 ),
             ],
             css: "",

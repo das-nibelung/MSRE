@@ -406,7 +406,7 @@ export class NativeCreatorView extends ItemView {
                   this.editingStructuredNote.noteTypeId,
               )
             : null;
-        if (this.editingCard) {
+        if (this.editingCard && !this.editingStructuredNote) {
             deckGroup.createDiv({
                 cls: "sr-native-readonly-value",
                 text: this.selectedDeck || t("DEFAULT_DECK"),
@@ -424,11 +424,15 @@ export class NativeCreatorView extends ItemView {
         const typeGroup = this.createFieldGroup(meta, t("NOTE_TYPES"));
         typeGroup.addClass("sr-native-compact-field");
         if (editingCustomType) {
-            typeGroup.createDiv({
-                cls: "sr-native-readonly-value",
-                text: this.getNoteTypeDisplayName(editingCustomType),
-            });
-            this.renderCustomNoteFields(surface, editingCustomType);
+            const selectedType = this.getSelectedNoteType();
+            const picker = new ButtonComponent(typeGroup)
+                .setButtonText(this.getNoteTypeDisplayName(selectedType))
+                .setClass("sr-native-picker")
+                .onClick((event) => this.openNoteTypeMenu(event));
+            picker.buttonEl.setAttribute("aria-haspopup", "menu");
+            const chevron = picker.buttonEl.createSpan("sr-native-picker-chevron");
+            setIcon(chevron, "chevron-down");
+            this.renderCustomNoteFields(surface, selectedType);
             return;
         } else if (this.editingCard) {
             typeGroup.createDiv({
@@ -1861,11 +1865,6 @@ export class NativeCreatorView extends ItemView {
             this.clearError();
         });
 
-        const kindGroup = this.createFieldGroup(parent, t("NOTE_TYPE_KIND"));
-        const kindPicker = kindGroup.createDiv("sr-native-card-type-switcher sr-note-kind-picker");
-        this.createNoteKindButton(kindPicker, draft, "standard", t("NOTE_TYPE_STANDARD"));
-        this.createNoteKindButton(kindPicker, draft, "cloze", t("CARD_TYPE_CLOZE"));
-
         this.renderFieldDefinitions(parent, draft);
         this.renderTemplateDefinitions(parent, draft);
 
@@ -1975,7 +1974,6 @@ export class NativeCreatorView extends ItemView {
         new ButtonComponent(heading)
             .setIcon("plus")
             .setTooltip(t("ADD_TEMPLATE"))
-            .setDisabled(draft.kind === "cloze")
             .onClick(() => {
                 draft.templates.push(this.createEmptyTemplate(draft.templates.length));
                 this.render();
@@ -2003,11 +2001,87 @@ export class NativeCreatorView extends ItemView {
             new ButtonComponent(top)
                 .setIcon("trash-2")
                 .setTooltip(t("REMOVE_TEMPLATE"))
-                .setDisabled(draft.templates.length === 1 || draft.kind === "cloze")
+                .setDisabled(draft.templates.length === 1)
                 .onClick(() => {
                     draft.templates.splice(index, 1);
                     this.render();
                 });
+
+            const behavior = card.createDiv("sr-note-template-behavior");
+            this.createTemplateSelect(
+                behavior,
+                t("TEMPLATE_GENERATOR"),
+                template.generator ?? draft.kind,
+                [
+                    ["standard", t("TEMPLATE_GENERATOR_STANDARD")],
+                    ["cloze", t("TEMPLATE_GENERATOR_CLOZE")],
+                    ["image-occlusion", t("TEMPLATE_GENERATOR_OCCLUSION")],
+                ],
+                (value) => {
+                    template.generator = value as NoteTypeKind;
+                    if (template.generator === "cloze" && !template.sourceFieldId) {
+                        template.sourceFieldId = draft.fields[0]?.id ?? null;
+                    }
+                },
+            );
+            this.createTemplateSelect(
+                behavior,
+                t("TEMPLATE_ANSWER_MODE"),
+                template.answerMode ?? "reveal",
+                [
+                    ["reveal", t("ANSWER_MODE_REVEAL")],
+                    ["type", t("ANSWER_MODE_TYPE")],
+                ],
+                (value) => (template.answerMode = value as "reveal" | "type"),
+            );
+            if ((template.generator ?? draft.kind) === "cloze") {
+                this.createTemplateSelect(
+                    behavior,
+                    t("TEMPLATE_SOURCE_FIELD"),
+                    template.sourceFieldId ?? "",
+                    [
+                        ["", t("TEMPLATE_ANY_FIELD")],
+                        ...draft.fields.map((field) => [field.id, field.name] as [string, string]),
+                    ],
+                    (value) => (template.sourceFieldId = value || null),
+                );
+            }
+            if ((template.answerMode ?? "reveal") === "type") {
+                this.createTemplateSelect(
+                    behavior,
+                    t("TEMPLATE_ANSWER_FIELD"),
+                    template.answerFieldId ?? "",
+                    [
+                        ["", t("TEMPLATE_RENDERED_ANSWER")],
+                        ...draft.fields.map((field) => [field.id, field.name] as [string, string]),
+                    ],
+                    (value) => (template.answerFieldId = value || null),
+                );
+            }
+
+            const advanced = card.createEl("details", { cls: "sr-note-template-advanced" });
+            advanced.createEl("summary", { text: t("TEMPLATE_CREATION_RULE") });
+            const advancedBody = advanced.createDiv("sr-note-template-advanced-body");
+            this.renderTemplateCondition(advancedBody, draft, template);
+            const style = advancedBody.createEl("label", { cls: "sr-note-template-control" });
+            style.createSpan({ text: t("TEMPLATE_STYLE") });
+            const styleInput = style.createEl("textarea", {
+                cls: "sr-native-textarea",
+                attr: { rows: "2", spellcheck: "false", placeholder: "font-size: 1.05em;" },
+            });
+            styleInput.value = template.css ?? "";
+            styleInput.addEventListener("input", () => {
+                template.css = styleInput.value;
+                for (const body of card.querySelectorAll<HTMLElement>(
+                    ".sr-note-template-preview-body",
+                )) {
+                    body.dataset.templateCss = template.css;
+                    body.setAttribute(
+                        "style",
+                        [draft.css, template.css].filter((value) => value?.trim()).join(";"),
+                    );
+                }
+            });
 
             this.createTemplateTextarea(
                 card,
@@ -2055,6 +2129,68 @@ export class NativeCreatorView extends ItemView {
         });
 
         this.renderNoteTypeStyleEditor(parent, draft);
+    }
+
+    private createTemplateSelect(
+        parent: HTMLElement,
+        label: string,
+        current: string,
+        options: Array<[string, string]>,
+        onChange: (value: string) => void,
+    ): void {
+        const control = parent.createEl("label", { cls: "sr-note-template-control" });
+        control.createSpan({ text: label });
+        const select = control.createEl("select", { cls: "dropdown" });
+        for (const [value, text] of options) select.createEl("option", { value, text });
+        select.value = current;
+        select.addEventListener("change", () => {
+            onChange(select.value);
+            this.render();
+        });
+    }
+
+    private renderTemplateCondition(
+        parent: HTMLElement,
+        draft: NoteTypeEditorDraft,
+        template: CardTemplateDefinition,
+    ): void {
+        const condition = template.condition ?? {
+            operator: "always" as const,
+            fieldId: null,
+            value: "",
+        };
+        template.condition = condition;
+        this.createTemplateSelect(
+            parent,
+            t("TEMPLATE_CREATION_RULE"),
+            condition.operator,
+            [
+                ["always", t("TEMPLATE_CONDITION_ALWAYS")],
+                ["not-empty", t("TEMPLATE_CONDITION_NOT_EMPTY")],
+                ["empty", t("TEMPLATE_CONDITION_EMPTY")],
+                ["equals", t("TEMPLATE_CONDITION_EQUALS")],
+                ["not-equals", t("TEMPLATE_CONDITION_NOT_EQUALS")],
+            ],
+            (value) => (condition.operator = value as typeof condition.operator),
+        );
+        if (condition.operator === "always") return;
+        this.createTemplateSelect(
+            parent,
+            t("FIELD_NAME"),
+            condition.fieldId ?? draft.fields[0]?.id ?? "",
+            draft.fields.map((field) => [field.id, field.name]),
+            (value) => (condition.fieldId = value || null),
+        );
+        if (condition.operator === "equals" || condition.operator === "not-equals") {
+            const value = parent.createEl("label", { cls: "sr-note-template-control" });
+            value.createSpan({ text: t("TEMPLATE_CONDITION_EQUALS") });
+            const input = value.createEl("input", {
+                cls: "sr-native-input",
+                attr: { type: "text" },
+            });
+            input.value = condition.value;
+            input.addEventListener("input", () => (condition.value = input.value));
+        }
     }
 
     private createTemplateTextarea(
@@ -2113,7 +2249,11 @@ export class NativeCreatorView extends ItemView {
             const face = faces.createDiv("sr-note-template-preview-face");
             face.createSpan({ text: label });
             const body = face.createDiv("sr-note-template-preview-body");
-            body.setAttribute("style", draft.css);
+            body.dataset.templateCss = template.css ?? "";
+            body.setAttribute(
+                "style",
+                [draft.css, template.css].filter((value) => value?.trim()).join(";"),
+            );
             void MarkdownRenderer.render(
                 this.app,
                 renderNoteTypeTemplate(value, draft as NoteTypeDefinition, sampleFields),
@@ -2156,7 +2296,12 @@ export class NativeCreatorView extends ItemView {
             for (const preview of parent.querySelectorAll<HTMLElement>(
                 ".sr-note-template-preview-body",
             )) {
-                preview.setAttribute("style", draft.css);
+                preview.setAttribute(
+                    "style",
+                    [draft.css, preview.dataset.templateCss]
+                        .filter((value) => value?.trim())
+                        .join(";"),
+                );
             }
         });
     }
@@ -2219,6 +2364,12 @@ export class NativeCreatorView extends ItemView {
             answerFormat: `{{${back}}}`,
             deckOverride: null,
             enabled: true,
+            generator: "standard",
+            answerMode: "reveal",
+            answerFieldId: null,
+            sourceFieldId: null,
+            condition: { operator: "always", fieldId: null, value: "" },
+            css: "",
         };
     }
 
@@ -2793,6 +2944,7 @@ export class NativeCreatorView extends ItemView {
     private openNoteTypeMenu(event: MouseEvent): void {
         const menu = new Menu();
         for (const noteType of this.plugin.dataManager.collectionStore.getNoteTypes()) {
+            if (this.editingStructuredNote && noteType.kind === "image-occlusion") continue;
             menu.addItem((item) =>
                 item
                     .setTitle(this.getNoteTypeDisplayName(noteType))
@@ -2813,6 +2965,24 @@ export class NativeCreatorView extends ItemView {
                             this.error = "";
                             this.render();
                             return;
+                        }
+                        if (this.editingStructuredNote) {
+                            const currentType = this.getSelectedNoteType();
+                            const nextValues: Record<string, string> = {};
+                            for (const field of noteType.fields) {
+                                const sameId = this.customFieldValues[field.id];
+                                const sameName = currentType.fields.find(
+                                    (candidate) =>
+                                        candidate.name.localeCompare(field.name, undefined, {
+                                            sensitivity: "base",
+                                        }) === 0,
+                                );
+                                nextValues[field.id] =
+                                    sameId ??
+                                    (sameName ? this.customFieldValues[sameName.id] : "") ??
+                                    "";
+                            }
+                            this.customFieldValues = nextValues;
                         }
                         this.selectedNoteTypeId = noteType.id;
                         if (noteType.id === BASIC_NOTE_TYPE_ID) this.cardType = "basic";

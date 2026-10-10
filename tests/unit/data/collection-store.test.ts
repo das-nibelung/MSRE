@@ -138,7 +138,7 @@ describe("Anki-style collection store", () => {
                     ordinal: 0,
                     questionFormat: "{{cloze:statement}}",
                     answerFormat: "{{cloze:statement}}<hr>{{source}}",
-                    deckOverride: null,
+                    deckOverride: null as string | null,
                     enabled: true,
                 },
             ],
@@ -324,7 +324,7 @@ describe("Anki-style collection store", () => {
                     ordinal: 0,
                     questionFormat: "{{Term}}",
                     answerFormat: "{{Meaning}}",
-                    deckOverride: null,
+                    deckOverride: null as string | null,
                     enabled: true,
                 },
                 {
@@ -527,7 +527,7 @@ describe("Anki-style collection store", () => {
         newer.notes.n1.updatedAt = 2;
 
         const merged = mergeCollections(older, newer);
-        expect(merged.schemaVersion).toBe(5);
+        expect(merged.schemaVersion).toBe(6);
         expect(merged.notes.n1.fields.front).toBe("new");
         expect(merged.cards.c1.buriedUntil).toBeNull();
         expect(merged.cards.c1.flag).toBe(0);
@@ -541,7 +541,7 @@ describe("Anki-style collection store", () => {
     });
 
     it("migrates schema v4 cards to stable template variants", () => {
-        expect(parseCollection("plain Markdown without managed JSON").schemaVersion).toBe(5);
+        expect(parseCollection("plain Markdown without managed JSON").schemaVersion).toBe(6);
         const migrated = migrateCollection({
             schemaVersion: 4,
             revision: 1,
@@ -592,9 +592,11 @@ describe("Anki-style collection store", () => {
             },
         });
 
-        expect(migrated.schemaVersion).toBe(5);
+        expect(migrated.schemaVersion).toBe(6);
         expect(migrated.noteTypes.custom.version).toBe(1);
         expect(migrated.noteTypes.custom.templates[0].version).toBe(1);
+        expect(migrated.noteTypes.custom.templates[0].generator).toBe("standard");
+        expect(migrated.noteTypes.custom.templates[0].answerMode).toBe("reveal");
         expect(migrated.cards.card.variantId).toBe("base");
         expect(migrated.cards.card.stableKey).toBe("note::template-a::base");
         expect(migrated.conflicts).toEqual({});
@@ -765,8 +767,8 @@ describe("Anki-style collection store", () => {
         const store = new CollectionStore(storage, () => 700, idFactory);
 
         await store.initialize();
-        expect(store.getCollectionSnapshot().schemaVersion).toBe(5);
-        expect((await store.listBackups())[0].reason).toBe("before-schema-4-to-5");
+        expect(store.getCollectionSnapshot().schemaVersion).toBe(6);
+        expect((await store.listBackups())[0].reason).toBe("before-schema-4-to-6");
         expect((await store.listBackups())[0].schemaVersion).toBe(4);
 
         storage.backups.set("empty.json", "");
@@ -933,5 +935,286 @@ describe("Anki-style collection store", () => {
 
         const report = await new CollectionStore(storage, () => 901, idFactory).checkIntegrity();
         expect(report.issues.filter((issue) => issue.code === "invalid-schedule")).toHaveLength(5);
+    });
+
+    it("generates mixed template families with independent conditions and answer modes", async () => {
+        const store = new CollectionStore(new MemoryStorage(), () => 950, idFactory);
+        const noteType = await store.saveNoteType({
+            id: "mixed-medical",
+            version: 1,
+            name: "Mixed medical",
+            kind: "standard",
+            fields: [
+                { id: "term", name: "Term", ordinal: 0, kind: "text", required: true },
+                { id: "definition", name: "Definition", ordinal: 1, kind: "text", required: true },
+                { id: "case", name: "Case", ordinal: 2, kind: "rich-text", required: false },
+            ],
+            templates: [
+                {
+                    id: "basic",
+                    version: 1,
+                    name: "Basic",
+                    ordinal: 0,
+                    questionFormat: "{{term}}",
+                    answerFormat: "{{definition}}",
+                    deckOverride: null,
+                    enabled: true,
+                    generator: "standard",
+                    answerMode: "type",
+                    answerFieldId: "definition",
+                    sourceFieldId: null,
+                    condition: { operator: "always", fieldId: null, value: "" },
+                    css: "text-align:center",
+                },
+                {
+                    id: "clinical-cloze",
+                    version: 1,
+                    name: "Clinical cloze",
+                    ordinal: 1,
+                    questionFormat: "{{cloze:case}}",
+                    answerFormat: "{{case}}",
+                    deckOverride: "Medicine/Clinical",
+                    enabled: true,
+                    generator: "cloze",
+                    answerMode: "reveal",
+                    answerFieldId: null,
+                    sourceFieldId: "case",
+                    condition: { operator: "not-empty", fieldId: "case", value: "" },
+                    css: "",
+                },
+            ],
+            css: "",
+        });
+        const note = await store.createNote({
+            noteTypeId: noteType.id,
+            fields: {
+                term: "Aspirin",
+                definition: "COX inhibitor",
+                case: "Treat with {{c1::aspirin}} and monitor {{c2::bleeding}}.",
+            },
+            deckPath: "Medicine",
+            source: { kind: "managed", path: "Cards/aspirin.md", questionId: "^aspirin" },
+        });
+
+        const cards = Object.values(store.getCollectionSnapshot().cards).filter(
+            (card) => !card.deletedAt && card.noteId === note.id,
+        );
+        expect(cards.map((card) => [card.templateId, card.variantId])).toEqual([
+            ["basic", "base"],
+            ["clinical-cloze", "cloze-1"],
+            ["clinical-cloze", "cloze-2"],
+        ]);
+        expect(
+            cards
+                .filter((card) => card.templateId === "clinical-cloze")
+                .map((card) => card.deckPath),
+        ).toEqual(["Medicine/Clinical", "Medicine/Clinical"]);
+    });
+
+    it("converts note types while preserving matching card schedules and reports empty cards", async () => {
+        const store = new CollectionStore(new MemoryStorage(), () => 975, idFactory);
+        const makeType = (id: string, answerField: string) => ({
+            id,
+            version: 1,
+            name: id,
+            kind: "standard" as const,
+            fields: [
+                { id: "prompt", name: "Prompt", ordinal: 0, kind: "text" as const, required: true },
+                {
+                    id: answerField,
+                    name: "Answer",
+                    ordinal: 1,
+                    kind: "text" as const,
+                    required: false,
+                },
+            ],
+            templates: [
+                {
+                    id: `${id}-card`,
+                    version: 1,
+                    name: "Shared",
+                    ordinal: 0,
+                    questionFormat: "{{prompt}}",
+                    answerFormat: `{{${answerField}}}`,
+                    deckOverride: null as string | null,
+                    enabled: true,
+                    generator: "standard" as const,
+                    answerMode: "reveal" as const,
+                    condition: {
+                        operator: "always" as const,
+                        fieldId: null as string | null,
+                        value: "",
+                    },
+                },
+            ],
+            css: "",
+        });
+        await store.saveNoteType(makeType("source-type", "answer"));
+        await store.saveNoteType(makeType("target-type", "result"));
+        const note = await store.createNote({
+            noteTypeId: "source-type",
+            fields: { prompt: "Q", answer: "A" },
+            deckPath: "Law",
+            source: { kind: "managed", path: "Cards/q.md", questionId: "^q" },
+            legacyQuestionIds: { 0: "^q-1" },
+        });
+        const before = Object.values(store.getCollectionSnapshot().cards).find(
+            (card) => !card.deletedAt && card.noteId === note.id,
+        );
+        if (!before) throw new Error("missing source card");
+        await store.recordReview({
+            sourcePath: "Cards/q.md",
+            questionId: "^q",
+            ordinal: 0,
+            deckPath: "Law",
+            front: "Q",
+            back: "A",
+            rating: 3,
+            previousSchedule: null,
+            nextSchedule: null,
+        });
+
+        const preview = store.previewNoteConversion(note.id, "target-type", {
+            prompt: "prompt",
+            result: "answer",
+        });
+        expect(preview).toEqual(expect.objectContaining({ preservedCards: 1, retiredCards: 0 }));
+        await store.convertNoteType(
+            note.id,
+            "target-type",
+            { prompt: "prompt", result: "answer" },
+            "Law",
+        );
+        const after = Object.values(store.getCollectionSnapshot().cards).find(
+            (card) => !card.deletedAt && card.noteId === note.id,
+        );
+        expect(after?.id).toBe(before.id);
+        expect(after?.reps).toBe(1);
+
+        await store.updateNote(note.id, {
+            fields: { prompt: "Q", result: "" },
+            deckPath: "Law",
+            source: { kind: "managed", path: "Cards/q.md", questionId: "^q" },
+        });
+        expect(store.findEmptyGeneratedCards("target-type")).toEqual([
+            { noteId: note.id, templateId: "target-type-card", variantId: "base" },
+        ]);
+        expect(
+            Object.values(store.getCollectionSnapshot().cards).filter(
+                (card) => !card.deletedAt && card.noteId === note.id,
+            ),
+        ).toHaveLength(0);
+    });
+
+    it("evaluates every template creation rule and generator independently", async () => {
+        const store = new CollectionStore(new MemoryStorage(), () => 990, idFactory);
+        const template = (
+            id: string,
+            ordinal: number,
+            operator: "always" | "not-empty" | "empty" | "equals" | "not-equals",
+            fieldId: string | null,
+            value = "",
+        ) => ({
+            id,
+            version: 1,
+            name: id,
+            ordinal,
+            questionFormat: "{{question}}",
+            answerFormat: "{{answer}}",
+            deckOverride: null as string | null,
+            enabled: true,
+            generator: "standard" as const,
+            answerMode: "reveal" as const,
+            condition: { operator, fieldId, value },
+        });
+        await store.saveNoteType({
+            id: "rules",
+            version: 1,
+            name: "Rules",
+            kind: "standard",
+            fields: [
+                { id: "question", name: "Question", ordinal: 0, kind: "text", required: true },
+                { id: "answer", name: "Answer", ordinal: 1, kind: "text", required: true },
+                { id: "blank", name: "Blank", ordinal: 2, kind: "text", required: false },
+                { id: "cloze", name: "Cloze", ordinal: 3, kind: "text", required: false },
+                { id: "masks", name: "Masks", ordinal: 4, kind: "text", required: false },
+            ],
+            templates: [
+                template("always", 0, "always", null),
+                template("present", 1, "not-empty", "answer"),
+                template("blank", 2, "empty", "blank"),
+                template("equal", 3, "equals", "answer", "A"),
+                template("different", 4, "not-equals", "answer", "B"),
+                template("skipped", 5, "equals", "answer", "B"),
+                {
+                    ...template("cloze-card", 6, "always", null),
+                    generator: "cloze",
+                    sourceFieldId: null,
+                },
+                {
+                    ...template("occlusion-card", 7, "always", null),
+                    generator: "image-occlusion",
+                },
+                { ...template("disabled", 8, "always", null), enabled: false },
+            ],
+            css: "",
+        });
+        const note = await store.createNote({
+            noteTypeId: "rules",
+            fields: {
+                question: "Q",
+                answer: "A",
+                blank: "",
+                cloze: "{{c1::hidden}}",
+                masks: JSON.stringify([{ id: "one" }, { id: "two" }]),
+            },
+            deckPath: "Rules",
+            source: { kind: "managed", path: "rules.md", questionId: "^rules" },
+        });
+        const cards = Object.values(store.getCollectionSnapshot().cards).filter(
+            (card) => !card.deletedAt && card.noteId === note.id,
+        );
+        expect(cards.map((card) => card.templateId)).toEqual([
+            "always",
+            "present",
+            "blank",
+            "equal",
+            "different",
+            "cloze-card",
+            "occlusion-card",
+            "occlusion-card",
+        ]);
+    });
+
+    it("fails closed for unsupported schemas, conversions, and malformed occlusion data", async () => {
+        expect(() => migrateCollection({ schemaVersion: 999 })).toThrow(
+            "Unsupported collection schema 999",
+        );
+        const store = new CollectionStore(new MemoryStorage(), () => 995, idFactory);
+        await expect(store.convertNoteType("missing", "builtin-basic", {}, "")).rejects.toThrow(
+            "note-not-found",
+        );
+        const note = await store.createNativeNote({
+            type: "basic",
+            front: "Q",
+            back: "A",
+            deckPath: "",
+            sourcePath: "q.md",
+            questionId: "^q",
+        });
+        await expect(store.convertNoteType(note.id, "missing", {}, "")).rejects.toThrow(
+            "note-type-not-found",
+        );
+        const broken = await store.createNote({
+            noteTypeId: IMAGE_OCCLUSION_NOTE_TYPE_ID,
+            fields: { source: "image.png", masks: "not-json", assets: "[]", mode: "hide-all" },
+            deckPath: "",
+            source: { kind: "managed", path: "image.md", questionId: "^image" },
+        });
+        expect(
+            Object.values(store.getCollectionSnapshot().cards).filter(
+                (card) => !card.deletedAt && card.noteId === broken.id,
+            ),
+        ).toHaveLength(0);
     });
 });
