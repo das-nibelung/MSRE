@@ -1,5 +1,4 @@
 import "src/ui/obsidian-ui-components/content-container/card-container/response-section/response-section.css";
-import { Platform } from "obsidian";
 
 import { SRSettings } from "src/data/settings";
 import { t } from "src/lang/helpers";
@@ -8,7 +7,6 @@ import { ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
 import { formatScheduleInterval } from "src/scheduling/algorithms/schedule-display";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
 import SRResponseButtonComponent from "src/ui/obsidian-ui-components/content-container/card-container/response-section/sr-response-button";
-import EmulatedPlatform from "src/utils/platform-detector";
 
 export default class ResponseSectionComponent {
     public responseEl: HTMLDivElement;
@@ -17,11 +15,12 @@ export default class ResponseSectionComponent {
     public goodButton: SRResponseButtonComponent;
     public easyButton: SRResponseButtonComponent;
     public answerButton: SRResponseButtonComponent;
+    private isProcessing = false;
 
     constructor(
         container: HTMLElement,
         settings: SRSettings,
-        showAnswer: () => void,
+        showAnswer: () => void | Promise<void>,
         processReview: (response: ReviewResponse) => Promise<void>,
     ) {
         this.responseEl = container.createDiv();
@@ -30,42 +29,76 @@ export default class ResponseSectionComponent {
         this.answerButton = new SRResponseButtonComponent(this.responseEl, {
             classNames: ["sr-bg-blue", "sr-show-answer-button"],
             text: t("SHOW_ANSWER"),
-            onClick: () => {
-                showAnswer();
-            },
+            onClick: () => this.runAction(this.answerButton, showAnswer),
         });
 
         this.againButton = new SRResponseButtonComponent(this.responseEl, {
             classNames: ["sr-bg-red", "sr-again-button", "sr-is-hidden"],
             text: settings.flashcardAgainText,
-            onClick: async () => {
-                await processReview(ReviewResponse.Again);
-            },
+            onClick: () =>
+                this.runAction(this.againButton, () => processReview(ReviewResponse.Again)),
         });
 
         this.hardButton = new SRResponseButtonComponent(this.responseEl, {
             classNames: ["sr-bg-yellow", "sr-hard-button", "sr-is-hidden"],
             text: settings.flashcardHardText,
-            onClick: async () => {
-                await processReview(ReviewResponse.Hard);
-            },
+            onClick: () =>
+                this.runAction(this.hardButton, () => processReview(ReviewResponse.Hard)),
         });
 
         this.goodButton = new SRResponseButtonComponent(this.responseEl, {
             classNames: ["sr-bg-blue", "sr-good-button", "sr-is-hidden"],
             text: settings.flashcardGoodText,
-            onClick: async () => {
-                await processReview(ReviewResponse.Good);
-            },
+            onClick: () =>
+                this.runAction(this.goodButton, () => processReview(ReviewResponse.Good)),
         });
 
         this.easyButton = new SRResponseButtonComponent(this.responseEl, {
             classNames: ["sr-bg-green", "sr-easy-button", "sr-is-hidden"],
             text: settings.flashcardEasyText,
-            onClick: async () => {
-                await processReview(ReviewResponse.Easy);
-            },
+            onClick: () =>
+                this.runAction(this.easyButton, () => processReview(ReviewResponse.Easy)),
         });
+    }
+
+    private async runAction(
+        sourceButton: SRResponseButtonComponent,
+        action: () => void | Promise<void>,
+    ): Promise<void> {
+        if (this.isProcessing) return;
+        this.isProcessing = true;
+        this.responseEl.setAttribute("aria-busy", "true");
+        sourceButton.buttonEl.addClass("mod-loading");
+        this.getButtons().forEach((button) => {
+            button.setDisabled(true);
+        });
+
+        try {
+            await action();
+        } finally {
+            this.getButtons().forEach((button) => {
+                button.setDisabled(false);
+            });
+            sourceButton.buttonEl.removeClass("mod-loading");
+            this.responseEl.removeAttribute("aria-busy");
+            this.isProcessing = false;
+            if (
+                sourceButton === this.answerButton &&
+                !this.againButton.buttonEl.hasClass("sr-is-hidden")
+            ) {
+                this.againButton.buttonEl.focus();
+            }
+        }
+    }
+
+    private getButtons(): SRResponseButtonComponent[] {
+        return [
+            this.answerButton,
+            this.againButton,
+            this.hardButton,
+            this.goodButton,
+            this.easyButton,
+        ];
     }
 
     public resetResponseButtons() {
@@ -108,8 +141,8 @@ export default class ResponseSectionComponent {
 
         if (reviewMode === FlashcardReviewMode.Cram) {
             this.responseEl.addClass("is-cram");
-            this.againButton.setButtonText(`${againButtonText}`);
-            this.easyButton.setButtonText(`${easyButtonText}`);
+            this.setLabelOnly(this.againButton, againButtonText);
+            this.setLabelOnly(this.easyButton, easyButtonText);
 
             if (this.againButton.buttonEl.hasClass("sr-is-hidden")) {
                 this.againButton.buttonEl.removeClass("sr-is-hidden");
@@ -165,31 +198,17 @@ export default class ResponseSectionComponent {
     ) {
         if (showInterval) {
             button.setSmallText(formatScheduleInterval(schedule, true));
-            button.setLargeText(`${buttonName} - ${formatScheduleInterval(schedule, false)}`);
-
-            if (EmulatedPlatform().isMobile || Platform.isMobile) {
-                if (button.buttonEl.hasClass("sr-show-large-text")) {
-                    button.buttonEl.removeClass("sr-show-large-text");
-                }
-                if (!button.buttonEl.hasClass("sr-show-small-text")) {
-                    button.buttonEl.addClass("sr-show-small-text");
-                }
-            } else {
-                if (button.buttonEl.hasClass("sr-show-small-text")) {
-                    button.buttonEl.removeClass("sr-show-small-text");
-                }
-                if (!button.buttonEl.hasClass("sr-show-large-text")) {
-                    button.buttonEl.addClass("sr-show-large-text");
-                }
-            }
-        } else {
-            if (button.buttonEl.hasClass("sr-show-small-text")) {
-                button.buttonEl.removeClass("sr-show-small-text");
-            }
-            if (!button.buttonEl.hasClass("sr-show-large-text")) {
-                button.buttonEl.addClass("sr-show-large-text");
-            }
             button.setLargeText(buttonName);
+            button.buttonEl.addClass("sr-show-small-text");
+            button.buttonEl.addClass("sr-show-large-text");
+        } else {
+            this.setLabelOnly(button, buttonName);
         }
+    }
+
+    private setLabelOnly(button: SRResponseButtonComponent, buttonName: string): void {
+        button.buttonEl.removeClass("sr-show-small-text");
+        button.buttonEl.addClass("sr-show-large-text");
+        button.setLargeText(buttonName);
     }
 }

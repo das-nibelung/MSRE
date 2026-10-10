@@ -8,23 +8,37 @@
     background: var(--background-primary);
 
     & .sr-response-button {
-        height: 50px;
+        min-height: 50px;
+        height: auto;
         flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
         margin: auto;
+        padding: var(--size-4-2);
         border: 1px solid transparent;
         border-radius: var(--radius-m);
         box-shadow: none;
-        line-height: 50px;
+        line-height: 1.2;
         text-align: center;
         font-weight: var(--font-semibold);
         cursor: pointer;
         user-select: none;
+        touch-action: manipulation;
         transition:
             background-color 140ms ease,
             transform 100ms ease;
 
         &:active {
             transform: scale(0.985);
+        }
+
+        &:disabled {
+            cursor: default;
+            opacity: 0.58;
+            transform: none;
         }
 
         & > * {
@@ -77,31 +91,29 @@
 
 .sr-response-button.sr-show-small-text > span.sr-small-text,
 .sr-response-button.sr-show-large-text > span.sr-large-text {
-    display: inline;
+    display: block;
 }
 
-.is-phone .sr-response-button:not(.sr-show-answer-button).sr-show-large-text > span.sr-small-text {
-    display: inline;
+.sr-response-button > span.sr-large-text {
+    font-weight: var(--font-semibold);
 }
 
-.is-phone .sr-response-button:not(.sr-show-answer-button).sr-show-large-text > span.sr-large-text {
-    display: none;
+.sr-response-button > span.sr-small-text {
+    color: currentColor;
+    font-size: var(--font-ui-smaller);
+    font-weight: var(--font-normal);
+    opacity: 0.78;
 }
 
 @container (width < 580px) {
-    .sr-response-button:not(.sr-show-answer-button).sr-show-large-text > span.sr-small-text {
-        display: inline;
-    }
-
-    .sr-response-button:not(.sr-show-answer-button).sr-show-large-text > span.sr-large-text {
-        display: none;
+    .sr-response {
+        gap: var(--size-4-1);
     }
 }
 
 @media only screen and (orientation: landscape) {
     .is-phone .sr-response-button {
-        height: 38px;
-        line-height: 38px;
+        min-height: 42px;
     }
 
     .is-phone .sr-response {

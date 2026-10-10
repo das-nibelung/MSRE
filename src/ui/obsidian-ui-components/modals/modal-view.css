@@ -17,10 +17,10 @@
     display: none !important;
 }
 
-/* iOS can render the modal affordance as a sibling of the plugin modal. */
-body.sr-review-modal-open
-    .modal-container:has(#sr-modal-view)
-    .modal-close-button:not(.sr-modal-close-button) {
+/* iOS can render this affordance outside the plugin modal and mount it late. */
+body.sr-review-modal-open .modal-close-button:not(.sr-modal-close-button),
+body.sr-review-modal-open [aria-label="Close"]:not(.sr-modal-close-button),
+body.sr-review-modal-open [aria-label="Закрыть"]:not(.sr-modal-close-button) {
     display: none !important;
 }
 

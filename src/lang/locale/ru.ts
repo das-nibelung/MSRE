@@ -28,6 +28,7 @@ const ru: IBaseLocale = {
     GOOD: "Нормально",
     EASY: "Легко",
     SHOW_ANSWER: "Показать ответ",
+    TAP_CARD_TO_SHOW_ANSWER: "Нажмите на карточку, чтобы увидеть ответ",
     CARD_PROGRESS_RESET: "Сбросить прогресс изучения карточки",
     SAVE: "Сохранить",
     CANCEL: "Отмена",

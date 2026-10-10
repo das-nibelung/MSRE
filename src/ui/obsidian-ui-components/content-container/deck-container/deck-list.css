@@ -66,8 +66,13 @@
         }
 
         &.is-clickable:hover,
-        &.is-clickable:focus-within {
+        &.is-clickable:focus-visible {
             background: var(--background-modifier-hover);
+        }
+
+        &.is-clickable:focus-visible {
+            outline: 2px solid var(--background-modifier-border-focus);
+            outline-offset: -2px;
         }
     }
 
@@ -101,6 +106,26 @@
 
         & > .sr-tree-row + .sr-tree-row > .sr-tree-item-row {
             border-top: 1px solid var(--background-modifier-border);
+        }
+    }
+
+    & .collapse-icon[role="button"] {
+        min-width: 32px;
+        min-height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        touch-action: manipulation;
+
+        &:hover,
+        &:focus-visible {
+            background: var(--background-modifier-hover);
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--background-modifier-border-focus);
+            outline-offset: -2px;
         }
     }
 
@@ -165,6 +190,11 @@
 
 .is-phone .sr-deck-container .tree-item .tree-item-self {
     padding-inline-end: 4px;
+}
+
+.is-phone .sr-deck-container .collapse-icon[role="button"] {
+    min-width: var(--interactive-size);
+    min-height: var(--interactive-size);
 }
 
 .is-mobile .sr-deck-container .sr-tree-stats-count {

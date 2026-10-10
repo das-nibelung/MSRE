@@ -237,34 +237,61 @@ export default class DeckListComponent {
         const treeRowChildren: HTMLDivElement = treeRow.createDiv("tree-item-children");
         treeRowChildren.setCssProps({ display: collapsed ? "none" : "block" });
 
-        if (disableInteraction || (deckStats.dueCount === 0 && deckStats.newCount === 0)) {
+        const hasSubdecks = numOfSubdecks > 0;
+        const canStartReview =
+            !disableInteraction && (deckStats.dueCount > 0 || deckStats.newCount > 0);
+
+        const toggleSubdecks = () => {
+            if (!hasSubdecks) return;
+            collapsed = !collapsed;
+            collapseIconEl.toggleClass("is-collapsed", collapsed);
+            collapseIconEl.setAttribute("aria-expanded", String(!collapsed));
+            treeRowChildren.setCssProps({ display: collapsed ? "none" : "block" });
+        };
+
+        if (hasSubdecks) {
+            collapseIconEl.setAttribute("role", "button");
+            collapseIconEl.setAttribute("tabindex", "0");
+            collapseIconEl.setAttribute("aria-expanded", String(!collapsed));
+            collapseIconEl.setAttribute("aria-label", deckName);
+            collapseIconEl.addEventListener("click", (event) => {
+                event.stopPropagation();
+                toggleSubdecks();
+            });
+            collapseIconEl.addEventListener("keydown", (event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                event.stopPropagation();
+                toggleSubdecks();
+            });
+        }
+
+        if (!canStartReview) {
             if (!disableInteraction) {
                 treeRowSelf.addClass("is-disabled");
+                treeRowSelf.setAttribute("aria-disabled", "true");
             }
         } else {
             treeRowSelf.addClass("is-clickable");
-            collapseIconEl.addEventListener("click", (e) => {
-                if (collapsed) {
-                    collapseIconEl.removeClass("is-collapsed");
-                    treeRowChildren.setCssProps({ display: "block" });
-                } else {
-                    collapseIconEl.addClass("is-collapsed");
-                    treeRowChildren.setCssProps({ display: "none" });
-                }
-
-                // We stop the propagation of the event so that the click event for treeRowSelf doesn't get called
-                // if the user clicks on the collapse icon
-                e.stopPropagation();
-                collapsed = !collapsed;
-            });
+            treeRowSelf.setAttribute("role", "button");
+            treeRowSelf.setAttribute("tabindex", "0");
+            treeRowSelf.setAttribute(
+                "aria-label",
+                `${deckName}. ${t("DUE_CARDS")}: ${deckStats.dueCount}. ${t("NEW_CARDS")}: ${deckStats.newCount}.`,
+            );
         }
 
         // Add the click handler to treeRowSelf instead of treeRowInner so that it activates
         // over the entire rectangle of the tree item, not just the text of the topic name
         // https://github.com/st3v3nmw/obsidian-spaced-repetition/issues/709
 
-        if (!disableInteraction) {
+        if (canStartReview) {
             treeRowSelf.addEventListener("click", () => {
+                startReviewOfDeck(deck);
+            });
+            treeRowSelf.addEventListener("keydown", (event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
                 startReviewOfDeck(deck);
             });
         }

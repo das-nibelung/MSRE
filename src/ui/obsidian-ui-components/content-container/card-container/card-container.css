@@ -27,6 +27,12 @@
             border: 1px solid var(--background-modifier-border);
             border-radius: var(--radius-l);
             background: var(--background-secondary);
+
+            &.sr-can-reveal-answer {
+                cursor: pointer;
+                touch-action: pan-y;
+                -webkit-tap-highlight-color: transparent;
+            }
         }
     }
 
@@ -42,6 +48,30 @@
 
     & .sr-content .cloze-input {
         height: 1.4rem;
+    }
+}
+
+.sr-tap-answer-hint {
+    display: flex;
+    width: fit-content;
+    align-items: center;
+    gap: var(--size-4-1);
+    margin: var(--size-4-8) auto 0;
+    padding: var(--size-2-2) var(--size-4-3);
+    border-radius: 999px;
+    background: var(--background-modifier-hover);
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    font-weight: var(--font-medium);
+    pointer-events: none;
+
+    & .sr-tap-answer-hint-icon {
+        display: flex;
+
+        & svg {
+            width: 15px;
+            height: 15px;
+        }
     }
 }
 

@@ -12,8 +12,8 @@ export class SRModalView extends Modal {
     private plugin: SRPlugin;
     private settingsManager: SettingsManager;
     private resizeObserver: ResizeObserver | null = null;
-    private nativeCloseButtons: HTMLElement[] = [];
     private closeButtonFrame: number | null = null;
+    private modalMutationObserver: MutationObserver | null = null;
 
     constructor(
         app: App,
@@ -46,6 +46,7 @@ export class SRModalView extends Modal {
         this.modalEl.setAttribute("id", "sr-modal-view");
         this.modalEl.addClass("sr-view");
         this.containerEl.addClass("sr-modal-host");
+        this.removeNativeCloseButtons();
 
         this.contentEl.addClass("sr-modal-content");
 
@@ -65,9 +66,16 @@ export class SRModalView extends Modal {
 
     onOpen(): void {
         activeDocument.body.addClass("sr-review-modal-open");
-        this.hideNativeCloseButtons();
+        this.removeNativeCloseButtons();
         this.closeButtonFrame = activeWindow.requestAnimationFrame(() => {
-            this.hideNativeCloseButtons();
+            this.removeNativeCloseButtons();
+        });
+        this.modalMutationObserver = new MutationObserver(() => {
+            this.removeNativeCloseButtons();
+        });
+        this.modalMutationObserver.observe(activeDocument.body, {
+            childList: true,
+            subtree: true,
         });
         void this.contentManager.open();
     }
@@ -77,37 +85,22 @@ export class SRModalView extends Modal {
             activeWindow.cancelAnimationFrame(this.closeButtonFrame);
             this.closeButtonFrame = null;
         }
-        this.nativeCloseButtons.forEach((button) =>
-            button.removeClass("sr-native-modal-close-button"),
-        );
-        this.nativeCloseButtons = [];
+        this.modalMutationObserver?.disconnect();
+        this.modalMutationObserver = null;
         activeDocument.body.removeClass("sr-review-modal-open");
         this.contentManager.close();
     }
 
     /**
-     * Obsidian places the native mobile modal close button outside modalEl on
-     * some iOS builds. Walk the local modal ancestry so that button can be
-     * suppressed without affecting unrelated modals.
+     * Obsidian places the native mobile modal close button outside modalEl and
+     * can mount it after onOpen on iOS. Obsidian has no public option to omit
+     * the control, so remove it immediately and whenever the host reinserts it.
      */
-    private hideNativeCloseButtons(): void {
-        const roots = new Set<HTMLElement>();
-        let current: HTMLElement | null = this.modalEl;
-        for (let depth = 0; current !== null && depth < 4; depth++) {
-            roots.add(current);
-            current = current.parentElement;
-        }
-        roots.add(this.containerEl);
-
-        for (const root of roots) {
-            root.querySelectorAll<HTMLElement>(".modal-close-button").forEach((button) => {
-                if (button.hasClass("sr-modal-close-button")) return;
-                button.addClass("sr-native-modal-close-button");
-                if (!this.nativeCloseButtons.includes(button)) {
-                    this.nativeCloseButtons.push(button);
-                }
-            });
-        }
+    private removeNativeCloseButtons(): void {
+        activeDocument.querySelectorAll<HTMLElement>(".modal-close-button").forEach((button) => {
+            if (button.hasClass("sr-modal-close-button")) return;
+            button.remove();
+        });
     }
 
     private async onResize(entries: ResizeObserverEntry[]) {

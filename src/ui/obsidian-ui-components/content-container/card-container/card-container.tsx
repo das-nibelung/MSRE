@@ -1,6 +1,6 @@
 import "src/ui/obsidian-ui-components/content-container/card-container/card-container.css";
 import moment from "moment";
-import { App, Platform } from "obsidian";
+import { App, Platform, setIcon } from "obsidian";
 
 import { CardType } from "src/data/data-structures/card/questions/question";
 import { SRSettings } from "src/data/settings";
@@ -44,7 +44,7 @@ export class CardContainer {
 
     private processReviewHandler: (response: ReviewResponse) => Promise<void>;
     private skipCardHandler: () => void;
-    private showAnswerHandler: () => void;
+    private showAnswerHandler: () => void | Promise<void>;
     private jumpToCardHandler: () => Promise<void>;
 
     constructor(
@@ -57,7 +57,7 @@ export class CardContainer {
         editCardHandler: () => void,
         processReviewHandler: (response: ReviewResponse) => Promise<void>,
         skipCardHandler: () => void,
-        showAnswerHandler: () => void,
+        showAnswerHandler: () => void | Promise<void>,
         jumpToCurrentCardHandler: () => Promise<void>,
         displayCurrentCardInfoNoticeHandler: () => void,
         buryCurrentCardHandler: () => Promise<void>,
@@ -107,6 +107,9 @@ export class CardContainer {
 
         this.content = this.scrollWrapper.createDiv();
         this.content.addClass("sr-content");
+        this.content.addEventListener("click", (event) => {
+            this.revealAnswerFromCard(event);
+        });
 
         this.response = new ResponseSectionComponent(
             this.view,
@@ -172,7 +175,7 @@ export class CardContainer {
         this._updateInfoBar(sessionData, settings.flashcardCardOrder);
 
         // Update card content
-        await this.drawCardFrontContent(sessionData, settings);
+        await this.drawCardFrontContent(sessionData, settings, true);
 
         // Update response buttons
         this.response.resetResponseButtons();
@@ -201,7 +204,11 @@ export class CardContainer {
         }
     }
 
-    private async drawCardFrontContent(sessionData: SessionData, settings: SRSettings) {
+    private async drawCardFrontContent(
+        sessionData: SessionData,
+        settings: SRSettings,
+        allowTapToReveal: boolean,
+    ) {
         // Update card content
         this.content.empty();
 
@@ -221,6 +228,16 @@ export class CardContainer {
             sessionData.currentQuestion.questionText.textDirection,
             // sessionData.cardData.currentCardState
         );
+
+        const isMobile = Platform.isMobile || EmulatedPlatform().isMobile;
+        this.content.toggleClass("sr-can-reveal-answer", allowTapToReveal && isMobile);
+        if (allowTapToReveal && isMobile) {
+            const hint = this.content.createDiv("sr-tap-answer-hint");
+            const icon = hint.createSpan("sr-tap-answer-hint-icon");
+            setIcon(icon, "mouse-pointer-click");
+            hint.createSpan({ text: t("TAP_CARD_TO_SHOW_ANSWER") });
+            hint.setAttribute("aria-hidden", "true");
+        }
         // Set scroll position back to top
         this.content.scrollTop = 0;
     }
@@ -229,6 +246,7 @@ export class CardContainer {
         this.toolbar.setResetButtonDisabled(true);
         this.cardState = CardState.Front;
         this.content.empty();
+        this.content.removeClass("sr-can-reveal-answer");
         this.response.hideAllButtons();
         this.pendingClock = this.content.createDiv({
             cls: "sr-centered",
@@ -297,7 +315,7 @@ export class CardContainer {
                     e.preventDefault();
                     e.stopPropagation();
                     (input as HTMLElement).blur();
-                    this.showAnswerHandler();
+                    void this.showAnswerHandler();
                 }
             });
         });
@@ -347,12 +365,13 @@ export class CardContainer {
     ) {
         this.setCustomHotKeyState(settings.useCustomHotkeys);
         this.cardState = sessionData.cardData.currentCardState;
+        this.content.removeClass("sr-can-reveal-answer");
 
         this.toolbar.setResetButtonDisabled(false);
 
         // Show answer text
         if (sessionData.currentQuestion.questionType !== CardType.Cloze) {
-            await this.drawCardFrontContent(sessionData, settings);
+            await this.drawCardFrontContent(sessionData, settings, false);
             const hr: HTMLElement = activeDocument.createElement("hr");
             this.content.appendChild(hr);
         } else {
@@ -391,6 +410,29 @@ export class CardContainer {
         this.response.againButton.buttonEl.focus();
     }
 
+    private revealAnswerFromCard(event: MouseEvent): void {
+        if (
+            this.cardState !== CardState.Front ||
+            !(Platform.isMobile || EmulatedPlatform().isMobile)
+        ) {
+            return;
+        }
+
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        if (
+            target.closest(
+                "a, button, input, textarea, select, [contenteditable='true'], .internal-embed",
+            ) !== null
+        ) {
+            return;
+        }
+
+        const selection = activeWindow.getSelection();
+        if (selection !== null && !selection.isCollapsed) return;
+        void this.showAnswerHandler();
+    }
+
     private _keydownHandler = (e: KeyboardEvent) => {
         if (!this.plugin.isInitialized) throw new Error("SR plugin or data not initialized!!!");
         if (this.plugin.uiManager === null) throw new Error("UI manager not initialized!!!");
@@ -426,7 +468,7 @@ export class CardContainer {
             case "NumpadEnter":
             case "Space":
                 if (this.cardState === CardState.Front) {
-                    this.showAnswerHandler();
+                    void this.showAnswerHandler();
                     consumeKeyEvent();
                 } else if (this.cardState === CardState.Back) {
                     void this.processReviewHandler(ReviewResponse.Good);
