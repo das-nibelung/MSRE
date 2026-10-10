@@ -78,9 +78,11 @@ const ru: IBaseLocale = {
     CARD_EASE: "Лёгкость ${ease}%",
     CARDS_IN_NOTE: "Заметка: ${note}",
     CLEAR_NOTE_FILTER: "Показать карточки всех заметок",
+    CLEAR_FILTERS: "Сбросить фильтры",
     SCHEDULED_CARDS: "Запланированные карточки",
     LOADING_CARDS: "Загрузка карточек…",
     CARD_BROWSER_COUNT: "Показано ${shown} из ${total}",
+    CARD_BROWSER_SUMMARY: "Всего ${total} · к повторению ${due}",
     NO_CARDS_TITLE: "Карточек пока нет",
     NO_CARDS_DESCRIPTION:
         "Создайте стартовую заметку и замените пример вопроса и ответа своим материалом.",
@@ -353,6 +355,18 @@ const ru: IBaseLocale = {
     CHECK_ROADMAP: 'Check out the <a href="${roadMapUrl}">roadmap</a> for upcoming features.',
     CHECK_DEV_NEWS:
         'Check out the <a href="${devNewsUrl}">dev news</a> for the latest development news.',
+    READY_TO_REVIEW: "Готово к повторению",
+    CARDS_READY: "Карточек на сегодня: ${count}",
+    DECKS_READY: "Активных колод: ${count}",
+    UNDO_LAST_REVIEW: "Отменить последнюю оценку",
+    REVIEW_UNDONE: "Последняя оценка отменена.",
+    UNDO_REVIEW_FAILED: "Не удалось отменить оценку. Попробуйте ещё раз.",
+    SESSION_COMPLETE: "Сессия завершена",
+    SESSION_COMPLETE_DESC: "Все карточки этой сессии пройдены.",
+    SESSION_REVIEWED: "Повторено",
+    SESSION_DURATION: "Время",
+    BACK_TO_DECKS: "Вернуться к колодам",
+    MINUTES_SHORT: "${count} мин",
 };
 
 export default ru;

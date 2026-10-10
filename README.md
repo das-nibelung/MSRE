@@ -46,6 +46,12 @@ menu exposes the same bury action. When the browser is scoped to a note, its
 review button starts that note's queue directly instead of returning to the
 global deck picker.
 
+The mobile study flow uses a touch-first deck dashboard, compact card library,
+four adaptive rating controls, swipe shortcuts, one-step source-note access,
+single-level review undo, and an end-of-session summary. Keyboard review follows
+the familiar `1` Again, `2` Hard, `3` Good, `4` Easy layout, with `Ctrl/Cmd+Z`
+for undo. Visible controls remain available for every gesture action.
+
 ## Incremental card index
 
 This fork keeps a disposable, device-local card index in IndexedDB. Unchanged

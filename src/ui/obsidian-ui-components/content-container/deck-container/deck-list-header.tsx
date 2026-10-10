@@ -28,7 +28,8 @@ export default class DeckListHeaderComponent {
             .setButtonText(t("CARD_BROWSER"))
             .setTooltip(t("BROWSE_CARDS"))
             .onClick(openCardBrowser);
-        browserButton.buttonEl.addClasses(["sr-card-browser-button", "clickable-icon"]);
+        browserButton.buttonEl.addClass("sr-card-browser-button");
+        browserButton.buttonEl.setAttribute("aria-label", t("BROWSE_CARDS"));
         const browserIcon = activeDocument.createElement("span");
         browserIcon.addClass("sr-card-browser-icon");
         setIcon(browserIcon, "library-big");

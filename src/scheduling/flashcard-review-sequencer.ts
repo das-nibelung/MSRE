@@ -32,6 +32,7 @@ export interface IFlashcardReviewSequencer {
 
     setDeckTree(originalDeckTree: Deck, remainingDeckTree: Deck): void;
     setCurrentDeck(topicPath: TopicPath): void;
+    selectCard(card: Card, topicPath: TopicPath): boolean;
     refreshCurrentDeck(): void;
     getDeckStats(topicPath: TopicPath): DeckStats;
     getSubDecksWithCardsInQueue(deck: Deck): Deck[];
@@ -193,6 +194,12 @@ export class FlashcardReviewSequencer implements IFlashcardReviewSequencer {
         this.wakeDuePendingCards();
         this.cardSequencer.setIteratorTopicPath(topicPath);
         this.cardSequencer.nextRepItem();
+    }
+
+    selectCard(card: Card, topicPath: TopicPath): boolean {
+        this.currentTopicPath = topicPath;
+        this.wakeDuePendingCards();
+        return this.cardSequencer.selectRepItem(card, topicPath);
     }
 
     refreshCurrentDeck(): void {

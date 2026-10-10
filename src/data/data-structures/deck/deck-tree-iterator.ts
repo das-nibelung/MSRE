@@ -47,6 +47,7 @@ export interface IDeckTreeIterator {
      * @param {TopicPath} topicPath - The topic path.
      */
     setIteratorTopicPath(topicPath: TopicPath): void;
+    selectRepItem(repItem: RepetitionItem, topicPath: TopicPath): boolean;
     /**
      * Deletes the current repetition item from all decks.
      *
@@ -114,6 +115,15 @@ class SingleDeckIterator {
             index = cardIndex - this.deck.newRepItems.length;
         }
         this.setCardListType(cardListType, index);
+    }
+
+    selectCard(card: Card): boolean {
+        if (this.deck === null) return false;
+        const cardListType = card.repItemState;
+        const cardIdx = this.deck.getRepItemListForRepItemState(cardListType).indexOf(card);
+        if (cardIdx === -1) return false;
+        this.setCardListType(cardListType, cardIdx);
+        return true;
     }
 
     private setCardListType(cardListType?: RepItemState, cardIdx: number | null = null): void {
@@ -292,6 +302,16 @@ export class DeckTreeIterator implements IDeckTreeIterator {
         const iteratorDeck: Deck = this.baseDeckTree.getDeck(topicPath);
         this.deckArray = DeckTreeIterator.filterForDecksWithCards(iteratorDeck.toDeckArray());
         this.setDeckIdx(null);
+    }
+
+    selectRepItem(repItem: RepetitionItem, topicPath: TopicPath): boolean {
+        this.setIteratorTopicPath(topicPath);
+        for (let index = 0; index < this.deckArray.length; index++) {
+            this.setDeckIdx(index);
+            if (this.singleDeckIterator.selectCard(repItem as Card)) return true;
+        }
+        this.setDeckIdx(null);
+        return false;
     }
 
     private static filterForDecksWithCards(sourceArray: Deck[]): Deck[] {

@@ -2,9 +2,10 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    padding: var(--size-4-4);
-    gap: var(--size-4-3);
+    padding: var(--size-4-5);
+    gap: var(--size-4-4);
     overflow: hidden;
+    background: var(--background-primary);
 }
 
 .sr-card-browser-header,
@@ -23,6 +24,42 @@
     min-height: 0;
     flex-direction: column;
     gap: var(--size-4-3);
+}
+
+.sr-card-browser-title-block {
+    min-width: 0;
+    flex: 1;
+}
+
+.sr-card-browser-title-block h2 {
+    margin: 0;
+    font-size: calc(var(--font-ui-large) * 1.18);
+    font-weight: 650;
+    letter-spacing: -0.025em;
+}
+
+.sr-card-browser-title-block p {
+    margin: var(--size-2-1) 0 0;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    font-variant-numeric: tabular-nums;
+}
+
+.sr-card-browser-header-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--size-4-2);
+}
+
+.sr-card-browser-header-actions button {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--background-secondary);
+    box-shadow: none;
 }
 
 .sr-card-browser-scope {
@@ -49,16 +86,24 @@
 
 .sr-card-browser-header {
     gap: var(--size-4-2);
-}
-
-.sr-card-browser-header h2 {
-    margin: 0;
-    flex: 1;
+    min-height: 52px;
 }
 
 .sr-card-browser-toolbar {
     gap: var(--size-4-2);
     flex-wrap: wrap;
+    padding: var(--size-4-3);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-l);
+    background: var(--background-secondary);
+}
+
+.sr-card-browser-toolbar input,
+.sr-card-browser-toolbar select {
+    min-height: 40px;
+    border-color: transparent;
+    background: var(--background-primary);
+    box-shadow: none;
 }
 
 .sr-card-browser-search {
@@ -76,12 +121,21 @@
     gap: var(--size-4-2);
     color: var(--text-muted);
     font-size: var(--font-ui-small);
+    font-variant-numeric: tabular-nums;
+}
+
+.sr-card-browser-summary button {
+    min-height: 36px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--interactive-accent);
 }
 
 .sr-card-browser-list {
     display: flex;
     flex-direction: column;
-    gap: var(--size-2-2);
+    gap: var(--size-4-2);
     overflow-y: auto;
     overscroll-behavior: contain;
     padding-bottom: max(var(--size-4-6), var(--safe-area-inset-bottom));
@@ -91,14 +145,14 @@
     display: flex;
     align-items: center;
     width: 100%;
-    min-height: 3.25rem;
+    min-height: 4rem;
     height: auto;
     padding: var(--size-4-3);
     gap: var(--size-2-2);
     color: var(--text-normal);
-    background: var(--background-primary-alt);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-s);
+    background: var(--background-secondary);
+    border: 1px solid transparent;
+    border-radius: var(--radius-l);
     box-shadow: none;
     text-align: start;
     white-space: normal;
@@ -107,7 +161,7 @@
 .sr-card-browser-row:hover,
 .sr-card-browser-row:focus-visible {
     background: var(--background-modifier-hover);
-    border-color: var(--interactive-accent);
+    border-color: var(--background-modifier-border-hover);
 }
 
 .sr-card-browser-row-body {
@@ -124,8 +178,8 @@
     flex: 0 0 auto;
     align-items: center;
     justify-content: center;
-    min-width: 32px;
-    min-height: 32px;
+    min-width: 40px;
+    min-height: 40px;
     cursor: pointer;
 }
 
@@ -138,10 +192,11 @@
     display: flex;
     align-items: center;
     gap: var(--size-4-2);
-    padding: var(--size-4-2);
-    background: var(--background-secondary);
+    padding: var(--size-4-2) var(--size-4-3);
+    background: var(--background-primary-alt);
     border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-s);
+    border-radius: var(--radius-l);
+    box-shadow: var(--shadow-s);
 }
 
 .sr-card-browser-selection-bar.is-empty {
@@ -187,10 +242,12 @@
 
 .sr-card-browser-front {
     font-weight: var(--font-semibold);
+    line-height: 1.35;
 }
 
 .sr-card-browser-back {
     color: var(--text-muted);
+    line-height: 1.35;
 }
 
 .sr-card-browser-row-meta {
@@ -211,8 +268,9 @@
     flex: 0 0 auto;
     padding: var(--size-2-1) var(--size-4-1);
     border-radius: var(--tag-radius);
-    color: var(--text-on-accent);
-    background: var(--interactive-accent);
+    border: 1px solid currentColor;
+    color: var(--interactive-accent);
+    background: transparent;
 }
 
 .sr-card-browser-schedule {
@@ -224,15 +282,18 @@
 }
 
 .sr-card-browser-state.is-new {
-    background: var(--color-blue);
+    color: var(--color-blue);
+    background: color-mix(in srgb, var(--color-blue) 10%, transparent);
 }
 
 .sr-card-browser-state.is-due {
-    background: var(--color-red);
+    color: var(--color-red);
+    background: color-mix(in srgb, var(--color-red) 10%, transparent);
 }
 
 .sr-card-browser-state.is-scheduled {
-    background: var(--color-green);
+    color: var(--color-green);
+    background: color-mix(in srgb, var(--color-green) 10%, transparent);
 }
 
 .sr-card-browser-empty {
@@ -249,12 +310,29 @@
 }
 
 .sr-card-browser-empty-icon {
-    color: var(--text-muted);
+    display: flex;
+    width: 64px;
+    height: 64px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 18px;
+    background: var(--background-secondary);
+    color: var(--interactive-accent);
 }
 
 .sr-card-browser-empty-icon svg {
     width: 2.5rem;
     height: 2.5rem;
+}
+
+.sr-card-browser-empty-icon .lucide-loader-circle {
+    animation: sr-browser-spin 900ms linear infinite;
+}
+
+@keyframes sr-browser-spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .sr-card-browser-empty h3,
@@ -273,6 +351,16 @@
 
 @media (max-width: 600px) {
     .sr-card-browser-view {
+        padding: var(--size-4-4);
+        gap: var(--size-4-3);
+    }
+
+    .sr-card-browser-header-actions button {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    .sr-card-browser-toolbar {
         padding: var(--size-4-2);
     }
 
@@ -285,6 +373,7 @@
     .sr-card-browser-toolbar select {
         flex: 1 1 calc(50% - var(--size-4-2));
         min-width: 0;
+        min-height: 44px;
     }
 
     .sr-card-browser-summary button {
@@ -311,5 +400,18 @@
 
     .sr-card-browser-back {
         font-size: var(--font-ui-small);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sr-card-browser-view *,
+    .sr-card-browser-view *::before,
+    .sr-card-browser-view *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+    }
+
+    .sr-card-browser-empty-icon .lucide-loader-circle {
+        animation: none;
     }
 }

@@ -38,6 +38,32 @@ Q3::A3`;
     });
 });
 
+describe("selectRepItem", () => {
+    test("selects the requested card regardless of configured order", async () => {
+        const text: string = `#flashcards
+Q1::A1
+Q2::A2
+Q3::A3`;
+        const deck = await SampleItemDecks.createDeckFromText(text, TopicPath.emptyPath);
+        const iterator = new DeckTreeIterator(
+            {
+                repItemOrder: RepItemOrder.NewFirstRandom,
+                deckOrder: DeckOrder.PrevDeckComplete_Random,
+            },
+            deck,
+        );
+        const card = deck
+            .getFlattenedRepItemArray(RepItemState.AnyItem, true)
+            .find((item) => item.front === "Q3");
+        if (card === undefined) throw new Error("Expected Q3 card");
+
+        expect(iterator.selectRepItem(card, TopicPath.getTopicPathFromTag("#flashcards"))).toEqual(
+            true,
+        );
+        expect(iterator.currentRepItem).toBe(card);
+    });
+});
+
 describe("nextCard - Cards only present in a single deck", () => {
     describe("DeckOrder.PrevDeckComplete_Sequential; Sequential card ordering", () => {
         describe("Due cards before new cards", () => {

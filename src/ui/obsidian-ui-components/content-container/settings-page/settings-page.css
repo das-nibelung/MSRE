@@ -3,6 +3,7 @@
 /* Style the tab */
 .sr-settings-tab {
     overflow: hidden;
+    --sr-settings-surface-radius: calc(var(--radius-l) + 2px);
 }
 
 .is-phone .modal.mod-settings .sr-settings-tab {
@@ -10,16 +11,65 @@
 }
 
 .sr-main-page {
+    & .setting-group {
+        overflow: hidden;
+        margin: 0 0 var(--size-4-5);
+        border: 1px solid var(--background-modifier-border);
+        border-radius: var(--sr-settings-surface-radius);
+        background: var(--background-secondary);
+    }
+
+    & .setting-group-heading {
+        margin: 0;
+        padding: var(--size-4-3) var(--size-4-4) var(--size-4-2);
+        color: var(--text-muted);
+        font-size: var(--font-ui-smaller);
+        font-weight: var(--font-semibold);
+        letter-spacing: 0.045em;
+        text-transform: uppercase;
+    }
+
+    & .setting-item {
+        min-height: 56px;
+        padding: var(--size-4-3) var(--size-4-4);
+        border-top: 1px solid var(--background-modifier-border);
+    }
+
     & .sr-settings-page-title-icon {
         display: flex;
+        width: 34px;
+        height: 34px;
         justify-content: center;
         align-items: center;
+        border-radius: 9px;
+        background: var(--background-primary);
+        color: var(--interactive-accent);
+
+        & svg {
+            width: 18px;
+            height: 18px;
+        }
     }
 
     & .sr-settings-page-title {
         display: flex;
         align-items: center;
         gap: var(--size-4-2);
+        font-weight: var(--font-medium);
+    }
+
+    & .sr-settings-page-title-setting {
+        cursor: pointer;
+        transition: background-color 140ms ease;
+
+        &:hover,
+        &:focus-within {
+            background: var(--background-modifier-hover);
+        }
+
+        &:active {
+            background: var(--background-modifier-active-hover);
+        }
     }
 }
 
@@ -49,10 +99,24 @@
     }
 
     & .sr-settings-page-header {
-        padding: var(--size-4-2);
-        border: unset;
-        background-color: var(--setting-items-background);
-        border-radius: var(--setting-items-radius);
+        min-height: 52px;
+        padding: var(--size-4-1) var(--size-4-2);
+        border: 0;
+        border-bottom: 1px solid var(--background-modifier-border);
+        background: var(--background-primary);
+        border-radius: 0;
+    }
+
+    & .sr-settings-page-back-button {
+        min-width: 44px;
+        min-height: 44px;
+        border-radius: 50%;
+    }
+
+    & .setting-item-control button,
+    & .setting-item-control select,
+    & .setting-item-control input {
+        min-height: 44px;
     }
 }
 
@@ -73,7 +137,8 @@
     display: flex;
     align-items: center;
     gap: var(--size-4-2);
-    padding-bottom: var(--size-4-2);
+    min-height: 52px;
+    padding: var(--size-4-1) 0 var(--size-4-2);
     border-bottom: 1px solid var(--background-modifier-border);
     cursor: pointer;
 }
@@ -102,8 +167,41 @@
     overflow-x: hidden;
     overflow-y: auto;
     height: 100%;
+    padding-bottom: max(var(--size-4-8), var(--safe-area-inset-bottom));
+}
+
+.sr-settings-page:not(.sr-main-page) .sr-settings-page-content {
+    & > .setting-group {
+        overflow: hidden;
+        margin-bottom: var(--size-4-5);
+        border: 1px solid var(--background-modifier-border);
+        border-radius: var(--sr-settings-surface-radius);
+        background: var(--background-secondary);
+    }
+
+    & > .setting-group > .setting-group-heading {
+        margin: 0;
+        padding: var(--size-4-3) var(--size-4-4) var(--size-4-2);
+        color: var(--text-muted);
+        font-size: var(--font-ui-smaller);
+        font-weight: var(--font-semibold);
+        letter-spacing: 0.045em;
+        text-transform: uppercase;
+    }
+
+    & > .setting-group .setting-item {
+        min-height: 56px;
+        padding: var(--size-4-3) var(--size-4-4);
+        border-top: 1px solid var(--background-modifier-border);
+    }
 }
 
 body:not(.is-phone) .sr-settings-page-content {
     padding-right: var(--size-4-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sr-main-page .sr-settings-page-title-setting {
+        transition: none;
+    }
 }

@@ -9,6 +9,7 @@ import { DeckStats, IFlashcardReviewSequencer } from "src/scheduling/flashcard-r
 export default class DeckListComponent {
     private scrollWrapper: HTMLDivElement;
     private content: HTMLDivElement;
+    private overview: HTMLDivElement;
     private treeContainer: HTMLDivElement;
 
     private treeHeaderRow: HTMLDivElement;
@@ -42,6 +43,8 @@ export default class DeckListComponent {
 
         this.content = this.scrollWrapper.createDiv();
         this.content.addClass("sr-content");
+
+        this.overview = this.content.createDiv("sr-deck-overview");
 
         // Prep header row
         this.treeHeaderRow = this.content.createDiv();
@@ -119,6 +122,7 @@ export default class DeckListComponent {
      * @param reviewSequencer - The review sequencer object.
      */
     redraw(reviewSequencer: IFlashcardReviewSequencer, settings: SRSettings) {
+        this.overview.empty();
         this.treeContainer.empty();
 
         const originDeckStats = reviewSequencer.getDeckStats(
@@ -126,6 +130,8 @@ export default class DeckListComponent {
         );
 
         if (originDeckStats.totalCount === 0) {
+            this.overview.addClass("sr-is-hidden");
+            this.treeHeaderRow.addClass("sr-is-hidden");
             const emptyState = this.treeContainer.createDiv("sr-deck-empty-state");
             const icon = emptyState.createDiv("sr-deck-empty-state-icon");
             setIcon(icon, "layers-3");
@@ -143,15 +149,12 @@ export default class DeckListComponent {
             return;
         }
 
-        // Creates the "All Decks" row
-        this._crateTreeRow(
-            t("ALL_DECKS"),
-            originDeckStats,
-            0,
-            this.treeContainer,
-            false,
-            reviewSequencer.originalDeckTree,
-            this.startReviewOfDeck,
+        this.overview.removeClass("sr-is-hidden");
+        this.treeHeaderRow.removeClass("sr-is-hidden");
+        this.renderOverview(reviewSequencer.originalDeckTree, originDeckStats);
+        this.treeContainer.toggleClass(
+            "has-no-subdecks",
+            reviewSequencer.originalDeckTree.subdecks.length === 0,
         );
 
         for (const subdeck of reviewSequencer.originalDeckTree.subdecks) {
@@ -164,6 +167,32 @@ export default class DeckListComponent {
                 this.startReviewOfDeck,
             );
         }
+    }
+
+    private renderOverview(deck: Deck, stats: DeckStats): void {
+        const copy = this.overview.createDiv("sr-deck-overview-copy");
+        copy.createDiv({ cls: "sr-deck-overview-eyebrow", text: t("READY_TO_REVIEW") });
+        copy.createEl("h2", {
+            cls: "sr-deck-overview-title",
+            text: t("CARDS_READY", { count: stats.cardsInQueueCount }),
+        });
+
+        const details = copy.createDiv("sr-deck-overview-details");
+        details.createSpan({ text: `${t("DUE")}: ${stats.dueCount}` });
+        details.createSpan({ text: `${t("NEW_CARDS")}: ${stats.newCount}` });
+        details.createSpan({
+            text: t("DECKS_READY", { count: stats.decksInQueueOfThisDeckCount }),
+        });
+
+        const startButton = new ButtonComponent(this.overview)
+            .setButtonText(t("START_REVIEW"))
+            .setCta()
+            .onClick(() => this.startReviewOfDeck(deck));
+        const startIcon = activeDocument.createElement("span");
+        setIcon(startIcon, "play");
+        startButton.buttonEl.prepend(startIcon);
+        startButton.buttonEl.addClass("sr-deck-overview-start");
+        startButton.setDisabled(stats.cardsInQueueCount === 0);
     }
 
     private _createTree(
@@ -208,6 +237,7 @@ export default class DeckListComponent {
         startReviewOfDeck: (deck: Deck) => void = () => {},
     ): HTMLDivElement {
         const disableInteraction = deck === null;
+        const hasSubdecks = numOfSubdecks > 0;
         const treeRow = parentEl.createDiv();
         treeRow.addClass("sr-tree-row");
         treeRow.addClass("tree-item");
@@ -227,9 +257,17 @@ export default class DeckListComponent {
         if (numOfSubdecks === 0) collapseIconEl.setCssProps({ display: "none" });
 
         const treeRowInner: HTMLElement = treeRowSelf.createDiv("tree-item-inner");
+        const deckIcon = treeRowInner.createDiv("sr-deck-row-icon");
+        setIcon(deckIcon, hasSubdecks ? "folders" : "folder");
         const treeRowInnerText: HTMLElement = treeRowInner.createDiv("tag-pane-tag-text");
-        const treeRowInnerTextSpan: HTMLElement = treeRowInnerText.createSpan("tag-pane-tag-self");
+        const treeRowInnerTextSpan: HTMLElement = treeRowInnerText.createSpan({
+            cls: "tag-pane-tag-self sr-deck-row-title",
+        });
         treeRowInnerTextSpan.setText(deckName);
+        treeRowInnerText.createDiv({
+            cls: "sr-deck-row-subtitle",
+            text: `${t("DUE")}: ${deckStats.dueCount} · ${t("NEW_CARDS")}: ${deckStats.newCount}`,
+        });
 
         const treeRowOuter: HTMLDivElement = treeRowSelf.createDiv();
         treeRowOuter.addClasses(["tree-item-flair-outer", "sr-tree-stats-container"]);
@@ -237,7 +275,6 @@ export default class DeckListComponent {
         const treeRowChildren: HTMLDivElement = treeRow.createDiv("tree-item-children");
         treeRowChildren.setCssProps({ display: collapsed ? "none" : "block" });
 
-        const hasSubdecks = numOfSubdecks > 0;
         const canStartReview =
             !disableInteraction && (deckStats.dueCount > 0 || deckStats.newCount > 0);
 
@@ -297,6 +334,11 @@ export default class DeckListComponent {
         }
 
         this._createStatsInRow(treeRowOuter, deckStats);
+        if (canStartReview) {
+            const goIcon = treeRowSelf.createDiv("sr-deck-row-go");
+            setIcon(goIcon, "chevron-right");
+            goIcon.setAttribute("aria-hidden", "true");
+        }
         return treeRowChildren;
     }
 

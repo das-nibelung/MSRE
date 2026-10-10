@@ -375,9 +375,11 @@ export interface IBaseLocale {
     CARD_EASE: string;
     CARDS_IN_NOTE: string;
     CLEAR_NOTE_FILTER: string;
+    CLEAR_FILTERS: string;
     SCHEDULED_CARDS: string;
     LOADING_CARDS: string;
     CARD_BROWSER_COUNT: string;
+    CARD_BROWSER_SUMMARY: string;
     NO_CARDS_TITLE: string;
     NO_CARDS_DESCRIPTION: string;
     NO_CARDS_MATCH: string;
@@ -405,4 +407,16 @@ export interface IBaseLocale {
     DELETE_CARD_SOURCE: string;
     DELETE_CARD_SOURCE_CONFIRMATION: string;
     CARD_SOURCE_DELETED: string;
+    READY_TO_REVIEW: string;
+    CARDS_READY: string;
+    DECKS_READY: string;
+    UNDO_LAST_REVIEW: string;
+    REVIEW_UNDONE: string;
+    UNDO_REVIEW_FAILED: string;
+    SESSION_COMPLETE: string;
+    SESSION_COMPLETE_DESC: string;
+    SESSION_REVIEWED: string;
+    SESSION_DURATION: string;
+    BACK_TO_DECKS: string;
+    MINUTES_SHORT: string;
 }

@@ -1,6 +1,6 @@
 import "src/ui/obsidian-ui-components/content-container/card-container/card-container.css";
 import moment from "moment";
-import { App, Platform, setIcon } from "obsidian";
+import { App, ButtonComponent, Platform, setIcon } from "obsidian";
 
 import { CardType } from "src/data/data-structures/card/questions/question";
 import { SRSettings } from "src/data/settings";
@@ -15,6 +15,7 @@ import CardToolbarComponent from "src/ui/obsidian-ui-components/content-containe
 import {
     CardState,
     SessionData,
+    SessionSummary,
 } from "src/ui/obsidian-ui-components/content-container/content-manager";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
 import { escapeHtml } from "src/utils/escape-html";
@@ -46,6 +47,9 @@ export class CardContainer {
     private skipCardHandler: () => void;
     private showAnswerHandler: () => void | Promise<void>;
     private jumpToCardHandler: () => Promise<void>;
+    private backToDeckHandler: () => Promise<void>;
+    private undoLastReviewHandler: () => Promise<void>;
+    private gestureStart: { x: number; y: number; time: number } | null = null;
 
     constructor(
         app: App,
@@ -61,6 +65,7 @@ export class CardContainer {
         jumpToCurrentCardHandler: () => Promise<void>,
         displayCurrentCardInfoNoticeHandler: () => void,
         buryCurrentCardHandler: () => Promise<void>,
+        undoLastReviewHandler: () => Promise<void>,
         closeModal?: () => void,
     ) {
         // Init properties
@@ -71,6 +76,8 @@ export class CardContainer {
         this.skipCardHandler = skipCardHandler;
         this.showAnswerHandler = showAnswerHandler;
         this.jumpToCardHandler = jumpToCurrentCardHandler;
+        this.backToDeckHandler = backToDeckHandler;
+        this.undoLastReviewHandler = undoLastReviewHandler;
 
         // Build ui
         this.view = parentEl.createDiv();
@@ -88,6 +95,7 @@ export class CardContainer {
             displayCurrentCardInfoNoticeHandler,
             buryCurrentCardHandler,
             this.skipCardHandler,
+            undoLastReviewHandler,
             () => {
                 new ConfirmationModal(
                     app,
@@ -110,6 +118,8 @@ export class CardContainer {
         this.content.addEventListener("click", (event) => {
             this.revealAnswerFromCard(event);
         });
+        this.content.addEventListener("touchstart", this.onGestureStart, { passive: true });
+        this.content.addEventListener("touchend", this.onGestureEnd, { passive: true });
 
         this.response = new ResponseSectionComponent(
             this.view,
@@ -169,6 +179,8 @@ export class CardContainer {
 
     public async drawCardFront(sessionData: SessionData, settings: SRSettings) {
         this.toolbar.setResetButtonDisabled(true);
+        this.content.removeClass("sr-session-complete-screen");
+        this.content.removeAttribute("aria-live");
         // Update current deck info
         this.cardState = sessionData.cardData.currentCardState;
 
@@ -364,6 +376,7 @@ export class CardContainer {
         determineButtonSchedule: (response: ReviewResponse) => RepItemScheduleInfo | null,
     ) {
         this.setCustomHotKeyState(settings.useCustomHotkeys);
+        this.content.removeClass("sr-session-complete-screen");
         this.cardState = sessionData.cardData.currentCardState;
         this.content.removeClass("sr-can-reveal-answer");
 
@@ -410,6 +423,131 @@ export class CardContainer {
         this.response.againButton.buttonEl.focus();
     }
 
+    public drawCompletionState(summary: SessionSummary): void {
+        this.cardState = CardState.Closed;
+        this.toolbar.setResetButtonDisabled(true);
+        this.content.empty();
+        this.content.removeClass("sr-can-reveal-answer");
+        this.content.addClass("sr-session-complete-screen");
+        this.content.setAttribute("aria-live", "polite");
+        this.response.hideAllButtons();
+
+        const icon = this.content.createDiv("sr-session-complete-icon");
+        setIcon(icon, "check");
+        this.content.createDiv({ cls: "sr-session-complete-eyebrow", text: t("READY_TO_REVIEW") });
+        const title = this.content.createEl("h2", {
+            text: t("SESSION_COMPLETE"),
+            attr: { tabindex: "-1" },
+        });
+        this.content.createEl("p", { text: t("SESSION_COMPLETE_DESC") });
+
+        const stats = this.content.createDiv("sr-session-summary-grid");
+        this.createSummaryStat(stats, summary.reviewed, t("SESSION_REVIEWED"));
+        const minutes = Math.max(1, Math.round(summary.durationMs / 60000));
+        this.createSummaryStat(
+            stats,
+            t("MINUTES_SHORT", { count: minutes }),
+            t("SESSION_DURATION"),
+        );
+        this.createSummaryStat(stats, summary.again, t("AGAIN"));
+        this.createSummaryStat(stats, summary.hard, t("HARD"));
+        this.createSummaryStat(stats, summary.good, t("GOOD"));
+        this.createSummaryStat(stats, summary.easy, t("EASY"));
+
+        new ButtonComponent(this.content)
+            .setButtonText(t("BACK_TO_DECKS"))
+            .setCta()
+            .setClass("sr-session-complete-action")
+            .onClick(() => void this.backToDeckHandler());
+        title.focus();
+    }
+
+    public setUndoAvailable(available: boolean): void {
+        this.toolbar.setUndoAvailable(available);
+    }
+
+    private createSummaryStat(parent: HTMLElement, value: string | number, label: string): void {
+        const stat = parent.createDiv("sr-session-summary-stat");
+        stat.createEl("strong", { text: String(value) });
+        stat.createSpan({ text: label });
+    }
+
+    private onGestureStart = (event: TouchEvent): void => {
+        if (!(Platform.isMobile || EmulatedPlatform().isMobile) || event.touches.length !== 1) {
+            this.gestureStart = null;
+            return;
+        }
+        const target = event.target;
+        if (
+            !(target instanceof Element) ||
+            target.closest("a, button, input, textarea, select, [contenteditable='true']") !== null
+        ) {
+            this.gestureStart = null;
+            return;
+        }
+        const touch = event.touches[0];
+        const bounds = this.content.getBoundingClientRect();
+        if (touch.clientX - bounds.left < 32 || bounds.right - touch.clientX < 32) {
+            this.gestureStart = null;
+            return;
+        }
+        this.gestureStart = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+    };
+
+    private onGestureEnd = (event: TouchEvent): void => {
+        const start = this.gestureStart;
+        this.gestureStart = null;
+        if (start === null || event.changedTouches.length !== 1 || Date.now() - start.time > 800) {
+            return;
+        }
+        const touch = event.changedTouches[0];
+        const deltaX = touch.clientX - start.x;
+        const deltaY = touch.clientY - start.y;
+
+        if (
+            this.cardState === CardState.Front &&
+            deltaY < -72 &&
+            Math.abs(deltaY) > Math.abs(deltaX) * 1.15
+        ) {
+            void this.animateGesture("up", this.showAnswerHandler);
+            return;
+        }
+
+        if (
+            this.cardState === CardState.Back &&
+            Math.abs(deltaX) > 72 &&
+            Math.abs(deltaX) > Math.abs(deltaY) * 1.2
+        ) {
+            const response = deltaX < 0 ? ReviewResponse.Again : ReviewResponse.Good;
+            void this.animateGesture(deltaX < 0 ? "left" : "right", () =>
+                this.processReviewHandler(response),
+            );
+        }
+    };
+
+    private async animateGesture(
+        direction: "left" | "right" | "up",
+        action: () => void | Promise<void>,
+    ): Promise<void> {
+        const reduceMotion = activeWindow.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (!reduceMotion) {
+            const transform =
+                direction === "up"
+                    ? "translateY(-12px)"
+                    : `translateX(${direction === "left" ? "-16px" : "16px"})`;
+            const animation = this.content.animate(
+                [
+                    { transform: "translate3d(0, 0, 0)", opacity: 1 },
+                    { transform, opacity: 0.78 },
+                    { transform: "translate3d(0, 0, 0)", opacity: 1 },
+                ],
+                { duration: 160, easing: "ease-out" },
+            );
+            await animation.finished.catch((): void => {});
+        }
+        await action();
+    }
+
     private revealAnswerFromCard(event: MouseEvent): void {
         if (
             this.cardState !== CardState.Front ||
@@ -442,7 +580,6 @@ export class CardContainer {
             (activeDocument.activeElement !== null &&
                 (activeDocument.activeElement.nodeName === "TEXTAREA" ||
                     activeDocument.activeElement.nodeName === "INPUT")) ||
-            this.cardState === CardState.Closed ||
             !this.plugin.uiManager.getSRInFocusState() ||
             Platform.isMobile || // No keyboard events on mobile
             EmulatedPlatform().isMobile
@@ -454,6 +591,14 @@ export class CardContainer {
             e.preventDefault();
             e.stopPropagation();
         };
+
+        if ((e.metaKey || e.ctrlKey) && e.code === "KeyZ") {
+            void this.undoLastReviewHandler();
+            consumeKeyEvent();
+            return;
+        }
+
+        if (this.cardState === CardState.Closed) return;
 
         switch (e.code) {
             case "KeyS":
@@ -480,7 +625,7 @@ export class CardContainer {
                 if (this.cardState !== CardState.Back) {
                     break;
                 }
-                void this.processReviewHandler(ReviewResponse.Hard);
+                void this.processReviewHandler(ReviewResponse.Again);
                 consumeKeyEvent();
                 break;
             case "Numpad2":
@@ -488,11 +633,19 @@ export class CardContainer {
                 if (this.cardState !== CardState.Back) {
                     break;
                 }
-                void this.processReviewHandler(ReviewResponse.Good);
+                void this.processReviewHandler(ReviewResponse.Hard);
                 consumeKeyEvent();
                 break;
             case "Numpad3":
             case "Digit3":
+                if (this.cardState !== CardState.Back) {
+                    break;
+                }
+                void this.processReviewHandler(ReviewResponse.Good);
+                consumeKeyEvent();
+                break;
+            case "Numpad4":
+            case "Digit4":
                 if (this.cardState !== CardState.Back) {
                     break;
                 }

@@ -442,9 +442,11 @@ const en: IBaseLocale = {
     CARD_EASE: "${ease}% ease",
     CARDS_IN_NOTE: "Note: ${note}",
     CLEAR_NOTE_FILTER: "Show cards from all notes",
+    CLEAR_FILTERS: "Clear filters",
     SCHEDULED_CARDS: "Scheduled cards",
     LOADING_CARDS: "Loading cards…",
     CARD_BROWSER_COUNT: "${shown} of ${total} cards",
+    CARD_BROWSER_SUMMARY: "${total} cards · ${due} due",
     NO_CARDS_TITLE: "No cards yet",
     NO_CARDS_DESCRIPTION:
         "Create a starter note, then replace the example question and answer with your own.",
@@ -476,6 +478,18 @@ const en: IBaseLocale = {
     DELETE_CARD_SOURCE_CONFIRMATION:
         "Delete this card's source text from the note? Reversed and cloze cards generated from the same source will also be deleted.",
     CARD_SOURCE_DELETED: "Card source deleted.",
+    READY_TO_REVIEW: "Ready to review",
+    CARDS_READY: "${count} cards ready",
+    DECKS_READY: "${count} active decks",
+    UNDO_LAST_REVIEW: "Undo last review",
+    REVIEW_UNDONE: "Last review undone.",
+    UNDO_REVIEW_FAILED: "Could not undo the last review. Try again.",
+    SESSION_COMPLETE: "Session complete",
+    SESSION_COMPLETE_DESC: "You finished every card in this session.",
+    SESSION_REVIEWED: "Reviewed",
+    SESSION_DURATION: "Time",
+    BACK_TO_DECKS: "Back to decks",
+    MINUTES_SHORT: "${count} min",
 };
 
 export default en;

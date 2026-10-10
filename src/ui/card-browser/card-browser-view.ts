@@ -102,21 +102,30 @@ export class CardBrowserView extends ItemView {
         this.selectionBarEl = null;
         this.contentEl.addClass("sr-card-browser-view");
 
-        const header = this.contentEl.createDiv("sr-card-browser-header");
-        header.createEl("h2", { text: t("CARD_BROWSER") });
-        new ButtonComponent(header)
-            .setIcon("play")
-            .setTooltip(this.notePath === null ? t("START_REVIEW") : t("REVIEW_CARDS_IN_NOTE"))
-            .onClick(() => void this.startReview());
-        new ButtonComponent(header)
-            .setIcon("plus")
-            .setTooltip(t("CREATE_CARD"))
-            .onClick(() => void this.plugin.uiManager.createStarterCardNote());
-
         const records = this.getRecords();
         this.records = records;
         const recordIds = new Set(records.map((record) => record.id));
         this.selectedIds = new Set([...this.selectedIds].filter((id) => recordIds.has(id)));
+
+        const header = this.contentEl.createDiv("sr-card-browser-header");
+        const titleBlock = header.createDiv("sr-card-browser-title-block");
+        titleBlock.createEl("h2", { text: t("CARD_BROWSER") });
+        titleBlock.createEl("p", {
+            text: t("CARD_BROWSER_SUMMARY", {
+                total: records.length,
+                due: records.filter((record) => record.state === "due").length,
+            }),
+        });
+        const headerActions = header.createDiv("sr-card-browser-header-actions");
+        const reviewButton = new ButtonComponent(headerActions)
+            .setIcon("play")
+            .setTooltip(this.notePath === null ? t("START_REVIEW") : t("REVIEW_CARDS_IN_NOTE"))
+            .onClick(() => void this.startReview());
+        reviewButton.setDisabled(records.length === 0);
+        new ButtonComponent(headerActions)
+            .setIcon("plus")
+            .setTooltip(t("CREATE_CARD"))
+            .onClick(() => void this.plugin.uiManager.createStarterCardNote());
         if (!this.plugin.dataManager.isOsrCoreLoaded()) {
             this.renderEmpty(t("LOADING_CARDS"), "loader-circle", false);
             return;
@@ -219,7 +228,14 @@ export class CardBrowserView extends ItemView {
         this.renderSelectionBar();
 
         if (filtered.length === 0) {
-            this.renderEmpty(t("NO_CARDS_MATCH"), "search-x", false, this.resultsEl);
+            this.renderEmpty(t("NO_CARDS_MATCH"), "search-x", false, this.resultsEl, () => {
+                this.query = "";
+                this.filter = "all";
+                this.deck = "all";
+                this.notePath = null;
+                this.visibleLimit = PAGE_SIZE;
+                this.render();
+            });
             return;
         }
 
@@ -243,6 +259,7 @@ export class CardBrowserView extends ItemView {
         icon: string,
         showCreateButton: boolean,
         parent: HTMLElement = this.contentEl,
+        clearFilters?: () => void,
     ): void {
         const empty = parent.createDiv("sr-card-browser-empty");
         const iconEl = empty.createDiv("sr-card-browser-empty-icon");
@@ -254,6 +271,9 @@ export class CardBrowserView extends ItemView {
                 .setButtonText(t("CREATE_FIRST_CARD"))
                 .setCta()
                 .onClick(() => void this.plugin.uiManager.createStarterCardNote());
+        }
+        if (clearFilters !== undefined) {
+            new ButtonComponent(empty).setButtonText(t("CLEAR_FILTERS")).onClick(clearFilters);
         }
     }
 

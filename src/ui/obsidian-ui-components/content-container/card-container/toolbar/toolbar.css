@@ -83,8 +83,12 @@
     & .sr-info-section {
         position: absolute;
         inset-inline-start: 50%;
-        width: min(42vw, 180px);
+        width: min(34vw, 160px);
         transform: translateX(-50%);
+    }
+
+    &:has(.sr-undo-button:not(.sr-is-hidden)) .sr-source-button {
+        display: none;
     }
 }
 

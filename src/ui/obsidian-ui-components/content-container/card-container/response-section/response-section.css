@@ -1,16 +1,21 @@
 /* MARK: Response */
 
 .sr-response {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--size-4-2);
     padding: var(--size-4-3) var(--internal-side-padding) var(--size-4-5);
     border-top: 1px solid var(--background-modifier-border);
     background: var(--background-secondary);
 
+    &.is-cram {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     & .sr-response-button {
         min-height: 50px;
         height: auto;
-        flex-grow: 1;
+        width: 100%;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -47,6 +52,7 @@
     }
 
     & .sr-show-answer-button.sr-bg-blue {
+        grid-column: 1 / -1;
         border-color: var(--interactive-accent);
         background: var(--interactive-accent) !important;
         color: var(--text-on-accent) !important;
@@ -104,6 +110,20 @@
 @container (width < 580px) {
     .sr-response {
         gap: var(--size-4-1);
+        padding-inline: var(--size-4-3);
+    }
+
+    .sr-response .sr-response-button {
+        min-width: 0;
+        padding-inline: var(--size-2-1);
+
+        & > span.sr-large-text {
+            max-width: 100%;
+            overflow: hidden;
+            font-size: var(--font-ui-small);
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
     }
 }
 
@@ -172,23 +192,23 @@ body:not(.is-mobile)
 body:not(.is-mobile)
     .sr-card-container:not(.sr-custom-hotkeys)
     .sr-response-button.sr-again-button::after {
-    content: "0";
-}
-
-body:not(.is-mobile)
-    .sr-card-container:not(.sr-custom-hotkeys)
-    .sr-response-button.sr-hard-button::after {
     content: "1";
 }
 
 body:not(.is-mobile)
     .sr-card-container:not(.sr-custom-hotkeys)
-    .sr-response-button.sr-good-button::after {
+    .sr-response-button.sr-hard-button::after {
     content: "2";
 }
 
 body:not(.is-mobile)
     .sr-card-container:not(.sr-custom-hotkeys)
-    .sr-response-button.sr-easy-button::after {
+    .sr-response-button.sr-good-button::after {
     content: "3";
+}
+
+body:not(.is-mobile)
+    .sr-card-container:not(.sr-custom-hotkeys)
+    .sr-response-button.sr-easy-button::after {
+    content: "4";
 }
