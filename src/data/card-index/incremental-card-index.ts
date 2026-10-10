@@ -43,6 +43,8 @@ export class IncrementalCardIndex {
     private fingerprint: string;
     private readonly stats: CardIndexStats = { hits: 0, misses: 0, writes: 0 };
     private hasPruned = false;
+    private readonly dirtyPaths = new Set<string>();
+    private changeToken = 0;
 
     constructor(
         settings: SRSettings,
@@ -52,8 +54,11 @@ export class IncrementalCardIndex {
         this.fingerprint = getCardIndexSettingsFingerprint(settings, defaultTextDirection);
     }
 
-    setContext(settings: SRSettings, defaultTextDirection: TextDirection): void {
-        this.fingerprint = getCardIndexSettingsFingerprint(settings, defaultTextDirection);
+    setContext(settings: SRSettings, defaultTextDirection: TextDirection): boolean {
+        const nextFingerprint = getCardIndexSettingsFingerprint(settings, defaultTextDirection);
+        const changed = nextFingerprint !== this.fingerprint;
+        this.fingerprint = nextFingerprint;
+        return changed;
     }
 
     async get(noteFile: ISRNoteTFile, revision: CardIndexFileRevision): Promise<Note | undefined> {
@@ -98,11 +103,25 @@ export class IncrementalCardIndex {
     }
 
     async invalidate(path: string): Promise<void> {
+        this.dirtyPaths.add(path);
+        this.changeToken++;
         try {
             await this.storage.delete(path);
         } catch (error) {
             console.warn(`SR: Unable to invalidate the card index entry for ${path}`, error);
         }
+    }
+
+    hasPendingChanges(): boolean {
+        return this.dirtyPaths.size > 0;
+    }
+
+    getChangeToken(): number {
+        return this.changeToken;
+    }
+
+    markSynchronized(changeToken: number = this.changeToken): void {
+        if (changeToken === this.changeToken) this.dirtyPaths.clear();
     }
 
     async prune(existingPaths: Set<string>): Promise<void> {

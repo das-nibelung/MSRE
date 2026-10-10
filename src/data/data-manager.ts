@@ -39,6 +39,8 @@ export class DataManager {
     private _osrCore: OsrCore | null = null;
     private _syncLock = false;
     private cardIndex: IncrementalCardIndex;
+    private hasLoadedVault = false;
+    private lastSyncContext: string | null = null;
 
     constructor(
         plugin: SRPlugin,
@@ -169,11 +171,29 @@ export class DataManager {
         this._syncLock = true;
 
         try {
-            this.cardIndex.setContext(
+            const defaultTextDirection = this.plugin.getObsidianRtlSetting();
+            const parserContextChanged = this.cardIndex.setContext(
                 this.settingsManager.settings,
-                this.plugin.getObsidianRtlSetting(),
+                defaultTextDirection,
             );
+            const syncContext = JSON.stringify({
+                settings: this.settingsManager.settings,
+                defaultTextDirection,
+            });
+            const settingsChanged = syncContext !== this.lastSyncContext;
+            const changeToken = this.cardIndex.getChangeToken();
+
             this.cardIndex.resetStats();
+            if (
+                this.hasLoadedVault &&
+                !parserContextChanged &&
+                !settingsChanged &&
+                !this.cardIndex.hasPendingChanges()
+            ) {
+                await this.osrCore.finalizeLoad();
+                return;
+            }
+
             this.osrCore.loadInitialStateOfCore();
 
             const notes: TFile[] = this.plugin.app.vault.getMarkdownFiles();
@@ -193,6 +213,9 @@ export class DataManager {
             }
 
             await this.osrCore.finalizeLoad();
+            this.cardIndex.markSynchronized(changeToken);
+            this.hasLoadedVault = true;
+            this.lastSyncContext = syncContext;
             if (this.settingsManager.settings.showSchedulingDebugMessages) {
                 const stats = this.cardIndex.getStats();
                 console.log(

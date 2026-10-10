@@ -23,6 +23,8 @@ This fork keeps a disposable, device-local card index in IndexedDB. Unchanged
 notes are restored from the index instead of being read and parsed again. File
 create, modify, delete, and rename events invalidate only the affected note.
 Parser-setting changes automatically rebuild entries as they are encountered.
+When no files or settings have changed, reopening a deck skips the vault scan
+entirely and only refreshes due-state calculations from the loaded card tree.
 
 Markdown remains the source of truth. The index is safe to discard and is not
 written into the vault, so it does not create sync conflicts between desktop
