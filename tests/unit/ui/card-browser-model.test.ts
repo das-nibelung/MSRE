@@ -16,6 +16,8 @@ function record(overrides: Partial<CardBrowserRecord>): CardBrowserRecord {
         deckNames: ["Law/Procedure"],
         state: "new",
         dueDate: null,
+        interval: null,
+        ease: null,
         ...overrides,
     };
 }
@@ -31,6 +33,8 @@ describe("card browser filtering", () => {
             deckNames: ["Medicine"],
             state: "due",
             dueDate: "2026-10-10",
+            interval: 4,
+            ease: 250,
         }),
         record({
             id: "card-3",
@@ -40,6 +44,8 @@ describe("card browser filtering", () => {
             deckNames: ["Math"],
             state: "scheduled",
             dueDate: "2026-10-20",
+            interval: 12,
+            ease: 220,
         }),
     ];
 
@@ -86,6 +92,11 @@ describe("card browser filtering", () => {
             "card-3",
             "card-2",
             "card-1",
+        ]);
+        expect(sortCardBrowserRecords(records, "interval").map(({ id }) => id)).toEqual([
+            "card-1",
+            "card-2",
+            "card-3",
         ]);
         expect(records.map(({ id }) => id)).toEqual(["card-1", "card-2", "card-3"]);
     });

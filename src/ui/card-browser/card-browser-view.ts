@@ -3,6 +3,7 @@ import {
     ButtonComponent,
     DropdownComponent,
     ItemView,
+    Menu,
     SearchComponent,
     setIcon,
     WorkspaceLeaf,
@@ -12,6 +13,7 @@ import { CARD_BROWSER_VIEW_TYPE } from "src/data/constants";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
+import { editCardFromBrowser, resetCardProgress } from "src/ui/card-actions";
 import {
     CardBrowserFilter,
     CardBrowserRecord,
@@ -21,6 +23,7 @@ import {
     getCardBrowserDeckNames,
     sortCardBrowserRecords,
 } from "src/ui/card-browser/card-browser-model";
+import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
 
 const PAGE_SIZE = 100;
 
@@ -149,6 +152,7 @@ export class CardBrowserView extends ItemView {
                 due: t("SORT_BY_DUE"),
                 front: t("SORT_BY_FRONT"),
                 note: t("SORT_BY_NOTE"),
+                interval: t("SORT_BY_INTERVAL"),
             })
             .setValue(this.sort)
             .onChange((value) => {
@@ -225,20 +229,96 @@ export class CardBrowserView extends ItemView {
     }
 
     private renderCardRow(parent: HTMLElement, record: CardBrowserRecord): void {
-        const row = parent.createEl("button", {
+        const row = parent.createDiv({
             cls: "sr-card-browser-row",
-            attr: { type: "button", "aria-label": t("OPEN_SOURCE_NOTE") },
+            attr: {
+                role: "button",
+                tabindex: "0",
+                "aria-label": t("OPEN_SOURCE_NOTE"),
+            },
         });
-        const main = row.createDiv("sr-card-browser-row-main");
+        const body = row.createDiv("sr-card-browser-row-body");
+        const main = body.createDiv("sr-card-browser-row-main");
         main.createDiv("sr-card-browser-front").setText(compactCardText(record.front));
         main.createDiv("sr-card-browser-back").setText(compactCardText(record.back));
 
-        const meta = row.createDiv("sr-card-browser-row-meta");
+        const meta = body.createDiv("sr-card-browser-row-meta");
         const state = meta.createSpan(`sr-card-browser-state is-${record.state}`);
         state.setText(this.getStateLabel(record));
+        if (record.interval !== null) {
+            meta.createSpan("sr-card-browser-schedule").setText(
+                t("CARD_INTERVAL", { interval: record.interval }),
+            );
+        }
+        if (record.ease !== null) {
+            meta.createSpan("sr-card-browser-schedule").setText(
+                t("CARD_EASE", { ease: Math.round(record.ease) }),
+            );
+        }
         const location = [record.deckNames.join(", "), record.notePath].filter(Boolean).join(" · ");
         meta.createSpan("sr-card-browser-path").setText(location);
+
+        const editButton = new ButtonComponent(row)
+            .setIcon("pencil")
+            .setTooltip(t("EDIT_CARD"))
+            .setClass("sr-card-browser-edit")
+            .onClick(() => void this.editCard(record));
+        editButton.buttonEl.addEventListener("click", (event) => event.stopPropagation());
+
         row.addEventListener("click", () => void this.openSource(record));
+        row.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            void this.openSource(record);
+        });
+        row.addEventListener("contextmenu", (event) => this.openCardMenu(event, record));
+    }
+
+    private async editCard(record: CardBrowserRecord): Promise<void> {
+        if (
+            await editCardFromBrowser(this.app, this.plugin.dataManager.data.settings, record.card)
+        ) {
+            this.render();
+        }
+    }
+
+    private openCardMenu(event: MouseEvent, record: CardBrowserRecord): void {
+        event.preventDefault();
+        const menu = new Menu();
+        menu.addItem((item) =>
+            item
+                .setTitle(t("EDIT_CARD"))
+                .setIcon("pencil")
+                .onClick(() => void this.editCard(record)),
+        );
+        menu.addItem((item) =>
+            item
+                .setTitle(t("OPEN_SOURCE_NOTE"))
+                .setIcon("file-input")
+                .onClick(() => void this.openSource(record)),
+        );
+        menu.addSeparator();
+        menu.addItem((item) =>
+            item
+                .setTitle(t("RESET_CARD_PROGRESS"))
+                .setIcon("history")
+                .setDisabled(record.card.isNew)
+                .onClick(() => this.confirmReset(record)),
+        );
+        menu.showAtMouseEvent(event);
+    }
+
+    private confirmReset(record: CardBrowserRecord): void {
+        new ConfirmationModal(
+            this.app,
+            t("DELETE_SCHEDULING_DATA_OF_CURRENT_CARD"),
+            t("CONFIRM_SCHEDULING_DATA_DELETION_OF_CURRENT_CARD"),
+            t("CANCEL"),
+            async () => {
+                await resetCardProgress(record.card);
+                this.render();
+            },
+        ).open();
     }
 
     private getStateLabel(record: CardBrowserRecord): string {

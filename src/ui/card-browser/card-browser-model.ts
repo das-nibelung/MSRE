@@ -2,7 +2,7 @@ import { Card } from "src/data/data-structures/card/card";
 
 export type CardBrowserFilter = "all" | "new" | "due" | "scheduled";
 export type CardBrowserState = Exclude<CardBrowserFilter, "all">;
-export type CardBrowserSort = "due" | "front" | "note";
+export type CardBrowserSort = "due" | "front" | "note" | "interval";
 
 export interface CardBrowserRecord {
     card: Card;
@@ -13,6 +13,8 @@ export interface CardBrowserRecord {
     deckNames: string[];
     state: CardBrowserState;
     dueDate: string | null;
+    interval: number | null;
+    ease: number | null;
 }
 
 function normalizeForSearch(value: string): string {
@@ -44,6 +46,8 @@ export function createCardBrowserRecords(cards: Card[]): CardBrowserRecord[] {
             deckNames,
             state: getCardState(card),
             dueDate: card.scheduleInfo?.formatDueDate() ?? null,
+            interval: card.scheduleInfo?.interval ?? null,
+            ease: card.scheduleInfo?.latestEase ?? null,
         };
     });
 }
@@ -83,6 +87,7 @@ export function sortCardBrowserRecords(
         if (sort === "front")
             result = normalizeForSearch(left.front).localeCompare(normalizeForSearch(right.front));
         if (sort === "note") result = left.notePath.localeCompare(right.notePath);
+        if (sort === "interval") result = (left.interval ?? -1) - (right.interval ?? -1);
         if (sort === "due") {
             result = stateOrder[left.state] - stateOrder[right.state];
             if (result === 0) result = (left.dueDate ?? "").localeCompare(right.dueDate ?? "");

@@ -436,6 +436,9 @@ const en: IBaseLocale = {
     SORT_BY_DUE: "Sort: due first",
     SORT_BY_FRONT: "Sort: question",
     SORT_BY_NOTE: "Sort: note",
+    SORT_BY_INTERVAL: "Sort: interval",
+    CARD_INTERVAL: "${interval}d",
+    CARD_EASE: "${ease}% ease",
     CARDS_IN_NOTE: "Note: ${note}",
     CLEAR_NOTE_FILTER: "Show cards from all notes",
     SCHEDULED_CARDS: "Scheduled cards",
@@ -451,6 +454,9 @@ const en: IBaseLocale = {
     CARD_TEMPLATE_ANSWER: "Answer",
     STARTER_CARD_CREATED: "Starter flashcard note created.",
     CARD_CREATED_IN_NOTE: "Flashcard created in ${note}.",
+    CARD_UPDATED: "Flashcard updated.",
+    CARD_EDIT_CARD_COUNT_CHANGED:
+        "The edit would change the number of generated cards. Edit the source note instead.",
 };
 
 export default en;

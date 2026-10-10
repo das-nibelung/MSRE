@@ -33,6 +33,10 @@ The editor context menu can also create basic, two-way, and cloze cards from a
 selection. The file menu opens the browser already filtered to the current note.
 Inside the browser, cards can be narrowed by scheduling state and deck, then
 sorted by due status, question, or source note without rescanning Markdown.
+Each browser row can be edited in place or opened in its source note. Its
+context menu exposes a confirmed progress reset, while scheduled cards show
+their due date, interval, and ease. Edits still write back to the original
+Markdown question, preserving Obsidian as the source of truth.
 
 ## Incremental card index
 

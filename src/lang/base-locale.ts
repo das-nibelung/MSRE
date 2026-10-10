@@ -369,6 +369,9 @@ export interface IBaseLocale {
     SORT_BY_DUE: string;
     SORT_BY_FRONT: string;
     SORT_BY_NOTE: string;
+    SORT_BY_INTERVAL: string;
+    CARD_INTERVAL: string;
+    CARD_EASE: string;
     CARDS_IN_NOTE: string;
     CLEAR_NOTE_FILTER: string;
     SCHEDULED_CARDS: string;
@@ -383,4 +386,6 @@ export interface IBaseLocale {
     CARD_TEMPLATE_ANSWER: string;
     STARTER_CARD_CREATED: string;
     CARD_CREATED_IN_NOTE: string;
+    CARD_UPDATED: string;
+    CARD_EDIT_CARD_COUNT_CHANGED: string;
 }

@@ -72,6 +72,9 @@ const ru: IBaseLocale = {
     SORT_BY_DUE: "Сначала к повторению",
     SORT_BY_FRONT: "Сортировать по вопросу",
     SORT_BY_NOTE: "Сортировать по заметке",
+    SORT_BY_INTERVAL: "Сортировать по интервалу",
+    CARD_INTERVAL: "${interval} дн.",
+    CARD_EASE: "Лёгкость ${ease}%",
     CARDS_IN_NOTE: "Заметка: ${note}",
     CLEAR_NOTE_FILTER: "Показать карточки всех заметок",
     SCHEDULED_CARDS: "Запланированные карточки",
@@ -87,6 +90,9 @@ const ru: IBaseLocale = {
     CARD_TEMPLATE_ANSWER: "Ответ",
     STARTER_CARD_CREATED: "Создана заметка с первой карточкой.",
     CARD_CREATED_IN_NOTE: "Карточка создана в заметке «${note}».",
+    CARD_UPDATED: "Карточка обновлена.",
+    CARD_EDIT_CARD_COUNT_CHANGED:
+        "Изменение создаёт другое количество карточек. Отредактируйте исходную заметку.",
 
     // scheduling.ts
     DAYS_STR_IVL: "${interval} дней",
