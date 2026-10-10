@@ -18,6 +18,7 @@ function record(overrides: Partial<CardBrowserRecord>): CardBrowserRecord {
         dueDate: null,
         interval: null,
         ease: null,
+        lifecycleState: "active",
         ...overrides,
     };
 }
@@ -64,6 +65,16 @@ describe("card browser filtering", () => {
         expect(filterCardBrowserRecords(records, "", "new")).toEqual([records[0]]);
         expect(filterCardBrowserRecords(records, "", "due")).toEqual([records[1]]);
         expect(filterCardBrowserRecords(records, "", "scheduled")).toEqual([records[2]]);
+    });
+
+    it("filters persistent suspended and buried states separately", () => {
+        const suspended = record({ id: "suspended", lifecycleState: "suspended", state: "due" });
+        const buried = record({ id: "buried", lifecycleState: "buried", state: "new" });
+        const lifecycleRecords = [...records, suspended, buried];
+
+        expect(filterCardBrowserRecords(lifecycleRecords, "", "suspended")).toEqual([suspended]);
+        expect(filterCardBrowserRecords(lifecycleRecords, "", "buried")).toEqual([buried]);
+        expect(filterCardBrowserRecords(lifecycleRecords, "", "due")).toEqual([records[1]]);
     });
 
     it("combines deck and note filters", () => {

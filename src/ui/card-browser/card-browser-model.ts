@@ -1,7 +1,8 @@
+import { CardLifecycleState } from "src/data/collection/collection-types";
 import { Card } from "src/data/data-structures/card/card";
 
-export type CardBrowserFilter = "all" | "new" | "due" | "scheduled";
-export type CardBrowserState = Exclude<CardBrowserFilter, "all">;
+export type CardBrowserFilter = "all" | "new" | "due" | "scheduled" | "suspended" | "buried";
+export type CardBrowserState = "new" | "due" | "scheduled";
 export type CardBrowserSort = "due" | "front" | "note" | "interval";
 
 export interface CardBrowserRecord {
@@ -15,6 +16,7 @@ export interface CardBrowserRecord {
     dueDate: string | null;
     interval: number | null;
     ease: number | null;
+    lifecycleState: CardLifecycleState;
 }
 
 function normalizeForSearch(value: string): string {
@@ -48,6 +50,7 @@ export function createCardBrowserRecords(cards: Card[]): CardBrowserRecord[] {
             dueDate: card.scheduleInfo?.formatDueDate() ?? null,
             interval: card.scheduleInfo?.interval ?? null,
             ease: card.scheduleInfo?.latestEase ?? null,
+            lifecycleState: "active",
         };
     });
 }
@@ -61,7 +64,11 @@ export function filterCardBrowserRecords(
 ): CardBrowserRecord[] {
     const normalizedQuery = normalizeForSearch(query);
     return records.filter((record) => {
-        if (filter !== "all" && record.state !== filter) return false;
+        if (filter === "suspended" || filter === "buried") {
+            if (record.lifecycleState !== filter) return false;
+        } else if (filter !== "all") {
+            if (record.lifecycleState !== "active" || record.state !== filter) return false;
+        }
         if (deck !== "all" && !record.deckNames.includes(deck)) return false;
         if (notePath !== null && record.notePath !== notePath) return false;
         if (!normalizedQuery) return true;

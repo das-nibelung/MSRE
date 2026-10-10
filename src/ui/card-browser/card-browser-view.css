@@ -435,6 +435,16 @@
     background: color-mix(in srgb, var(--color-green) 10%, transparent);
 }
 
+.sr-card-browser-state.is-suspended {
+    color: var(--text-muted);
+    background: var(--background-secondary);
+}
+
+.sr-card-browser-state.is-buried {
+    color: var(--color-orange);
+    background: color-mix(in srgb, var(--color-orange) 10%, transparent);
+}
+
 .sr-card-browser-empty {
     display: flex;
     flex: 1;

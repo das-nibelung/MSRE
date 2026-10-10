@@ -1,6 +1,6 @@
 import { ISerializedScheduleEntry } from "src/data/plugin-data";
 
-export const COLLECTION_SCHEMA_VERSION = 1;
+export const COLLECTION_SCHEMA_VERSION = 2;
 export const REVIEW_LOG_SCHEMA_VERSION = 1;
 
 export type NoteTypeKind = "standard" | "cloze";
@@ -86,6 +86,8 @@ export interface CollectionCard {
     deckId: string;
     deckPath: string;
     state: CardLifecycleState;
+    /** Unix timestamp when a temporarily buried card becomes active again. */
+    buriedUntil: number | null;
     queue: CardQueue;
     schedule: ISerializedScheduleEntry | null;
     reps: number;

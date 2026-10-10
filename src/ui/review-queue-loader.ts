@@ -57,6 +57,18 @@ export function applyDeckOptionsToQueue(
     return limited;
 }
 
+/** Removes cards that are persistently suspended or buried from every deck copy. */
+export function applyCardLifecycleToQueue(
+    deckTree: Deck,
+    isReviewable: (legacyStableId: string | null) => boolean,
+): Deck {
+    const filtered = deckTree.copyWithRepItemFilter((item) =>
+        item instanceof Card ? isReviewable(item.stableId) : true,
+    );
+    filtered.pruneEmptySubdecks();
+    return filtered;
+}
+
 export class ReviewQueueLoader {
     private plugin: SRPlugin;
     private osrCore: OsrCore;
@@ -94,6 +106,8 @@ export class ReviewQueueLoader {
         if (!this.plugin.dataManager.syncLock) {
             await this.plugin.dataManager.sync();
         }
+        const collection = this.plugin.dataManager.collectionStore;
+        await collection.restoreExpiredBuriedCards();
 
         let deckTree: Deck;
         let remainingDeckTree: Deck;
@@ -113,6 +127,13 @@ export class ReviewQueueLoader {
                     ? this.osrCore.reviewableDeckTree
                     : this.osrCore.remainingDeckTree;
         }
+
+        deckTree = applyCardLifecycleToQueue(deckTree, (stableId) =>
+            collection.isLegacyCardReviewable(stableId),
+        );
+        remainingDeckTree = applyCardLifecycleToQueue(remainingDeckTree, (stableId) =>
+            collection.isLegacyCardReviewable(stableId),
+        );
 
         if (this.reviewMode === FlashcardReviewMode.Review && !this.singleNote) {
             const rootTag = this.plugin.dataManager.data.settings.flashcardTags[0] ?? "#flashcards";

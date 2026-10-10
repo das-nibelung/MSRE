@@ -404,6 +404,18 @@ export interface IBaseLocale {
     BURY_SELECTED_UNTIL_TOMORROW: string;
     CARD_BURIED_UNTIL_TOMORROW: string;
     CARDS_BURIED_UNTIL_TOMORROW: string;
+    SUSPEND_CARD: string;
+    RESUME_CARD: string;
+    SUSPEND_SELECTED_CARDS: string;
+    RESUME_SELECTED_CARDS: string;
+    CARD_SUSPENDED: string;
+    CARD_RESUMED: string;
+    CARDS_SUSPENDED: string;
+    CARDS_RESUMED: string;
+    SUSPENDED: string;
+    BURIED: string;
+    SUSPENDED_CARDS: string;
+    BURIED_CARDS: string;
     DELETE_CARD_SOURCE: string;
     DELETE_CARD_SOURCE_CONFIRMATION: string;
     CARD_SOURCE_DELETED: string;

@@ -10,6 +10,7 @@ import {
     TEXT_FIELD_ID,
 } from "src/data/collection/builtin-note-types";
 import {
+    CardLifecycleState,
     COLLECTION_SCHEMA_VERSION,
     CollectionCard,
     CollectionData,
@@ -156,7 +157,12 @@ export function migrateCollection(value: unknown): CollectionData {
         },
         decks: { ...base.decks, ...asRecord<CollectionDeck>(raw.decks) },
         notes: asRecord<CollectionNote>(raw.notes),
-        cards: asRecord<CollectionCard>(raw.cards),
+        cards: Object.fromEntries(
+            Object.entries(asRecord<CollectionCard>(raw.cards)).map(([id, card]) => [
+                id,
+                { ...card, buriedUntil: card.buriedUntil ?? null },
+            ]),
+        ),
     };
     return migrated;
 }
@@ -430,6 +436,58 @@ export class CollectionStore {
             if (exact) return exact;
         }
         return notes.find((note) => note.source.path === sourcePath) ?? null;
+    }
+
+    getCardByLegacyStableId(legacyStableId: string | null): CollectionCard | null {
+        if (!legacyStableId) return null;
+        const card = Object.values(this.collection.cards).find(
+            (candidate) => !candidate.deletedAt && candidate.legacyStableId === legacyStableId,
+        );
+        return card ? cloneJson(card) : null;
+    }
+
+    isLegacyCardReviewable(legacyStableId: string | null, timestamp = this.now()): boolean {
+        const card = this.getCardByLegacyStableId(legacyStableId);
+        if (!card || card.state === "active") return true;
+        if (card.state === "suspended") return false;
+        return card.buriedUntil !== null && card.buriedUntil <= timestamp;
+    }
+
+    async setLegacyCardsState(
+        inputs: LegacyCardInput[],
+        state: CardLifecycleState,
+        buriedUntil: number | null = null,
+    ): Promise<CollectionCard[]> {
+        await this.initialize();
+        const timestamp = this.now();
+        const changedCards = new Map<string, CollectionCard>();
+        for (const input of inputs) {
+            const { card } = this.ensureLegacyCard(input);
+            card.state = state;
+            card.buriedUntil = state === "buried" ? buriedUntil : null;
+            card.updatedAt = timestamp;
+            changedCards.set(card.id, card);
+        }
+        if (changedCards.size > 0) await this.persistCollection();
+        return [...changedCards.values()].map((card) => cloneJson(card));
+    }
+
+    async restoreExpiredBuriedCards(timestamp = this.now()): Promise<number> {
+        await this.initialize();
+        const expired = Object.values(this.collection.cards).filter(
+            (card) =>
+                !card.deletedAt &&
+                card.state === "buried" &&
+                card.buriedUntil !== null &&
+                card.buriedUntil <= timestamp,
+        );
+        for (const card of expired) {
+            card.state = "active";
+            card.buriedUntil = null;
+            card.updatedAt = timestamp;
+        }
+        if (expired.length > 0) await this.persistCollection();
+        return expired.length;
     }
 
     async createNativeNote(input: NativeNoteInput): Promise<CollectionNote> {
@@ -773,6 +831,7 @@ export class CollectionStore {
                 deckId: deck.id,
                 deckPath: input.deckPath,
                 state: "active",
+                buriedUntil: null,
                 queue: "new",
                 schedule: null,
                 reps: 0,
@@ -842,6 +901,7 @@ export class CollectionStore {
                 deckId: targetDeck.id,
                 deckPath: targetDeck.name,
                 state: "active",
+                buriedUntil: null,
                 queue: "new",
                 schedule: null,
                 reps: 0,

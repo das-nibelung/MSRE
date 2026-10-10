@@ -176,6 +176,35 @@ describe("Anki-style collection store", () => {
         expect(card.legacyStableId).toBe("^legacy-id:0");
     });
 
+    it("persists suspend and timed bury states and restores expired cards", async () => {
+        let timestamp = 320;
+        const storage = new MemoryStorage();
+        const store = new CollectionStore(storage, () => timestamp, idFactory);
+        const input = {
+            sourcePath: "Cards/state.md",
+            questionId: "^state-id",
+            ordinal: 0,
+            deckPath: "Medicine",
+            front: "Question",
+            back: "Answer",
+        };
+
+        await store.setLegacyCardsState([input], "suspended");
+        expect(store.isLegacyCardReviewable("^state-id:0")).toBe(false);
+        expect(store.getCardByLegacyStableId("^state-id:0")?.buriedUntil).toBeNull();
+
+        await store.setLegacyCardsState([input], "buried", 400);
+        expect(store.isLegacyCardReviewable("^state-id:0", 399)).toBe(false);
+        expect(store.isLegacyCardReviewable("^state-id:0", 400)).toBe(true);
+        expect(await store.restoreExpiredBuriedCards(399)).toBe(0);
+
+        timestamp = 400;
+        expect(await store.restoreExpiredBuriedCards()).toBe(1);
+        expect(store.getCardByLegacyStableId("^state-id:0")?.state).toBe("active");
+        expect(store.isLegacyCardReviewable("^state-id:0")).toBe(true);
+        expect(Object.values(parseCollection(storage.collection).cards)[0].state).toBe("active");
+    });
+
     it("tracks source renames and tombstones notes with their sibling cards", async () => {
         const store = new CollectionStore(new MemoryStorage(), () => 350, idFactory);
         const note = await store.createNativeNote({
@@ -394,14 +423,34 @@ describe("Anki-style collection store", () => {
                     updatedAt: 1,
                 },
             },
+            cards: {
+                c1: {
+                    id: "c1",
+                    noteId: "n1",
+                    templateId: "builtin-basic-card",
+                    ordinal: 0,
+                    deckId: "builtin-default-deck",
+                    deckPath: "",
+                    state: "active",
+                    queue: "new",
+                    schedule: null,
+                    reps: 0,
+                    lapses: 0,
+                    lastReviewAt: null,
+                    legacyStableId: "^n1:0",
+                    createdAt: 1,
+                    updatedAt: 1,
+                },
+            },
         });
         const newer = parseCollection(formatCollection(older));
         newer.notes.n1.fields.front = "new";
         newer.notes.n1.updatedAt = 2;
 
         const merged = mergeCollections(older, newer);
-        expect(merged.schemaVersion).toBe(1);
+        expect(merged.schemaVersion).toBe(2);
         expect(merged.notes.n1.fields.front).toBe("new");
+        expect(merged.cards.c1.buriedUntil).toBeNull();
         expect(Object.keys(merged.noteTypes)).toEqual(
             expect.arrayContaining([
                 "builtin-basic",

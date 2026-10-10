@@ -10,6 +10,7 @@ import {
     WorkspaceLeaf,
 } from "obsidian";
 
+import { LegacyCardInput } from "src/data/collection/collection-types";
 import { CARD_BROWSER_VIEW_TYPE } from "src/data/constants";
 import { DataStore } from "src/data/data-store/base/data-store";
 import { t } from "src/lang/helpers";
@@ -35,6 +36,24 @@ function compactCardText(value: string): string {
         .replace(/<[^>]*>/g, " ")
         .replace(/\s+/g, " ")
         .trim();
+}
+
+function nextLocalDayStart(): number {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    return tomorrow.getTime();
+}
+
+function recordToLegacyInput(record: CardBrowserRecord): LegacyCardInput {
+    return {
+        sourcePath: record.notePath,
+        questionId: record.card.storageInfo?.questionId ?? null,
+        ordinal: record.card.cardIdx,
+        deckPath: record.deckNames[0] ?? "",
+        front: record.front,
+        back: record.back,
+    };
 }
 
 export class CardBrowserView extends ItemView {
@@ -87,7 +106,20 @@ export class CardBrowserView extends ItemView {
 
     private getRecords(): CardBrowserRecord[] {
         if (!this.plugin.dataManager.isOsrCoreLoaded()) return [];
-        return createCardBrowserRecords(this.plugin.dataManager.osrCore.getAllCards());
+        const collection = this.plugin.dataManager.collectionStore;
+        return createCardBrowserRecords(this.plugin.dataManager.osrCore.getAllCards()).map(
+            (record) => {
+                const stored = collection.getCardByLegacyStableId(record.card.stableId);
+                const expired =
+                    stored?.state === "buried" &&
+                    stored.buriedUntil !== null &&
+                    stored.buriedUntil <= Date.now();
+                return {
+                    ...record,
+                    lifecycleState: expired ? "active" : (stored?.state ?? "active"),
+                };
+            },
+        );
     }
 
     private render(): void {
@@ -106,7 +138,9 @@ export class CardBrowserView extends ItemView {
         titleBlock.createEl("p", {
             text: t("CARD_BROWSER_SUMMARY", {
                 total: records.length,
-                due: records.filter((record) => record.state === "due").length,
+                due: records.filter(
+                    (record) => record.lifecycleState === "active" && record.state === "due",
+                ).length,
             }),
         });
         const headerActions = header.createDiv("sr-card-browser-header-actions");
@@ -154,6 +188,8 @@ export class CardBrowserView extends ItemView {
                 new: t("NEW_CARDS"),
                 due: t("DUE_CARDS"),
                 scheduled: t("SCHEDULED_CARDS"),
+                suspended: t("SUSPENDED_CARDS"),
+                buried: t("BURIED_CARDS"),
             },
             this.filter,
             (value) => {
@@ -217,17 +253,23 @@ export class CardBrowserView extends ItemView {
             {
                 filter: "due",
                 label: t("DUE"),
-                value: records.filter((record) => record.state === "due").length,
+                value: records.filter(
+                    (record) => record.lifecycleState === "active" && record.state === "due",
+                ).length,
             },
             {
                 filter: "new",
                 label: t("NEW_CARDS"),
-                value: records.filter((record) => record.state === "new").length,
+                value: records.filter(
+                    (record) => record.lifecycleState === "active" && record.state === "new",
+                ).length,
             },
             {
                 filter: "scheduled",
                 label: t("SCHEDULED_CARDS"),
-                value: records.filter((record) => record.state === "scheduled").length,
+                value: records.filter(
+                    (record) => record.lifecycleState === "active" && record.state === "scheduled",
+                ).length,
             },
         ];
 
@@ -402,7 +444,9 @@ export class CardBrowserView extends ItemView {
         main.createDiv("sr-card-browser-back").setText(compactCardText(record.back));
 
         const meta = body.createDiv("sr-card-browser-row-meta");
-        const state = meta.createSpan(`sr-card-browser-state is-${record.state}`);
+        const visualState =
+            record.lifecycleState === "active" ? record.state : record.lifecycleState;
+        const state = meta.createSpan(`sr-card-browser-state is-${visualState}`);
         state.setText(this.getStateLabel(record));
         if (record.interval !== null) {
             meta.createSpan("sr-card-browser-schedule").setText(
@@ -464,6 +508,13 @@ export class CardBrowserView extends ItemView {
         const allBuried = records.every((record) =>
             postponementList.includes(record.card.question),
         );
+        const allInactive = records.every((record) => record.lifecycleState !== "active");
+        menu.addItem((item) =>
+            item
+                .setTitle(allInactive ? t("RESUME_SELECTED_CARDS") : t("SUSPEND_SELECTED_CARDS"))
+                .setIcon(allInactive ? "play" : "pause")
+                .onClick(() => void this.setSelectionSuspended(records, !allInactive)),
+        );
         menu.addItem((item) =>
             item
                 .setTitle(t("BURY_SELECTED_UNTIL_TOMORROW"))
@@ -482,12 +533,37 @@ export class CardBrowserView extends ItemView {
     }
 
     private async burySelection(records: CardBrowserRecord[]): Promise<void> {
+        const questions = new Set(records.map((record) => record.card.question));
+        const siblings = this.records.filter((record) => questions.has(record.card.question));
         await buryCardsUntilTomorrow(
             records.map((record) => record.card),
             this.plugin.dataManager.osrCore.questionPostponementList,
         );
+        await this.plugin.dataManager.collectionStore.setLegacyCardsState(
+            siblings.map(recordToLegacyInput),
+            "buried",
+            nextLocalDayStart(),
+        );
         this.selectedIds.clear();
-        this.renderResults(this.records);
+        this.render();
+    }
+
+    private async setSelectionSuspended(
+        records: CardBrowserRecord[],
+        suspended: boolean,
+    ): Promise<void> {
+        if (!suspended) await this.removeBuriedQuestions(records);
+        await this.plugin.dataManager.collectionStore.setLegacyCardsState(
+            records.map(recordToLegacyInput),
+            suspended ? "suspended" : "active",
+        );
+        new Notice(
+            suspended
+                ? t("CARDS_SUSPENDED", { count: records.length })
+                : t("CARDS_RESUMED", { count: records.length }),
+        );
+        this.selectedIds.clear();
+        this.render();
     }
 
     private confirmResetSelection(records: CardBrowserRecord[]): void {
@@ -535,11 +611,21 @@ export class CardBrowserView extends ItemView {
         );
         menu.addSeparator();
         const postponementList = this.plugin.dataManager.osrCore.questionPostponementList;
+        const inactive = record.lifecycleState !== "active";
+        menu.addItem((item) =>
+            item
+                .setTitle(inactive ? t("RESUME_CARD") : t("SUSPEND_CARD"))
+                .setIcon(inactive ? "play" : "pause")
+                .onClick(() => void this.setRecordSuspended(record, !inactive)),
+        );
         menu.addItem((item) =>
             item
                 .setTitle(t("BURY_UNTIL_TOMORROW"))
                 .setIcon("moon")
-                .setDisabled(postponementList.includes(record.card.question))
+                .setDisabled(
+                    record.lifecycleState === "buried" ||
+                        postponementList.includes(record.card.question),
+                )
                 .onClick(() => void this.buryRecord(record)),
         );
         menu.addItem((item) =>
@@ -561,10 +647,41 @@ export class CardBrowserView extends ItemView {
     }
 
     private async buryRecord(record: CardBrowserRecord): Promise<void> {
+        const siblings = this.records.filter(
+            (candidate) => candidate.card.question === record.card.question,
+        );
         await buryCardsUntilTomorrow(
             [record.card],
             this.plugin.dataManager.osrCore.questionPostponementList,
         );
+        await this.plugin.dataManager.collectionStore.setLegacyCardsState(
+            siblings.map(recordToLegacyInput),
+            "buried",
+            nextLocalDayStart(),
+        );
+        this.render();
+    }
+
+    private async setRecordSuspended(record: CardBrowserRecord, suspended: boolean): Promise<void> {
+        if (!suspended) await this.removeBuriedQuestions([record]);
+        await this.plugin.dataManager.collectionStore.setLegacyCardsState(
+            [recordToLegacyInput(record)],
+            suspended ? "suspended" : "active",
+        );
+        new Notice(suspended ? t("CARD_SUSPENDED") : t("CARD_RESUMED"));
+        this.render();
+    }
+
+    private async removeBuriedQuestions(records: CardBrowserRecord[]): Promise<void> {
+        const postponementList = this.plugin.dataManager.osrCore.questionPostponementList;
+        const questions = new Set(
+            records
+                .filter((record) => record.lifecycleState === "buried")
+                .map((record) => record.card.question),
+        );
+        if (questions.size === 0) return;
+        for (const question of questions) postponementList.remove(question);
+        await postponementList.write();
     }
 
     private confirmDelete(record: CardBrowserRecord): void {
@@ -597,6 +714,8 @@ export class CardBrowserView extends ItemView {
     }
 
     private getStateLabel(record: CardBrowserRecord): string {
+        if (record.lifecycleState === "suspended") return t("SUSPENDED");
+        if (record.lifecycleState === "buried") return t("BURIED");
         if (record.state === "new") return t("NEW");
         if (record.state === "due") return t("DUE");
         return record.dueDate ?? t("SCHEDULED");
