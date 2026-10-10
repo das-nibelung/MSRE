@@ -53,6 +53,10 @@
     background: var(--background-secondary);
 }
 
+.sr-native-creator-switcher .sr-native-switch-button {
+    white-space: nowrap;
+}
+
 .sr-native-switch-button {
     display: flex;
     gap: 7px;
@@ -232,6 +236,25 @@
     border-radius: 12px;
     background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
     color: var(--interactive-accent);
+}
+
+.sr-native-area-preview .sr-native-deck-preview-icon {
+    background: color-mix(in srgb, var(--color-blue) 14%, transparent);
+    color: var(--color-blue);
+}
+
+@container (width < 560px) {
+    .sr-native-creator-switcher {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .sr-native-creator-switcher .sr-native-switch-button {
+        justify-content: center;
+        padding-inline: 8px;
+        font-size: var(--font-ui-smaller);
+    }
 }
 
 .sr-native-deck-preview div:last-child {

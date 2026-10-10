@@ -4,6 +4,7 @@ import h from "vhtml";
 
 import { Deck } from "src/data/data-structures/deck/deck";
 import { SRSettings } from "src/data/settings";
+import type SRPlugin from "src/main";
 import {
     FlashcardReviewMode,
     IFlashcardReviewSequencer as IFlashcardReviewSequencer,
@@ -18,11 +19,13 @@ export class DeckContainer {
 
     constructor(
         parentEl: HTMLElement,
+        plugin: SRPlugin,
         changeReviewMode: (reviewMode: FlashcardReviewMode) => void,
         startReviewOfDeck: (deck: Deck) => void,
         openCardBrowser: () => void | Promise<void>,
-        createCard: () => void,
-        createDeck: () => void,
+        createCard: (deckPath?: string) => void,
+        createDeck: (deckPath?: string) => void,
+        createKnowledgeArea: (areaId?: string) => void,
         closeModal?: () => void,
     ) {
         // Build ui
@@ -35,6 +38,7 @@ export class DeckContainer {
             openCardBrowser,
             createCard,
             createDeck,
+            createKnowledgeArea,
             closeModal,
         );
 
@@ -43,6 +47,9 @@ export class DeckContainer {
             startReviewOfDeck,
             openCardBrowser,
             createCard,
+            createDeck,
+            createKnowledgeArea,
+            plugin,
         );
     }
 

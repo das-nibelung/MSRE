@@ -51,6 +51,31 @@ export class PluginDataManager {
         this._pluginData.managedDecks = Array.isArray(this._pluginData.managedDecks)
             ? [...new Set(this._pluginData.managedDecks.filter((path) => typeof path === "string"))]
             : [];
+        this._pluginData.knowledgeAreas = Array.isArray(this._pluginData.knowledgeAreas)
+            ? this._pluginData.knowledgeAreas
+                  .filter(
+                      (area) =>
+                          area !== null &&
+                          typeof area === "object" &&
+                          typeof area.id === "string" &&
+                          typeof area.name === "string",
+                  )
+                  .map((area) => ({
+                      id: area.id,
+                      name: area.name.trim(),
+                      deckPaths: Array.isArray(area.deckPaths)
+                          ? [
+                                ...new Set(
+                                    area.deckPaths.filter(
+                                        (path): path is string => typeof path === "string",
+                                    ),
+                                ),
+                            ]
+                          : [],
+                      pinned: area.pinned === true,
+                  }))
+                  .filter((area) => area.name.length > 0)
+            : [];
 
         setDebugParser(this._pluginData.settings.showParserDebugMessages);
     }

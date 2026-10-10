@@ -1,10 +1,20 @@
 import "src/ui/obsidian-ui-components/content-container/deck-container/deck-list.css";
-import { ButtonComponent, SearchComponent, setIcon } from "obsidian";
+import { ButtonComponent, Menu, SearchComponent, setIcon } from "obsidian";
 
 import { Deck } from "src/data/data-structures/deck/deck";
+import { NativeCardStore, normalizeManagedDeckPath } from "src/data/native-card-store";
+import { KnowledgeArea } from "src/data/plugin-data";
 import { SRSettings } from "src/data/settings";
 import { t } from "src/lang/helpers";
+import type SRPlugin from "src/main";
 import { DeckStats, IFlashcardReviewSequencer } from "src/scheduling/flashcard-review-sequencer";
+
+interface KnowledgeAreaGroup {
+    area: KnowledgeArea | null;
+    name: string;
+    decks: Deck[];
+    pinned: boolean;
+}
 
 export default class DeckListComponent {
     private scrollWrapper: HTMLDivElement;
@@ -16,214 +26,361 @@ export default class DeckListComponent {
     private searchQuery = "";
     private currentReviewSequencer: IFlashcardReviewSequencer | null = null;
     private currentSettings: SRSettings | null = null;
+    private readonly store: NativeCardStore;
 
-    private treeHeaderRow: HTMLDivElement;
-    private treeHeaderRowSelf: HTMLDivElement;
-    private treeHeaderRowInner: HTMLDivElement;
-    private treeHeaderRowText: HTMLDivElement;
-    private treeHeaderRowTextSpan: HTMLSpanElement;
-    private treeHeaderRowNumbersWrapper: HTMLDivElement;
-
-    private dueCardsText: HTMLDivElement;
-    private newCardsText: HTMLDivElement;
-    private reviewedCardsText: HTMLDivElement;
-    private totalCardsText: HTMLDivElement;
-
-    private startReviewOfDeck: (deck: Deck) => void;
-    private openCardBrowser: () => void | Promise<void>;
-    private createCard: () => void;
+    private readonly startReviewOfDeck: (deck: Deck) => void;
+    private readonly openCardBrowser: () => void | Promise<void>;
+    private readonly createCard: (deckPath?: string) => void;
+    private readonly createDeck: (deckPath?: string, areaId?: string) => void;
+    private readonly editKnowledgeArea: (areaId?: string) => void;
 
     public constructor(
         parentEl: HTMLElement,
         startReviewOfDeck: (deck: Deck) => void,
         openCardBrowser: () => void | Promise<void>,
-        createCard: () => void,
+        createCard: (deckPath?: string) => void,
+        createDeck: (deckPath?: string, areaId?: string) => void,
+        editKnowledgeArea: (areaId?: string) => void,
+        plugin: SRPlugin,
     ) {
         this.startReviewOfDeck = startReviewOfDeck;
         this.openCardBrowser = openCardBrowser;
         this.createCard = createCard;
-        // Prep main container
-        this.scrollWrapper = parentEl.createDiv();
-        this.scrollWrapper.addClass("sr-scroll-wrapper");
+        this.createDeck = createDeck;
+        this.editKnowledgeArea = editKnowledgeArea;
+        this.store = new NativeCardStore(plugin);
 
-        this.content = this.scrollWrapper.createDiv();
-        this.content.addClass("sr-content");
-
+        this.scrollWrapper = parentEl.createDiv("sr-scroll-wrapper");
+        this.content = this.scrollWrapper.createDiv("sr-content");
         this.overview = this.content.createDiv("sr-deck-overview");
 
         this.organization = this.content.createDiv("sr-deck-organization");
-        const organizationHeading = this.organization.createDiv("sr-deck-organization-heading");
-        organizationHeading.createEl("h2", { text: t("KNOWLEDGE_AREAS") });
-        this.areaSummary = organizationHeading.createSpan();
+        const heading = this.organization.createDiv("sr-deck-organization-heading");
+        const headingCopy = heading.createDiv();
+        headingCopy.createEl("h2", { text: t("KNOWLEDGE_AREAS") });
+        this.areaSummary = headingCopy.createSpan();
+        const addArea = new ButtonComponent(heading)
+            .setIcon("plus")
+            .setTooltip(t("NEW_KNOWLEDGE_AREA"))
+            .onClick(() => this.editKnowledgeArea());
+        addArea.buttonEl.addClass("sr-add-area-button");
+
         const searchWrapper = this.organization.createDiv("sr-deck-search");
         new SearchComponent(searchWrapper).setPlaceholder(t("SEARCH_DECKS")).onChange((value) => {
             this.searchQuery = value.trim().toLocaleLowerCase();
-            if (this.currentReviewSequencer !== null && this.currentSettings !== null) {
-                this.redraw(this.currentReviewSequencer, this.currentSettings);
-            }
+            this.redrawCurrent();
         });
 
-        // Prep header row
-        this.treeHeaderRow = this.content.createDiv();
-        this.treeHeaderRow.addClass("sr-tree-row");
-        this.treeHeaderRow.addClass("sr-header-row");
-        this.treeHeaderRow.addClass("tree-item");
-        this.treeHeaderRow.addClass("sr-tree-item-container");
-
-        this.treeHeaderRowSelf = this.treeHeaderRow.createDiv();
-        this.treeHeaderRowSelf.addClass("tree-item-self");
-        this.treeHeaderRowSelf.addClass("sr-tree-item-row");
-
-        this.treeHeaderRowInner = this.treeHeaderRowSelf.createDiv("tree-item-inner");
-        this.treeHeaderRowText = this.treeHeaderRowInner.createDiv("tag-pane-tag-text");
-        this.treeHeaderRowTextSpan = this.treeHeaderRowText.createSpan("tag-pane-tag-self");
-        this.treeHeaderRowTextSpan.addClass("sr-tree-row-text");
-        this.treeHeaderRowTextSpan.setText(t("DECKS"));
-
-        this.treeHeaderRowNumbersWrapper = this.treeHeaderRowSelf.createDiv();
-        this.treeHeaderRowNumbersWrapper.addClasses([
-            "tree-item-flair-outer",
-            "sr-tree-stats-container",
-        ]);
-        this.treeHeaderRowNumbersWrapper.addClass("sr-tree-row-numbers-wrapper");
-        this.treeHeaderRowNumbersWrapper.addClass("sr-tree-stats-container");
-
-        this.dueCardsText = this.treeHeaderRowNumbersWrapper.createDiv();
-        this.dueCardsText.addClass("sr-tree-numbers-text");
-        this.dueCardsText.addClasses([
-            "tag-pane-tag-count",
-            "tree-item-flair",
-            "sr-tree-stats-count",
-            "sr-stat-due",
-        ]);
-        this.dueCardsText.setText(t("DUE"));
-
-        this.newCardsText = this.treeHeaderRowNumbersWrapper.createDiv();
-        this.newCardsText.addClass("sr-tree-numbers-text");
-        this.newCardsText.addClasses([
-            "tag-pane-tag-count",
-            "tree-item-flair",
-            "sr-tree-stats-count",
-            "sr-stat-new",
-        ]);
-        this.newCardsText.setText(t("NEW"));
-
-        this.reviewedCardsText = this.treeHeaderRowNumbersWrapper.createDiv();
-        this.reviewedCardsText.addClass("sr-tree-numbers-text");
-        this.reviewedCardsText.addClasses([
-            "tag-pane-tag-count",
-            "tree-item-flair",
-            "sr-tree-stats-count",
-            "sr-stat-seen",
-        ]);
-        this.reviewedCardsText.setText(t("SEEN"));
-
-        this.totalCardsText = this.treeHeaderRowNumbersWrapper.createDiv();
-        this.totalCardsText.addClass("sr-tree-numbers-text");
-        this.totalCardsText.addClasses([
-            "tag-pane-tag-count",
-            "tree-item-flair",
-            "sr-tree-stats-count",
-            "sr-stat-total",
-        ]);
-        this.totalCardsText.setText(t("TOTAL"));
-
-        // Prep tree container
-        this.treeContainer = this.content.createDiv("sr-tree-container");
+        this.treeContainer = this.content.createDiv("sr-knowledge-area-list");
     }
 
-    /**
-     * Redraws the deck list.
-     * @param startReviewOfDeck - Callback for starting the review of a deck.
-     * @param settings - The settings object.
-     * @param reviewSequencer - The review sequencer object.
-     */
-    redraw(reviewSequencer: IFlashcardReviewSequencer, settings: SRSettings) {
+    redraw(reviewSequencer: IFlashcardReviewSequencer, settings: SRSettings): void {
         this.currentReviewSequencer = reviewSequencer;
         this.currentSettings = settings;
         this.overview.empty();
         this.treeContainer.empty();
+
+        const root = reviewSequencer.originalDeckTree;
+        const rootStats = reviewSequencer.getDeckStats(root.getTopicPath());
+        const groups = this.buildAreaGroups(root.subdecks).filter((group) =>
+            this.groupMatchesSearch(group),
+        );
         this.areaSummary.setText(
-            t("KNOWLEDGE_AREAS_SUMMARY", {
-                count: reviewSequencer.originalDeckTree.subdecks.length,
-            }),
+            t("KNOWLEDGE_AREAS_SUMMARY", { count: this.store.getKnowledgeAreas().length }),
         );
 
-        const originDeckStats = reviewSequencer.getDeckStats(
-            reviewSequencer.originalDeckTree.getTopicPath(),
-        );
-
-        if (originDeckStats.totalCount === 0) {
-            this.overview.addClass("sr-is-hidden");
-            this.treeHeaderRow.toggleClass(
-                "sr-is-hidden",
-                reviewSequencer.originalDeckTree.subdecks.length === 0,
-            );
-            const emptyState = this.treeContainer.createDiv("sr-deck-empty-state");
-            const icon = emptyState.createDiv("sr-deck-empty-state-icon");
-            setIcon(icon, "layers-3");
-            emptyState.createEl("h3", { text: t("NO_CARDS_TITLE") });
-            emptyState.createEl("p", { text: t("NO_CARDS_DESCRIPTION") });
-
-            const actions = emptyState.createDiv("sr-deck-empty-state-actions");
-            new ButtonComponent(actions)
-                .setButtonText(t("CREATE_FIRST_CARD"))
-                .setCta()
-                .onClick(this.createCard);
-            new ButtonComponent(actions)
-                .setButtonText(t("BROWSE_CARDS"))
-                .onClick(this.openCardBrowser);
-            for (const subdeck of reviewSequencer.originalDeckTree.subdecks) {
-                if (!this.deckMatchesSearch(subdeck)) continue;
-                this._createTree(
-                    subdeck,
-                    this.treeContainer,
-                    reviewSequencer,
-                    settings,
-                    this.startReviewOfDeck,
-                );
-            }
-            return;
+        if (rootStats.totalCount === 0) this.overview.addClass("sr-is-hidden");
+        else {
+            this.overview.removeClass("sr-is-hidden");
+            this.renderOverview(root, rootStats);
         }
 
-        this.overview.removeClass("sr-is-hidden");
-        this.treeHeaderRow.removeClass("sr-is-hidden");
-        this.renderOverview(reviewSequencer.originalDeckTree, originDeckStats);
-        this.treeContainer.toggleClass(
-            "has-no-subdecks",
-            reviewSequencer.originalDeckTree.subdecks.length === 0,
-        );
-
-        for (const subdeck of reviewSequencer.originalDeckTree.subdecks) {
-            if (!this.deckMatchesSearch(subdeck)) continue;
-            // Create the tree row for each deck
-            this._createTree(
-                subdeck,
-                this.treeContainer,
-                reviewSequencer,
-                settings,
-                this.startReviewOfDeck,
-            );
-        }
-
-        if (
-            this.searchQuery.length > 0 &&
-            this.treeContainer.querySelector(".sr-tree-row") === null
-        ) {
-            this.treeHeaderRow.addClass("sr-is-hidden");
-            const noResults = this.treeContainer.createDiv("sr-deck-search-empty");
-            const icon = noResults.createDiv();
-            setIcon(icon, "search-x");
-            noResults.createSpan({ text: t("NO_DECKS_MATCH") });
-        } else {
-            this.treeHeaderRow.removeClass("sr-is-hidden");
+        for (const group of groups) this.renderKnowledgeArea(group, reviewSequencer, settings);
+        if (groups.length === 0) {
+            if (this.searchQuery) this.renderSearchEmpty();
+            else this.renderEmptyState(root.subdecks.length === 0);
         }
     }
 
+    private redrawCurrent(): void {
+        if (this.currentReviewSequencer && this.currentSettings) {
+            this.redraw(this.currentReviewSequencer, this.currentSettings);
+        }
+    }
+
+    private buildAreaGroups(decks: Deck[]): KnowledgeAreaGroup[] {
+        const areas = this.store.getKnowledgeAreas();
+        const assigned = new Set<string>();
+        const groups: KnowledgeAreaGroup[] = areas.map((area) => {
+            const paths = new Set(area.deckPaths.map(normalizeManagedDeckPath));
+            const areaDecks = decks.filter((deck) => {
+                const path = this.getVisibleDeckPath(deck);
+                if (!paths.has(path)) return false;
+                assigned.add(path);
+                return true;
+            });
+            return { area, name: area.name, decks: areaDecks, pinned: area.pinned };
+        });
+        const unassigned = decks.filter((deck) => !assigned.has(this.getVisibleDeckPath(deck)));
+        if (unassigned.length > 0) {
+            groups.push({
+                area: null,
+                name: t("UNASSIGNED_DECKS"),
+                decks: unassigned,
+                pinned: false,
+            });
+        }
+        return groups.sort((a, b) => Number(b.pinned) - Number(a.pinned));
+    }
+
+    private groupMatchesSearch(group: KnowledgeAreaGroup): boolean {
+        if (!this.searchQuery) return true;
+        if (group.name.toLocaleLowerCase().includes(this.searchQuery)) return true;
+        return group.decks.some((deck) => this.deckMatchesSearch(deck));
+    }
+
     private deckMatchesSearch(deck: Deck): boolean {
-        if (this.searchQuery.length === 0) return true;
         if (deck.deckName.toLocaleLowerCase().includes(this.searchQuery)) return true;
-        return deck.subdecks.some((subdeck) => this.deckMatchesSearch(subdeck));
+        return deck.subdecks.some((child) => this.deckMatchesSearch(child));
+    }
+
+    private renderKnowledgeArea(
+        group: KnowledgeAreaGroup,
+        sequencer: IFlashcardReviewSequencer,
+        settings: SRSettings,
+    ): void {
+        const areaEl = this.treeContainer.createDiv("sr-knowledge-area-card");
+        areaEl.toggleClass("is-pinned", group.pinned);
+        const header = areaEl.createDiv("sr-knowledge-area-header");
+        const icon = header.createDiv("sr-knowledge-area-icon");
+        setIcon(icon, group.pinned ? "pin" : "library-big");
+        const copy = header.createDiv("sr-knowledge-area-copy");
+        copy.createEl("h3", { text: group.name });
+        copy.createSpan({ text: t("AREA_DECKS_SUMMARY", { count: group.decks.length }) });
+
+        const actions = header.createDiv("sr-knowledge-area-actions");
+        if (group.area) {
+            const area = group.area;
+            const menuButton = new ButtonComponent(actions)
+                .setIcon("ellipsis")
+                .setTooltip(t("MORE_ACTIONS"))
+                .onClick((event) => this.openAreaMenu(event, area));
+            menuButton.buttonEl.addClass("sr-area-menu-button");
+        }
+        let collapsed = false;
+        const collapse = new ButtonComponent(actions)
+            .setIcon("chevron-down")
+            .setTooltip(group.name)
+            .onClick(() => {
+                collapsed = !collapsed;
+                areaEl.toggleClass("is-collapsed", collapsed);
+                collapse.buttonEl.setAttribute("aria-expanded", String(!collapsed));
+            });
+        collapse.buttonEl.addClass("sr-area-collapse-button");
+        collapse.buttonEl.setAttribute("aria-expanded", "true");
+
+        const body = areaEl.createDiv("sr-knowledge-area-body");
+        if (group.decks.length === 0) {
+            const empty = body.createDiv("sr-area-empty");
+            empty.createSpan({ text: t("AREA_EMPTY") });
+            if (group.area) {
+                const area = group.area;
+                new ButtonComponent(empty)
+                    .setButtonText(t("NEW_DECK_IN_AREA"))
+                    .onClick(() => this.createDeck(undefined, area.id));
+            }
+            return;
+        }
+        for (const deck of group.decks) {
+            if (this.searchQuery && !this.deckMatchesSearch(deck)) continue;
+            this.createDeckTree(deck, body, sequencer, settings, group.area, 0);
+        }
+    }
+
+    private createDeckTree(
+        deck: Deck,
+        parent: HTMLDivElement,
+        sequencer: IFlashcardReviewSequencer,
+        settings: SRSettings,
+        area: KnowledgeArea | null,
+        depth: number,
+    ): void {
+        const stats = sequencer.getDeckStats(deck.getTopicPath());
+        const hasChildren = deck.subdecks.length > 0;
+        const row = parent.createDiv("sr-tree-row tree-item sr-tree-item-container");
+        row.addClass(depth === 0 ? "sr-area-deck" : "sr-nested-deck");
+        const rowSelf = row.createDiv("tree-item-self tag-pane-tag sr-tree-item-row");
+        const children = row.createDiv("tree-item-children");
+        let collapsed = !(settings.initiallyExpandAllSubdecksInTree || this.searchQuery);
+
+        const collapseIcon = rowSelf.createDiv("tree-item-icon collapse-icon");
+        setIcon(collapseIcon, "chevron-down");
+        collapseIcon.toggleClass("is-collapsed", collapsed);
+        if (!hasChildren) collapseIcon.addClass("is-placeholder");
+        else {
+            collapseIcon.setAttribute("role", "button");
+            collapseIcon.setAttribute("tabindex", "0");
+            collapseIcon.setAttribute("aria-expanded", String(!collapsed));
+            const toggle = (event: Event): void => {
+                event.preventDefault();
+                event.stopPropagation();
+                collapsed = !collapsed;
+                collapseIcon.toggleClass("is-collapsed", collapsed);
+                collapseIcon.setAttribute("aria-expanded", String(!collapsed));
+                children.setCssProps({ display: collapsed ? "none" : "block" });
+            };
+            collapseIcon.addEventListener("click", toggle);
+            collapseIcon.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" || event.key === " ") toggle(event);
+            });
+        }
+
+        const inner = rowSelf.createDiv("tree-item-inner");
+        const deckIcon = inner.createDiv("sr-deck-row-icon");
+        setIcon(deckIcon, hasChildren ? "folders" : "folder");
+        const text = inner.createDiv("tag-pane-tag-text");
+        text.createSpan({ cls: "tag-pane-tag-self sr-deck-row-title", text: deck.deckName });
+        text.createDiv({
+            cls: "sr-deck-row-subtitle",
+            text: `${t("DUE")}: ${stats.dueCount} · ${t("NEW_CARDS")}: ${stats.newCount}`,
+        });
+
+        const statsEl = rowSelf.createDiv("tree-item-flair-outer sr-tree-stats-container");
+        this.createStats(statsEl, stats);
+        const deckPath = this.getVisibleDeckPath(deck);
+        const menuButton = new ButtonComponent(rowSelf)
+            .setIcon("ellipsis")
+            .setTooltip(t("MORE_ACTIONS"))
+            .onClick((event) => {
+                event.stopPropagation();
+                this.openDeckMenu(event, deckPath, area, depth === 0);
+            });
+        menuButton.buttonEl.addClass("sr-deck-menu-button");
+
+        const canReview = stats.dueCount > 0 || stats.newCount > 0;
+        const go = rowSelf.createDiv("sr-deck-row-go");
+        if (canReview) setIcon(go, "chevron-right");
+        else go.addClass("is-placeholder");
+        rowSelf.toggleClass("is-clickable", canReview);
+        rowSelf.toggleClass("is-disabled", !canReview);
+        if (canReview) {
+            rowSelf.setAttribute("role", "button");
+            rowSelf.setAttribute("tabindex", "0");
+            rowSelf.addEventListener("click", () => this.startReviewOfDeck(deck));
+            rowSelf.addEventListener("keydown", (event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                this.startReviewOfDeck(deck);
+            });
+        }
+
+        children.setCssProps({ display: collapsed ? "none" : "block" });
+        for (const child of deck.subdecks) {
+            if (this.searchQuery && !this.deckMatchesSearch(child)) continue;
+            this.createDeckTree(child, children, sequencer, settings, area, depth + 1);
+        }
+    }
+
+    private openAreaMenu(event: MouseEvent, area: KnowledgeArea): void {
+        const menu = new Menu();
+        menu.addItem((item) =>
+            item
+                .setTitle(area.pinned ? t("UNPIN_AREA") : t("PIN_AREA"))
+                .setIcon(area.pinned ? "pin-off" : "pin")
+                .onClick(() => void this.updateAreaPin(area)),
+        );
+        menu.addItem((item) =>
+            item
+                .setTitle(t("RENAME_AREA"))
+                .setIcon("pencil")
+                .onClick(() => this.editKnowledgeArea(area.id)),
+        );
+        menu.addItem((item) =>
+            item
+                .setTitle(t("NEW_DECK_IN_AREA"))
+                .setIcon("folder-plus")
+                .onClick(() => this.createDeck(undefined, area.id)),
+        );
+        menu.addSeparator();
+        menu.addItem((item) =>
+            item
+                .setTitle(t("REMOVE_AREA"))
+                .setIcon("trash-2")
+                .onClick(() => void this.removeArea(area.id)),
+        );
+        menu.showAtMouseEvent(event);
+    }
+
+    private openDeckMenu(
+        event: MouseEvent,
+        deckPath: string,
+        currentArea: KnowledgeArea | null,
+        allowAreaMove: boolean,
+    ): void {
+        const menu = new Menu();
+        menu.addItem((item) =>
+            item
+                .setTitle(t("NEW_CARD"))
+                .setIcon("square-pen")
+                .onClick(() => this.createCard(deckPath)),
+        );
+        menu.addItem((item) =>
+            item
+                .setTitle(t("NEW_DECK"))
+                .setIcon("folder-plus")
+                .onClick(() => this.createDeck(`${deckPath}/`, currentArea?.id)),
+        );
+        if (allowAreaMove) {
+            menu.addSeparator();
+            for (const area of this.store.getKnowledgeAreas()) {
+                menu.addItem((item) =>
+                    item
+                        .setTitle(`${t("MOVE_TO_AREA")}: ${area.name}`)
+                        .setIcon(area.id === currentArea?.id ? "check" : "library-big")
+                        .setDisabled(area.id === currentArea?.id)
+                        .onClick(() => void this.moveDeck(deckPath, area.id)),
+                );
+            }
+            if (currentArea) {
+                menu.addItem((item) =>
+                    item
+                        .setTitle(t("UNASSIGNED_DECKS"))
+                        .setIcon("undo-2")
+                        .onClick(() => void this.unassignDeck(deckPath)),
+                );
+            }
+        }
+        menu.showAtMouseEvent(event);
+    }
+
+    private async updateAreaPin(area: KnowledgeArea): Promise<void> {
+        await this.store.setKnowledgeAreaPinned(area.id, !area.pinned);
+        this.redrawCurrent();
+    }
+
+    private async removeArea(id: string): Promise<void> {
+        await this.store.removeKnowledgeArea(id);
+        this.redrawCurrent();
+    }
+
+    private async moveDeck(deckPath: string, areaId: string): Promise<void> {
+        await this.store.assignDeckToKnowledgeArea(deckPath, areaId);
+        this.redrawCurrent();
+    }
+
+    private async unassignDeck(deckPath: string): Promise<void> {
+        await this.store.unassignDeckFromKnowledgeAreas(deckPath);
+        this.redrawCurrent();
+    }
+
+    private getVisibleDeckPath(deck: Deck): string {
+        const fullPath = deck.getTopicPath().path;
+        const rootTag = this.currentSettings?.flashcardTags[0] ?? "#flashcards";
+        const rootPath = rootTag.replace(/^#/, "").split("/").filter(Boolean);
+        const atRoot = rootPath.every((segment, index) => fullPath[index] === segment);
+        return normalizeManagedDeckPath(
+            (atRoot ? fullPath.slice(rootPath.length) : fullPath).join("/"),
+        );
     }
 
     private renderOverview(deck: Deck, stats: DeckStats): void {
@@ -233,219 +390,58 @@ export default class DeckListComponent {
             cls: "sr-deck-overview-title",
             text: t("CARDS_READY", { count: stats.cardsInQueueCount }),
         });
-
         const details = copy.createDiv("sr-deck-overview-details");
         details.createSpan({ text: `${t("DUE")}: ${stats.dueCount}` });
         details.createSpan({ text: `${t("NEW_CARDS")}: ${stats.newCount}` });
         details.createSpan({
             text: t("DECKS_READY", { count: stats.decksInQueueOfThisDeckCount }),
         });
-
-        const startButton = new ButtonComponent(this.overview)
+        const start = new ButtonComponent(this.overview)
             .setButtonText(t("START_REVIEW"))
             .setCta()
+            .setDisabled(stats.cardsInQueueCount === 0)
             .onClick(() => this.startReviewOfDeck(deck));
         const startIcon = activeDocument.createElement("span");
         setIcon(startIcon, "play");
-        startButton.buttonEl.prepend(startIcon);
-        startButton.buttonEl.addClass("sr-deck-overview-start");
-        startButton.setDisabled(stats.cardsInQueueCount === 0);
+        start.buttonEl.prepend(startIcon);
+        start.buttonEl.addClass("sr-deck-overview-start");
     }
 
-    private _createTree(
-        deck: Deck,
-        parentEl: HTMLDivElement,
-        reviewSequencer: IFlashcardReviewSequencer,
-        settings: SRSettings,
-        startReviewOfDeck: (deck: Deck) => void,
-        depth: number = 0,
-    ) {
-        const deckStats = reviewSequencer.getDeckStats(deck.getTopicPath());
-
-        // Create the tree row for the deck
-        const treeRowChildren = this._crateTreeRow(
-            deck.deckName,
-            deckStats,
-            deck.subdecks.length,
-            parentEl,
-            settings.initiallyExpandAllSubdecksInTree || this.searchQuery.length > 0,
-            deck,
-            startReviewOfDeck,
-            depth,
-        );
-
-        for (const subdeck of deck.subdecks) {
-            if (!this.deckMatchesSearch(subdeck)) continue;
-            // Create the tree row for each subdeck
-            this._createTree(
-                subdeck,
-                treeRowChildren,
-                reviewSequencer,
-                settings,
-                startReviewOfDeck,
-                depth + 1,
-            );
+    private createStats(parent: HTMLElement, stats: DeckStats): void {
+        const values: [string, number, string][] = [
+            [t("DUE_CARDS"), stats.dueCount, "sr-stat-due"],
+            [t("NEW_CARDS"), stats.newCount, "sr-stat-new"],
+            [t("SEEN_CARDS"), stats.totalCount - stats.newCount - stats.dueCount, "sr-stat-seen"],
+            [t("TOTAL_CARDS"), stats.totalCount, "sr-stat-total"],
+        ];
+        for (const [label, value, className] of values) {
+            parent.createDiv({
+                cls: `tag-pane-tag-count tree-item-flair sr-tree-stats-count ${className}`,
+                text: String(value),
+                attr: { "aria-label": label },
+            });
         }
     }
 
-    private _crateTreeRow(
-        deckName: string,
-        deckStats: DeckStats,
-        numOfSubdecks: number,
-        parentEl: HTMLDivElement,
-        initiallyExpanded: boolean = false,
-        deck: Deck | null = null,
-        startReviewOfDeck: (deck: Deck) => void = () => {},
-        depth: number = 0,
-    ): HTMLDivElement {
-        const disableInteraction = deck === null;
-        const hasSubdecks = numOfSubdecks > 0;
-        const treeRow = parentEl.createDiv();
-        treeRow.addClass("sr-tree-row");
-        treeRow.addClass("tree-item");
-        treeRow.addClass("sr-tree-item-container");
-        treeRow.addClass(depth === 0 ? "sr-knowledge-area" : "sr-nested-deck");
-        treeRow.dataset.depth = String(depth);
-
-        const treeRowSelf = treeRow.createDiv();
-        treeRowSelf.addClass("tree-item-self");
-        if (!disableInteraction) {
-            treeRowSelf.addClass("tag-pane-tag");
-        }
-        treeRowSelf.addClass("sr-tree-item-row");
-        treeRowSelf.addClass(hasSubdecks ? "has-subdecks" : "is-leaf");
-
-        let collapsed = !initiallyExpanded;
-        const collapseIconEl = treeRowSelf.createDiv("tree-item-icon collapse-icon");
-        setIcon(collapseIconEl, "chevron-down");
-        if (collapsed) collapseIconEl.addClass("is-collapsed");
-        if (!hasSubdecks) {
-            collapseIconEl.addClass("is-placeholder");
-            collapseIconEl.setAttribute("aria-hidden", "true");
-        }
-
-        const treeRowInner: HTMLElement = treeRowSelf.createDiv("tree-item-inner");
-        const deckIcon = treeRowInner.createDiv("sr-deck-row-icon");
-        setIcon(deckIcon, depth === 0 ? "library-big" : hasSubdecks ? "folders" : "folder");
-        const treeRowInnerText: HTMLElement = treeRowInner.createDiv("tag-pane-tag-text");
-        const treeRowInnerTextSpan: HTMLElement = treeRowInnerText.createSpan({
-            cls: "tag-pane-tag-self sr-deck-row-title",
-        });
-        treeRowInnerTextSpan.setText(deckName);
-        treeRowInnerText.createDiv({
-            cls: "sr-deck-row-subtitle",
-            text: `${t("DUE")}: ${deckStats.dueCount} · ${t("NEW_CARDS")}: ${deckStats.newCount}`,
-        });
-
-        const treeRowOuter: HTMLDivElement = treeRowSelf.createDiv();
-        treeRowOuter.addClasses(["tree-item-flair-outer", "sr-tree-stats-container"]);
-
-        const treeRowChildren: HTMLDivElement = treeRow.createDiv("tree-item-children");
-        treeRowChildren.setCssProps({ display: collapsed ? "none" : "block" });
-
-        const canStartReview =
-            !disableInteraction && (deckStats.dueCount > 0 || deckStats.newCount > 0);
-
-        const toggleSubdecks = () => {
-            if (!hasSubdecks) return;
-            collapsed = !collapsed;
-            collapseIconEl.toggleClass("is-collapsed", collapsed);
-            collapseIconEl.setAttribute("aria-expanded", String(!collapsed));
-            treeRowChildren.setCssProps({ display: collapsed ? "none" : "block" });
-        };
-
-        if (hasSubdecks) {
-            collapseIconEl.setAttribute("role", "button");
-            collapseIconEl.setAttribute("tabindex", "0");
-            collapseIconEl.setAttribute("aria-expanded", String(!collapsed));
-            collapseIconEl.setAttribute("aria-label", deckName);
-            collapseIconEl.addEventListener("click", (event) => {
-                event.stopPropagation();
-                toggleSubdecks();
-            });
-            collapseIconEl.addEventListener("keydown", (event) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
-                event.preventDefault();
-                event.stopPropagation();
-                toggleSubdecks();
-            });
-        }
-
-        if (!canStartReview) {
-            if (!disableInteraction) {
-                treeRowSelf.addClass("is-disabled");
-                treeRowSelf.setAttribute("aria-disabled", "true");
-            }
-        } else {
-            treeRowSelf.addClass("is-clickable");
-            treeRowSelf.setAttribute("role", "button");
-            treeRowSelf.setAttribute("tabindex", "0");
-            treeRowSelf.setAttribute(
-                "aria-label",
-                `${deckName}. ${t("DUE_CARDS")}: ${deckStats.dueCount}. ${t("NEW_CARDS")}: ${deckStats.newCount}.`,
-            );
-        }
-
-        // Add the click handler to treeRowSelf instead of treeRowInner so that it activates
-        // over the entire rectangle of the tree item, not just the text of the topic name
-        // https://github.com/st3v3nmw/obsidian-spaced-repetition/issues/709
-
-        if (canStartReview) {
-            treeRowSelf.addEventListener("click", () => {
-                startReviewOfDeck(deck);
-            });
-            treeRowSelf.addEventListener("keydown", (event) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
-                event.preventDefault();
-                startReviewOfDeck(deck);
-            });
-        }
-
-        this._createStatsInRow(treeRowOuter, deckStats);
-        const goIcon = treeRowSelf.createDiv("sr-deck-row-go");
-        if (canStartReview) {
-            setIcon(goIcon, "chevron-right");
-            goIcon.setAttribute("aria-hidden", "true");
-        } else {
-            goIcon.addClass("is-placeholder");
-            goIcon.setAttribute("aria-hidden", "true");
-        }
-        return treeRowChildren;
+    private renderSearchEmpty(): void {
+        const empty = this.treeContainer.createDiv("sr-deck-search-empty");
+        const icon = empty.createDiv();
+        setIcon(icon, "search-x");
+        empty.createSpan({ text: t("NO_DECKS_MATCH") });
     }
 
-    private _createStatsInRow(parentEl: HTMLDivElement, deckStats: DeckStats) {
-        parentEl.empty();
-
-        this._createStatsContainer(t("DUE_CARDS"), deckStats.dueCount, "sr-stat-due", parentEl);
-        this._createStatsContainer(t("NEW_CARDS"), deckStats.newCount, "sr-stat-new", parentEl);
-        const reviewedCards: number =
-            deckStats.totalCount - deckStats.newCount - deckStats.dueCount;
-        this._createStatsContainer(t("SEEN_CARDS"), reviewedCards, "sr-stat-seen", parentEl);
-        this._createStatsContainer(
-            t("TOTAL_CARDS"),
-            deckStats.totalCount,
-            "sr-stat-total",
-            parentEl,
-        );
-    }
-
-    private _createStatsContainer(
-        statsLable: string,
-        statsNumber: number,
-        statsClass: string,
-        statsWrapper: HTMLDivElement,
-    ): void {
-        const statsContainer = statsWrapper.createDiv();
-
-        statsContainer.ariaLabel = statsLable;
-
-        statsContainer.addClasses([
-            "tag-pane-tag-count",
-            "tree-item-flair",
-            "sr-tree-stats-count",
-            statsClass,
-        ]);
-
-        statsContainer.setText(statsNumber.toString());
+    private renderEmptyState(showActions: boolean): void {
+        const empty = this.treeContainer.createDiv("sr-deck-empty-state");
+        const icon = empty.createDiv("sr-deck-empty-state-icon");
+        setIcon(icon, "layers-3");
+        empty.createEl("h3", { text: t("NO_CARDS_TITLE") });
+        empty.createEl("p", { text: t("NO_CARDS_DESCRIPTION") });
+        if (!showActions) return;
+        const actions = empty.createDiv("sr-deck-empty-state-actions");
+        new ButtonComponent(actions)
+            .setButtonText(t("CREATE_FIRST_CARD"))
+            .setCta()
+            .onClick(() => this.createCard());
+        new ButtonComponent(actions).setButtonText(t("BROWSE_CARDS")).onClick(this.openCardBrowser);
     }
 }

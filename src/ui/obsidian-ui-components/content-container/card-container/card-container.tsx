@@ -39,6 +39,7 @@ export class CardContainer {
     private pendingResumeTimeout: number | null = null;
 
     private response: ResponseSectionComponent;
+    private activeReviewMode = FlashcardReviewMode.Review;
 
     private clozeInputs: NodeListOf<HTMLInputElement> | null = null;
     private clozeAnswers: NodeListOf<Element> | null = null;
@@ -64,7 +65,13 @@ export class CardContainer {
         identifier: number;
         x: number;
         y: number;
-        axis: "pending" | "horizontal" | "vertical";
+        lastX: number;
+        lastY: number;
+        lastTime: number;
+        velocityX: number;
+        velocityY: number;
+        axis: "pending" | "horizontal" | "vertical" | "vertical-scroll";
+        card: HTMLElement;
     } | null = null;
     private workspaceGestureShieldEnabled = false;
 
@@ -401,6 +408,7 @@ export class CardContainer {
         settings: SRSettings,
         determineButtonSchedule: (response: ReviewResponse) => RepItemScheduleInfo | null,
     ) {
+        this.activeReviewMode = reviewMode;
         this.setCustomHotKeyState(settings.useCustomHotkeys);
         this.content.removeClass("sr-session-complete-screen");
         this.cardState = sessionData.cardData.currentCardState;
@@ -437,6 +445,28 @@ export class CardContainer {
             sessionData.currentQuestion.questionText.textDirection,
             // sessionData.cardData.currentCardState,
         );
+
+        if (Platform.isMobile || EmulatedPlatform().isMobile) {
+            const guide = cardSurface.createDiv("sr-swipe-guide");
+            const gestures: [string, string, string][] =
+                reviewMode === FlashcardReviewMode.Cram
+                    ? [
+                          ["arrow-left", t("AGAIN"), "again"],
+                          ["arrow-right", t("EASY"), "easy"],
+                      ]
+                    : [
+                          ["arrow-left", t("AGAIN"), "again"],
+                          ["arrow-down", t("HARD"), "hard"],
+                          ["arrow-up", t("GOOD"), "good"],
+                          ["arrow-right", t("EASY"), "easy"],
+                      ];
+            for (const [iconName, label, tone] of gestures) {
+                const item = guide.createDiv(`sr-swipe-guide-item is-${tone}`);
+                const icon = item.createSpan();
+                setIcon(icon, iconName);
+                item.createSpan({ text: label });
+            }
+        }
 
         // Evaluate cloze answers
         this._evaluateClozeAnswers();
@@ -507,10 +537,21 @@ export class CardContainer {
     }
 
     private onGestureStart = (event: PointerEvent): void => {
+        if (event.pointerType === "touch") {
+            if (
+                event.target instanceof Node &&
+                this.content.contains(event.target) &&
+                this.isGestureTarget(event.target)
+            ) {
+                event.stopPropagation();
+            }
+            this.gestureStart = null;
+            return;
+        }
         if (
             !(Platform.isMobile || EmulatedPlatform().isMobile) ||
             !event.isPrimary ||
-            (event.pointerType !== "touch" && event.pointerType !== "pen")
+            event.pointerType !== "pen"
         ) {
             this.gestureStart = null;
             return;
@@ -541,6 +582,10 @@ export class CardContainer {
     };
 
     private onGestureMove = (event: PointerEvent): void => {
+        if (event.pointerType === "touch" && this.workspaceTouchStart !== null) {
+            event.stopPropagation();
+            return;
+        }
         const start = this.gestureStart;
         if (start === null || start.pointerId !== event.pointerId) return;
         event.stopPropagation();
@@ -571,6 +616,10 @@ export class CardContainer {
     };
 
     private onGestureEnd = (event: PointerEvent): void => {
+        if (event.pointerType === "touch" && this.workspaceTouchStart !== null) {
+            event.stopPropagation();
+            return;
+        }
         const start = this.gestureStart;
         if (start === null || start.pointerId !== event.pointerId) return;
         event.stopPropagation();
@@ -605,6 +654,10 @@ export class CardContainer {
     };
 
     private onGestureCancel = (event: PointerEvent): void => {
+        if (event.pointerType === "touch" && this.workspaceTouchStart !== null) {
+            event.stopPropagation();
+            return;
+        }
         const start = this.gestureStart;
         if (start === null || start.pointerId !== event.pointerId) return;
         event.stopPropagation();
@@ -623,7 +676,13 @@ export class CardContainer {
             );
             await animation.finished.catch((): void => {});
         }
-        card.removeClasses(["is-swiping", "is-swiping-left", "is-swiping-right"]);
+        card.removeClasses([
+            "is-swiping",
+            "is-swiping-left",
+            "is-swiping-right",
+            "is-swiping-up",
+            "is-swiping-down",
+        ]);
         card.removeAttribute("data-swipe-label");
         card.style.removeProperty("transform");
         card.style.removeProperty("opacity");
@@ -643,7 +702,7 @@ export class CardContainer {
         activeWindow.addEventListener("pointercancel", this.onGestureCancel, true);
         activeWindow.addEventListener("touchstart", this.onWorkspaceTouchStart, {
             capture: true,
-            passive: true,
+            passive: false,
         });
         activeWindow.addEventListener("touchmove", this.onWorkspaceTouchMove, {
             capture: true,
@@ -689,14 +748,31 @@ export class CardContainer {
         }
 
         const touch = event.touches[0];
+        const card = this.content.querySelector<HTMLElement>(".sr-study-card");
+        if (card === null) return;
         this.workspaceTouchStart = {
             identifier: touch.identifier,
             x: touch.clientX,
             y: touch.clientY,
+            lastX: touch.clientX,
+            lastY: touch.clientY,
+            lastTime: event.timeStamp,
+            velocityX: 0,
+            velocityY: 0,
             axis: "pending",
+            card,
         };
         event.stopPropagation();
     };
+
+    private isGestureTarget(target: Node): boolean {
+        return !(
+            target instanceof Element &&
+            target.closest(
+                "a, button, input, textarea, select, [contenteditable='true'], .internal-embed",
+            ) !== null
+        );
+    }
 
     private onWorkspaceTouchMove = (event: TouchEvent): void => {
         const start = this.workspaceTouchStart;
@@ -707,30 +783,156 @@ export class CardContainer {
         const deltaX = touch.clientX - start.x;
         const deltaY = touch.clientY - start.y;
         if (start.axis === "pending" && Math.max(Math.abs(deltaX), Math.abs(deltaY)) >= 7) {
-            start.axis = Math.abs(deltaX) > Math.abs(deltaY) * 1.08 ? "horizontal" : "vertical";
+            if (Math.abs(deltaX) > Math.abs(deltaY) * 1.05) {
+                start.axis = "horizontal";
+            } else {
+                const contentCanScroll = this.content.scrollHeight > this.content.clientHeight + 4;
+                start.axis = contentCanScroll ? "vertical-scroll" : "vertical";
+            }
         }
-        if (start.axis === "horizontal") event.preventDefault();
+        if (start.axis === "vertical-scroll") {
+            event.stopPropagation();
+            return;
+        }
+
+        if (start.axis === "horizontal" || start.axis === "vertical") {
+            event.preventDefault();
+            const elapsed = Math.max(1, event.timeStamp - start.lastTime);
+            start.velocityX = (touch.clientX - start.lastX) / elapsed;
+            start.velocityY = (touch.clientY - start.lastY) / elapsed;
+            start.lastX = touch.clientX;
+            start.lastY = touch.clientY;
+            start.lastTime = event.timeStamp;
+            this.updateTouchGesture(start, deltaX, deltaY);
+        }
         event.stopPropagation();
     };
 
     private onWorkspaceTouchEnd = (event: TouchEvent): void => {
-        if (this.workspaceTouchStart === null) return;
+        const start = this.workspaceTouchStart;
+        if (start === null) return;
         event.stopPropagation();
         this.workspaceTouchStart = null;
+        const touch = [...event.changedTouches].find(
+            (item) => item.identifier === start.identifier,
+        );
+        const endX = touch?.clientX ?? start.lastX;
+        const endY = touch?.clientY ?? start.lastY;
+        const deltaX = endX - start.x;
+        const deltaY = endY - start.y;
+        const distance = Math.hypot(deltaX, deltaY);
+        const velocity = Math.hypot(start.velocityX, start.velocityY);
+        const isGestureAxis = start.axis === "horizontal" || start.axis === "vertical";
+
+        if (isGestureAxis && distance > 8) {
+            this.suppressNextCardClick = true;
+            window.setTimeout(() => {
+                this.suppressNextCardClick = false;
+            }, 0);
+        }
+
+        const shouldAct =
+            isGestureAxis &&
+            (distance >= Math.min(82, this.content.clientWidth * 0.17) ||
+                (distance >= 26 && velocity >= 0.42));
+        if (!shouldAct) {
+            void this.resetGestureCard(start.card, true);
+            return;
+        }
+
+        if (this.cardState === CardState.Front) {
+            void this.resetGestureCard(start.card, false).then(() => this.showAnswerHandler());
+            return;
+        }
+        if (this.cardState !== CardState.Back) {
+            void this.resetGestureCard(start.card, true);
+            return;
+        }
+
+        const { response, direction } = this.getTouchGestureAction(deltaX, deltaY);
+        void this.animateGesture(start.card, direction, () => this.processReviewHandler(response));
     };
+
+    private updateTouchGesture(
+        start: NonNullable<CardContainer["workspaceTouchStart"]>,
+        deltaX: number,
+        deltaY: number,
+    ): void {
+        const maxTravel = Math.min(190, this.content.clientWidth * 0.42);
+        const scale = Math.min(1, maxTravel / Math.max(1, Math.hypot(deltaX, deltaY)));
+        const x = deltaX * scale;
+        const y = deltaY * scale;
+        const action =
+            this.cardState === CardState.Back
+                ? this.getTouchGestureAction(deltaX, deltaY)
+                : { response: ReviewResponse.Good, direction: "up" as const };
+        const label =
+            this.cardState === CardState.Front
+                ? t("SHOW_ANSWER")
+                : action.response === ReviewResponse.Again
+                  ? t("AGAIN")
+                  : action.response === ReviewResponse.Hard
+                    ? t("HARD")
+                    : action.response === ReviewResponse.Good
+                      ? t("GOOD")
+                      : t("EASY");
+        start.card.addClass("is-swiping");
+        start.card.removeClasses([
+            "is-swiping-left",
+            "is-swiping-right",
+            "is-swiping-up",
+            "is-swiping-down",
+        ]);
+        start.card.addClass(`is-swiping-${action.direction}`);
+        start.card.dataset.swipeLabel = label;
+        start.card.setCssProps({
+            transform: `translate3d(${x}px, ${y}px, 0) rotate(${x / 70}deg)`,
+            opacity: String(1 - Math.min(Math.hypot(x, y) / 760, 0.18)),
+        });
+    }
+
+    private getTouchGestureAction(
+        deltaX: number,
+        deltaY: number,
+    ): {
+        response: ReviewResponse;
+        direction: "left" | "right" | "up" | "down";
+    } {
+        if (Math.abs(deltaX) >= Math.abs(deltaY)) {
+            return deltaX < 0
+                ? { response: ReviewResponse.Again, direction: "left" }
+                : { response: ReviewResponse.Easy, direction: "right" };
+        }
+        if (this.activeReviewMode === FlashcardReviewMode.Cram) {
+            return deltaY < 0
+                ? { response: ReviewResponse.Again, direction: "up" }
+                : { response: ReviewResponse.Easy, direction: "down" };
+        }
+        return deltaY < 0
+            ? { response: ReviewResponse.Good, direction: "up" }
+            : { response: ReviewResponse.Hard, direction: "down" };
+    }
 
     private async animateGesture(
         card: HTMLElement,
-        direction: "left" | "right",
+        direction: "left" | "right" | "up" | "down",
         action: () => void | Promise<void>,
     ): Promise<void> {
         const reduceMotion = activeWindow.matchMedia("(prefers-reduced-motion: reduce)").matches;
         if (!reduceMotion) {
+            const exitTransform =
+                direction === "left"
+                    ? "translate3d(-115vw, 0, 0) rotate(-8deg)"
+                    : direction === "right"
+                      ? "translate3d(115vw, 0, 0) rotate(8deg)"
+                      : direction === "up"
+                        ? "translate3d(0, -115vh, 0)"
+                        : "translate3d(0, 115vh, 0)";
             const animation = card.animate(
                 [
                     { transform: card.style.transform || "translate3d(0, 0, 0)", opacity: 1 },
                     {
-                        transform: `translate3d(${direction === "left" ? "-115vw" : "115vw"}, 0, 0) rotate(${direction === "left" ? "-8deg" : "8deg"})`,
+                        transform: exitTransform,
                         opacity: 0.05,
                     },
                 ],

@@ -137,11 +137,13 @@ export default class ContentManager {
 
         this.deckContainer = new DeckContainer(
             parentEl,
+            this.plugin,
             this._changeReviewMode.bind(this),
             this._startReviewOfDeck.bind(this),
             openCardBrowser,
             this.uiManager.openNativeCardCreator.bind(this.uiManager),
             this.uiManager.openNativeDeckCreator.bind(this.uiManager),
+            this.uiManager.openNativeKnowledgeAreaCreator.bind(this.uiManager),
             closeModal,
         );
 

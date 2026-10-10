@@ -15,6 +15,7 @@ export default class DeckListHeaderComponent {
         openCardBrowser: () => void | Promise<void>,
         createCard: () => void,
         createDeck: () => void,
+        createKnowledgeArea: () => void,
         closeModal?: () => void,
     ) {
         this.header = parentEl.createDiv();
@@ -47,6 +48,12 @@ export default class DeckListHeaderComponent {
                 );
                 menu.addItem((item) =>
                     item.setTitle(t("NEW_DECK")).setIcon("layers-3").onClick(createDeck),
+                );
+                menu.addItem((item) =>
+                    item
+                        .setTitle(t("NEW_KNOWLEDGE_AREA"))
+                        .setIcon("library-big")
+                        .onClick(createKnowledgeArea),
                 );
                 menu.showAtMouseEvent(event);
             });

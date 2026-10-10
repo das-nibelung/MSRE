@@ -1,5 +1,10 @@
 import { CardType } from "src/data/data-structures/card/questions/question";
-import { normalizeManagedDeckPath, serializeNativeCard } from "src/data/native-card-store";
+import {
+    NativeCardStore,
+    normalizeManagedDeckPath,
+    serializeNativeCard,
+} from "src/data/native-card-store";
+import { DEFAULT_DATA, PluginData } from "src/data/plugin-data";
 import { DEFAULT_SETTINGS } from "src/data/settings";
 import { parse } from "src/parser";
 
@@ -47,5 +52,33 @@ describe("native card storage", () => {
         );
         expect(cloze).toContain("==powerhouse==");
         expect(parse(cloze, DEFAULT_SETTINGS)[0].cardType).toBe(CardType.Cloze);
+    });
+
+    it("manages knowledge areas without changing deck paths", async () => {
+        const data: PluginData = { ...DEFAULT_DATA, managedDecks: [], knowledgeAreas: [] };
+        const savePluginData = jest.fn().mockResolvedValue(undefined);
+        const plugin = {
+            dataManager: { data, savePluginData },
+        } as never;
+        const store = new NativeCardStore(plugin);
+
+        const medicine = await store.createKnowledgeArea("  Medicine  ");
+        await store.assignDeckToKnowledgeArea("Medicine/Cardiology", medicine.id);
+        await store.setKnowledgeAreaPinned(medicine.id, true);
+
+        expect(store.getKnowledgeAreas()).toEqual([
+            expect.objectContaining({
+                id: medicine.id,
+                name: "Medicine",
+                deckPaths: ["Medicine/Cardiology"],
+                pinned: true,
+            }),
+        ]);
+
+        await store.unassignDeckFromKnowledgeAreas("Medicine/Cardiology");
+        expect(store.getKnowledgeAreas()[0].deckPaths).toEqual([]);
+        await store.removeKnowledgeArea(medicine.id);
+        expect(store.getKnowledgeAreas()).toEqual([]);
+        expect(savePluginData).toHaveBeenCalledTimes(5);
     });
 });

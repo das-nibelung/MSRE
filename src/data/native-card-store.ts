@@ -1,6 +1,7 @@
 import { App, normalizePath, TFile } from "obsidian";
 
 import { Deck } from "src/data/data-structures/deck/deck";
+import { KnowledgeArea } from "src/data/plugin-data";
 import { SRSettings } from "src/data/settings";
 import SRPlugin from "src/main";
 
@@ -111,6 +112,82 @@ export class NativeCardStore {
             await this.plugin.dataManager.osrCore.finalizeLoad();
         }
         return deckPath;
+    }
+
+    getKnowledgeAreas(): KnowledgeArea[] {
+        return this.plugin.dataManager.data.knowledgeAreas.map((area) => ({
+            ...area,
+            deckPaths: [...area.deckPaths],
+        }));
+    }
+
+    async createKnowledgeArea(name: string): Promise<KnowledgeArea> {
+        const normalizedName = name.trim().replace(/\s+/g, " ");
+        if (!normalizedName) throw new Error("invalid-area-name");
+
+        const duplicate = this.plugin.dataManager.data.knowledgeAreas.find(
+            (area) => area.name.toLocaleLowerCase() === normalizedName.toLocaleLowerCase(),
+        );
+        if (duplicate) return duplicate;
+
+        const area: KnowledgeArea = {
+            id: `area-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+            name: normalizedName,
+            deckPaths: [],
+            pinned: false,
+        };
+        this.plugin.dataManager.data.knowledgeAreas.push(area);
+        await this.plugin.dataManager.savePluginData();
+        return area;
+    }
+
+    async renameKnowledgeArea(id: string, name: string): Promise<KnowledgeArea> {
+        const area = this.requireKnowledgeArea(id);
+        const normalizedName = name.trim().replace(/\s+/g, " ");
+        if (!normalizedName) throw new Error("invalid-area-name");
+        area.name = normalizedName;
+        await this.plugin.dataManager.savePluginData();
+        return area;
+    }
+
+    async setKnowledgeAreaPinned(id: string, pinned: boolean): Promise<void> {
+        this.requireKnowledgeArea(id).pinned = pinned;
+        await this.plugin.dataManager.savePluginData();
+    }
+
+    async removeKnowledgeArea(id: string): Promise<void> {
+        const areas = this.plugin.dataManager.data.knowledgeAreas;
+        const index = areas.findIndex((area) => area.id === id);
+        if (index < 0) return;
+        areas.splice(index, 1);
+        await this.plugin.dataManager.savePluginData();
+    }
+
+    async assignDeckToKnowledgeArea(deckPath: string, areaId: string): Promise<void> {
+        const normalizedDeckPath = normalizeManagedDeckPath(deckPath);
+        if (!normalizedDeckPath) return;
+        const target = this.requireKnowledgeArea(areaId);
+        for (const area of this.plugin.dataManager.data.knowledgeAreas) {
+            area.deckPaths = area.deckPaths.filter((path) => path !== normalizedDeckPath);
+        }
+        if (!target.deckPaths.includes(normalizedDeckPath)) {
+            target.deckPaths.push(normalizedDeckPath);
+        }
+        await this.plugin.dataManager.savePluginData();
+    }
+
+    async unassignDeckFromKnowledgeAreas(deckPath: string): Promise<void> {
+        const normalizedDeckPath = normalizeManagedDeckPath(deckPath);
+        for (const area of this.plugin.dataManager.data.knowledgeAreas) {
+            area.deckPaths = area.deckPaths.filter((path) => path !== normalizedDeckPath);
+        }
+        await this.plugin.dataManager.savePluginData();
+    }
+
+    private requireKnowledgeArea(id: string): KnowledgeArea {
+        const area = this.plugin.dataManager.data.knowledgeAreas.find((item) => item.id === id);
+        if (!area) throw new Error("knowledge-area-not-found");
+        return area;
     }
 
     async createCard(draft: NativeCardDraft): Promise<TFile> {

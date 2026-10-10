@@ -463,8 +463,16 @@ export class UIManager {
         await this.tabViewManager.openNativeCreator({ mode: "card", deckPath, card });
     }
 
-    public async openNativeDeckCreator(): Promise<void> {
-        await this.tabViewManager.openNativeCreator({ mode: "deck" });
+    public async openNativeDeckCreator(deckPath?: string, areaId?: string): Promise<void> {
+        await this.tabViewManager.openNativeCreator({
+            mode: "deck",
+            deckPath,
+            targetAreaId: areaId,
+        });
+    }
+
+    public async openNativeKnowledgeAreaCreator(areaId?: string): Promise<void> {
+        await this.tabViewManager.openNativeCreator({ mode: "area", editAreaId: areaId });
     }
 
     /** Creates a small, valid starter note so a new user can enter the first card immediately. */

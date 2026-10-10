@@ -1,7 +1,7 @@
 {
     "id": "personal-spaced-repetition",
     "name": "Personal Spaced Repetition",
-    "version": "1.15.4-personal.22",
+    "version": "1.15.4-personal.23",
     "minAppVersion": "1.2.8",
     "description": "A personal, mobile-compatible fork of Spaced Repetition for reviewing flashcards and notes in Obsidian.",
     "author": "das-nibelung; based on work by Stephen Mwangi and contributors",

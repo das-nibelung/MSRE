@@ -15,12 +15,14 @@ import {
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 
-export type NativeCreatorMode = "card" | "deck";
+export type NativeCreatorMode = "card" | "deck" | "area";
 
 export interface NativeCreatorRequest {
     mode: NativeCreatorMode;
     deckPath?: string;
     card?: Card;
+    editAreaId?: string;
+    targetAreaId?: string;
 }
 
 export class NativeCreatorView extends ItemView {
@@ -33,6 +35,8 @@ export class NativeCreatorView extends ItemView {
     private busy = false;
     private error = "";
     private editingCard: Card | null = null;
+    private editingAreaId: string | null = null;
+    private areaName = "";
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -49,10 +53,14 @@ export class NativeCreatorView extends ItemView {
 
     getDisplayText(): string {
         if (this.editingCard) return t("EDIT_CARD");
+        if (this.request.mode === "area") {
+            return this.editingAreaId ? t("EDIT_KNOWLEDGE_AREA") : t("NEW_KNOWLEDGE_AREA");
+        }
         return this.request.mode === "deck" ? t("NEW_DECK") : t("NEW_CARD");
     }
 
     getIcon(): string {
+        if (this.request.mode === "area") return "library-big";
         return this.request.mode === "deck" ? "layers-3" : "square-pen";
     }
 
@@ -67,6 +75,11 @@ export class NativeCreatorView extends ItemView {
         this.request = request;
         this.selectedDeck = request.deckPath ?? this.selectedDeck;
         this.editingCard = request.card ?? null;
+        this.editingAreaId = request.editAreaId ?? null;
+        this.areaName = this.editingAreaId
+            ? (this.store.getKnowledgeAreas().find((area) => area.id === this.editingAreaId)
+                  ?.name ?? "")
+            : "";
         if (this.editingCard) this.loadCardForEditing(this.editingCard);
         else if (wasEditing) {
             this.front = "";
@@ -91,26 +104,34 @@ export class NativeCreatorView extends ItemView {
         heading.createEl("h1", {
             text: this.editingCard
                 ? t("EDIT_CARD")
-                : this.request.mode === "deck"
-                  ? t("NEW_DECK")
-                  : t("NEW_CARD"),
+                : this.request.mode === "area"
+                  ? this.editingAreaId
+                      ? t("EDIT_KNOWLEDGE_AREA")
+                      : t("NEW_KNOWLEDGE_AREA")
+                  : this.request.mode === "deck"
+                    ? t("NEW_DECK")
+                    : t("NEW_CARD"),
         });
         heading.createEl("p", {
             text: this.editingCard
                 ? t("EDIT_CARD_DESCRIPTION")
-                : this.request.mode === "deck"
-                  ? t("NEW_DECK_DESCRIPTION")
-                  : t("NEW_CARD_DESCRIPTION"),
+                : this.request.mode === "area"
+                  ? t("KNOWLEDGE_AREA_DESCRIPTION")
+                  : this.request.mode === "deck"
+                    ? t("NEW_DECK_DESCRIPTION")
+                    : t("NEW_CARD_DESCRIPTION"),
         });
 
-        if (!this.editingCard) {
+        if (!this.editingCard && !this.editingAreaId) {
             const switcher = top.createDiv("sr-native-creator-switcher");
             this.createModeButton(switcher, "card", "square-pen", t("CARD"));
             this.createModeButton(switcher, "deck", "layers-3", t("DECK"));
+            this.createModeButton(switcher, "area", "library-big", t("KNOWLEDGE_AREAS"));
         }
 
         const surface = page.createDiv("sr-native-creator-surface");
         if (this.request.mode === "deck") this.renderDeckForm(surface);
+        else if (this.request.mode === "area") this.renderAreaForm(surface);
         else this.renderCardForm(surface);
     }
 
@@ -129,6 +150,8 @@ export class NativeCreatorView extends ItemView {
         button.buttonEl.createSpan({ text: label });
         button.onClick(() => {
             this.request = { mode, deckPath: this.selectedDeck };
+            this.editingAreaId = null;
+            this.areaName = "";
             this.error = "";
             this.render();
         });
@@ -280,6 +303,65 @@ export class NativeCreatorView extends ItemView {
         window.setTimeout(() => input.focus(), 0);
     }
 
+    private renderAreaForm(surface: HTMLElement): void {
+        const nameGroup = this.createFieldGroup(
+            surface,
+            t("KNOWLEDGE_AREA_NAME"),
+            t("KNOWLEDGE_AREA_NAME_HELP"),
+        );
+        const input = nameGroup.createEl("input", {
+            cls: "sr-native-input",
+            attr: {
+                type: "text",
+                placeholder: t("KNOWLEDGE_AREA_NAME_PLACEHOLDER"),
+                autocomplete: "off",
+                "aria-label": t("KNOWLEDGE_AREA_NAME"),
+            },
+        });
+        input.value = this.areaName;
+        input.addEventListener("input", () => {
+            this.areaName = input.value;
+            this.clearError();
+        });
+        input.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") void this.saveKnowledgeArea();
+        });
+
+        const preview = surface.createDiv("sr-native-deck-preview sr-native-area-preview");
+        const previewIcon = preview.createDiv("sr-native-deck-preview-icon");
+        setIcon(previewIcon, "library-big");
+        const previewCopy = preview.createDiv();
+        previewCopy.createSpan({ text: t("KNOWLEDGE_AREAS") });
+        const previewName = previewCopy.createEl("strong", {
+            text: this.areaName.trim() || t("NEW_KNOWLEDGE_AREA"),
+        });
+        input.addEventListener("input", () => {
+            previewName.setText(input.value.trim() || t("NEW_KNOWLEDGE_AREA"));
+        });
+
+        if (this.error) {
+            surface.createDiv({
+                cls: "sr-native-form-error",
+                text: this.error,
+                attr: { role: "alert" },
+            });
+        }
+
+        const actions = surface.createDiv("sr-native-form-actions");
+        new ButtonComponent(actions)
+            .setButtonText(
+                this.busy
+                    ? t("SAVING")
+                    : this.editingAreaId
+                      ? t("SAVE_CHANGES")
+                      : t("CREATE_KNOWLEDGE_AREA"),
+            )
+            .setCta()
+            .setDisabled(this.busy)
+            .onClick(() => void this.saveKnowledgeArea());
+        window.setTimeout(() => input.focus(), 0);
+    }
+
     private createFieldGroup(parent: HTMLElement, label: string, help?: string): HTMLDivElement {
         const group = parent.createDiv("sr-native-field");
         group.createEl("label", { text: label });
@@ -400,6 +482,10 @@ export class NativeCreatorView extends ItemView {
         this.render();
         try {
             this.selectedDeck = await this.store.createDeck(this.selectedDeck);
+            if (this.request.targetAreaId) {
+                const topLevelDeck = this.selectedDeck.split("/")[0];
+                await this.store.assignDeckToKnowledgeArea(topLevelDeck, this.request.targetAreaId);
+            }
             this.busy = false;
             this.front = "";
             this.back = "";
@@ -409,6 +495,32 @@ export class NativeCreatorView extends ItemView {
         } catch {
             this.busy = false;
             this.error = t("DECK_SAVE_FAILED");
+            this.render();
+        }
+    }
+
+    private async saveKnowledgeArea(): Promise<void> {
+        if (!this.areaName.trim()) {
+            this.error = t("KNOWLEDGE_AREA_NAME_REQUIRED");
+            this.render();
+            return;
+        }
+        this.busy = true;
+        this.error = "";
+        this.render();
+        try {
+            if (this.editingAreaId) {
+                await this.store.renameKnowledgeArea(this.editingAreaId, this.areaName);
+                new Notice(t("KNOWLEDGE_AREA_UPDATED"));
+            } else {
+                await this.store.createKnowledgeArea(this.areaName);
+                new Notice(t("KNOWLEDGE_AREA_CREATED"));
+            }
+            await this.plugin.dataManager.sync();
+            await this.returnToCards();
+        } catch {
+            this.busy = false;
+            this.error = t("KNOWLEDGE_AREA_SAVE_FAILED");
             this.render();
         }
     }
