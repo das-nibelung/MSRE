@@ -1294,6 +1294,7 @@ th.gridjs-th:last-child {
 }
 .sr-card-browser-summary {
   justify-content: space-between;
+  gap: var(--size-4-2);
   color: var(--text-muted);
   font-size: var(--font-ui-small);
 }
@@ -1320,7 +1321,6 @@ th.gridjs-th:last-child {
   box-shadow: none;
   text-align: start;
   white-space: normal;
-  cursor: pointer;
 }
 .sr-card-browser-row:hover,
 .sr-card-browser-row:focus-visible {
@@ -1333,6 +1333,27 @@ th.gridjs-th:last-child {
   min-width: 0;
   flex-direction: column;
   gap: var(--size-2-2);
+  cursor: pointer;
+}
+.sr-card-browser-checkbox {
+  flex: 0 0 auto;
+  margin: 0 var(--size-4-1) 0 0;
+}
+.sr-card-browser-selection-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+.sr-card-browser-selection-bar.is-empty {
+  display: none;
+}
+.sr-card-browser-selection-bar span {
+  flex: 1;
+  font-weight: var(--font-semibold);
 }
 .sr-card-browser-edit {
   flex: 0 0 auto;
@@ -1438,6 +1459,20 @@ th.gridjs-th:last-child {
   .sr-card-browser-toolbar select {
     flex: 1 1 calc(50% - var(--size-4-2));
     min-width: 0;
+  }
+  .sr-card-browser-summary button {
+    min-height: var(--input-height);
+    white-space: nowrap;
+  }
+  .sr-card-browser-selection-bar {
+    flex-wrap: wrap;
+  }
+  .sr-card-browser-selection-bar span {
+    flex-basis: 100%;
+  }
+  .sr-card-browser-checkbox {
+    width: 1.15rem;
+    height: 1.15rem;
   }
   .sr-card-browser-back {
     font-size: var(--font-ui-small);

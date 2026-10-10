@@ -6,6 +6,7 @@ import {
     Menu,
     SearchComponent,
     setIcon,
+    TFile,
     WorkspaceLeaf,
 } from "obsidian";
 
@@ -13,7 +14,7 @@ import { CARD_BROWSER_VIEW_TYPE } from "src/data/constants";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
-import { editCardFromBrowser, resetCardProgress } from "src/ui/card-actions";
+import { editCardFromBrowser, resetCardProgress, resetCardsProgress } from "src/ui/card-actions";
 import {
     CardBrowserFilter,
     CardBrowserRecord,
@@ -43,6 +44,9 @@ export class CardBrowserView extends ItemView {
     private notePath: string | null = null;
     private visibleLimit = PAGE_SIZE;
     private resultsEl: HTMLDivElement | null = null;
+    private selectionBarEl: HTMLDivElement | null = null;
+    private records: CardBrowserRecord[] = [];
+    private selectedIds = new Set<string>();
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -88,22 +92,24 @@ export class CardBrowserView extends ItemView {
     private render(): void {
         this.contentEl.empty();
         this.resultsEl = null;
+        this.selectionBarEl = null;
         this.contentEl.addClass("sr-card-browser-view");
 
         const header = this.contentEl.createDiv("sr-card-browser-header");
         header.createEl("h2", { text: t("CARD_BROWSER") });
         new ButtonComponent(header)
             .setIcon("play")
-            .setTooltip(t("START_REVIEW"))
-            .onClick(
-                () => void this.plugin.uiManager.openDeckContainer(FlashcardReviewMode.Review),
-            );
+            .setTooltip(this.notePath === null ? t("START_REVIEW") : t("REVIEW_CARDS_IN_NOTE"))
+            .onClick(() => void this.startReview());
         new ButtonComponent(header)
             .setIcon("plus")
             .setTooltip(t("CREATE_CARD"))
             .onClick(() => void this.plugin.uiManager.createStarterCardNote());
 
         const records = this.getRecords();
+        this.records = records;
+        const recordIds = new Set(records.map((record) => record.id));
+        this.selectedIds = new Set([...this.selectedIds].filter((id) => recordIds.has(id)));
         if (!this.plugin.dataManager.isOsrCoreLoaded()) {
             this.renderEmpty(t("LOADING_CARDS"), "loader-circle", false);
             return;
@@ -182,12 +188,28 @@ export class CardBrowserView extends ItemView {
             filterCardBrowserRecords(records, this.query, this.filter, this.deck, this.notePath),
             this.sort,
         );
-        this.resultsEl.createDiv("sr-card-browser-summary").setText(
-            t("CARD_BROWSER_COUNT", {
+        const summary = this.resultsEl.createDiv("sr-card-browser-summary");
+        summary.createSpan({
+            text: t("CARD_BROWSER_COUNT", {
                 shown: Math.min(filtered.length, this.visibleLimit),
                 total: filtered.length,
             }),
-        );
+        });
+        const allResultsSelected =
+            filtered.length > 0 && filtered.every((record) => this.selectedIds.has(record.id));
+        new ButtonComponent(summary)
+            .setButtonText(allResultsSelected ? t("DESELECT_ALL_RESULTS") : t("SELECT_ALL_RESULTS"))
+            .setDisabled(filtered.length === 0)
+            .onClick(() => {
+                for (const record of filtered) {
+                    if (allResultsSelected) this.selectedIds.delete(record.id);
+                    else this.selectedIds.add(record.id);
+                }
+                this.renderResults(records);
+            });
+
+        this.selectionBarEl = this.resultsEl.createDiv("sr-card-browser-selection-bar");
+        this.renderSelectionBar();
 
         if (filtered.length === 0) {
             this.renderEmpty(t("NO_CARDS_MATCH"), "search-x", false, this.resultsEl);
@@ -231,13 +253,27 @@ export class CardBrowserView extends ItemView {
     private renderCardRow(parent: HTMLElement, record: CardBrowserRecord): void {
         const row = parent.createDiv({
             cls: "sr-card-browser-row",
+        });
+        const checkbox = row.createEl("input", {
+            cls: "sr-card-browser-checkbox",
+            attr: { type: "checkbox", "aria-label": t("SELECT_CARD") },
+        });
+        checkbox.checked = this.selectedIds.has(record.id);
+        checkbox.addEventListener("click", (event) => event.stopPropagation());
+        checkbox.addEventListener("change", () => {
+            if (checkbox.checked) this.selectedIds.add(record.id);
+            else this.selectedIds.delete(record.id);
+            this.renderSelectionBar();
+        });
+
+        const body = row.createDiv({
+            cls: "sr-card-browser-row-body",
             attr: {
                 role: "button",
                 tabindex: "0",
                 "aria-label": t("OPEN_SOURCE_NOTE"),
             },
         });
-        const body = row.createDiv("sr-card-browser-row-body");
         const main = body.createDiv("sr-card-browser-row-main");
         main.createDiv("sr-card-browser-front").setText(compactCardText(record.front));
         main.createDiv("sr-card-browser-back").setText(compactCardText(record.back));
@@ -265,13 +301,63 @@ export class CardBrowserView extends ItemView {
             .onClick(() => void this.editCard(record));
         editButton.buttonEl.addEventListener("click", (event) => event.stopPropagation());
 
-        row.addEventListener("click", () => void this.openSource(record));
-        row.addEventListener("keydown", (event) => {
+        body.addEventListener("click", () => void this.openSource(record));
+        body.addEventListener("keydown", (event) => {
             if (event.key !== "Enter" && event.key !== " ") return;
             event.preventDefault();
             void this.openSource(record);
         });
         row.addEventListener("contextmenu", (event) => this.openCardMenu(event, record));
+    }
+
+    private renderSelectionBar(): void {
+        if (this.selectionBarEl === null) return;
+        this.selectionBarEl.empty();
+        const selectedRecords = this.records.filter((record) => this.selectedIds.has(record.id));
+        if (selectedRecords.length === 0) {
+            this.selectionBarEl.addClass("is-empty");
+            return;
+        }
+        this.selectionBarEl.removeClass("is-empty");
+        this.selectionBarEl.createSpan({
+            text: t("CARDS_SELECTED", { count: selectedRecords.length }),
+        });
+        new ButtonComponent(this.selectionBarEl)
+            .setIcon("history")
+            .setButtonText(t("RESET_SELECTED_PROGRESS"))
+            .setDisabled(selectedRecords.every((record) => record.card.isNew))
+            .onClick(() => this.confirmResetSelection(selectedRecords));
+        new ButtonComponent(this.selectionBarEl)
+            .setIcon("x")
+            .setTooltip(t("CLEAR_SELECTION"))
+            .onClick(() => {
+                this.selectedIds.clear();
+                this.renderResults(this.records);
+            });
+    }
+
+    private confirmResetSelection(records: CardBrowserRecord[]): void {
+        const scheduled = records.filter((record) => record.card.hasSchedule);
+        if (scheduled.length === 0) return;
+        new ConfirmationModal(
+            this.app,
+            t("RESET_SELECTED_PROGRESS"),
+            t("CONFIRM_SELECTED_PROGRESS_RESET", { count: scheduled.length }),
+            undefined,
+            async () => {
+                await resetCardsProgress(scheduled.map((record) => record.card));
+                this.selectedIds.clear();
+                this.render();
+            },
+        ).open();
+    }
+
+    private async startReview(): Promise<void> {
+        const scopedFile = this.notePath
+            ? this.app.vault.getAbstractFileByPath(this.notePath)
+            : null;
+        const file = scopedFile instanceof TFile ? scopedFile : undefined;
+        await this.plugin.uiManager.openDeckContainer(FlashcardReviewMode.Review, file);
     }
 
     private async editCard(record: CardBrowserRecord): Promise<void> {

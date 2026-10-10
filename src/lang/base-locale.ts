@@ -388,4 +388,12 @@ export interface IBaseLocale {
     CARD_CREATED_IN_NOTE: string;
     CARD_UPDATED: string;
     CARD_EDIT_CARD_COUNT_CHANGED: string;
+    SELECT_ALL_RESULTS: string;
+    DESELECT_ALL_RESULTS: string;
+    SELECT_CARD: string;
+    CARDS_SELECTED: string;
+    RESET_SELECTED_PROGRESS: string;
+    CLEAR_SELECTION: string;
+    CONFIRM_SELECTED_PROGRESS_RESET: string;
+    CARD_PROGRESS_RESET_COUNT: string;
 }

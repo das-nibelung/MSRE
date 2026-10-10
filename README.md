@@ -38,6 +38,11 @@ context menu exposes a confirmed progress reset, while scheduled cards show
 their due date, interval, and ease. Edits still write back to the original
 Markdown question, preserving Obsidian as the source of truth.
 
+The browser supports persistent multi-selection across filters, selecting all
+current search results, and resetting the selected schedules in one confirmed
+operation. When the browser is scoped to a note, its review button starts that
+note's queue directly instead of returning to the global deck picker.
+
 ## Incremental card index
 
 This fork keeps a disposable, device-local card index in IndexedDB. Unchanged

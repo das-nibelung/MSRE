@@ -93,6 +93,15 @@ const ru: IBaseLocale = {
     CARD_UPDATED: "Карточка обновлена.",
     CARD_EDIT_CARD_COUNT_CHANGED:
         "Изменение создаёт другое количество карточек. Отредактируйте исходную заметку.",
+    SELECT_ALL_RESULTS: "Выбрать результаты",
+    DESELECT_ALL_RESULTS: "Снять выбор",
+    SELECT_CARD: "Выбрать карточку",
+    CARDS_SELECTED: "Выбрано: ${count}",
+    RESET_SELECTED_PROGRESS: "Сбросить выбранные",
+    CLEAR_SELECTION: "Очистить выбор",
+    CONFIRM_SELECTED_PROGRESS_RESET:
+        "Сбросить прогресс ${count} выбранных карточек? Их история повторений будет заменена начальным расписанием.",
+    CARD_PROGRESS_RESET_COUNT: "Сброшен прогресс карточек: ${count}.",
 
     // scheduling.ts
     DAYS_STR_IVL: "${interval} дней",

@@ -457,6 +457,15 @@ const en: IBaseLocale = {
     CARD_UPDATED: "Flashcard updated.",
     CARD_EDIT_CARD_COUNT_CHANGED:
         "The edit would change the number of generated cards. Edit the source note instead.",
+    SELECT_ALL_RESULTS: "Select results",
+    DESELECT_ALL_RESULTS: "Deselect results",
+    SELECT_CARD: "Select card",
+    CARDS_SELECTED: "${count} selected",
+    RESET_SELECTED_PROGRESS: "Reset selected",
+    CLEAR_SELECTION: "Clear selection",
+    CONFIRM_SELECTED_PROGRESS_RESET:
+        "Reset the learning progress of ${count} selected cards? Their scheduling history will be replaced with the initial schedule.",
+    CARD_PROGRESS_RESET_COUNT: "Progress reset for ${count} cards.",
 };
 
 export default en;

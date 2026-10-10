@@ -48,7 +48,23 @@ export async function editCardFromBrowser(
 }
 
 export async function resetCardProgress(card: Card): Promise<void> {
-    card.scheduleInfo = SRAlgorithm.getInstance().cardGetResetSchedule();
-    await DataStore.getInstance().writeSchedule(card.question);
-    new Notice(t("CARD_PROGRESS_RESET"));
+    await resetCardsProgress([card]);
+}
+
+export async function resetCardsProgress(cards: Card[]): Promise<number> {
+    const scheduledCards = [...new Set(cards)].filter((card) => card.hasSchedule);
+    const questions = new Set(scheduledCards.map((card) => card.question));
+    for (const card of scheduledCards) {
+        card.scheduleInfo = SRAlgorithm.getInstance().cardGetResetSchedule();
+    }
+    // Write once per question so reversed and cloze siblings keep one consistent schedule block.
+    for (const question of questions) {
+        await DataStore.getInstance().writeSchedule(question);
+    }
+    if (scheduledCards.length === 1) {
+        new Notice(t("CARD_PROGRESS_RESET"));
+    } else if (scheduledCards.length > 1) {
+        new Notice(t("CARD_PROGRESS_RESET_COUNT", { count: scheduledCards.length }));
+    }
+    return scheduledCards.length;
 }
