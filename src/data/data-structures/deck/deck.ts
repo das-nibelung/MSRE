@@ -445,6 +445,16 @@ export class Deck {
         return this.copyWithRepItemFilter(() => true);
     }
 
+    pruneEmptySubdecks(): void {
+        for (const subdeck of this.subdecks) subdeck.pruneEmptySubdecks();
+        this.subdecks = this.subdecks.filter(
+            (subdeck) =>
+                subdeck.newRepItems.length > 0 ||
+                subdeck.dueRepItems.length > 0 ||
+                subdeck.subdecks.length > 0,
+        );
+    }
+
     /**
      * Copies the deck and its subdecks with a filter.
      *

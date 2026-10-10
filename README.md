@@ -25,6 +25,10 @@ create, modify, delete, and rename events invalidate only the affected note.
 Parser-setting changes automatically rebuild entries as they are encountered.
 When no files or settings have changed, reopening a deck skips the vault scan
 entirely and only refreshes due-state calculations from the loaded card tree.
+When a small set of notes changes, their previous cards are removed and only
+those notes are reparsed. The remaining in-memory deck tree and note-review
+queue stay intact. Large batches and structural folder changes automatically
+fall back to a full, safe rebuild.
 
 Markdown remains the source of truth. The index is safe to discard and is not
 written into the vault, so it does not create sync conflicts between desktop

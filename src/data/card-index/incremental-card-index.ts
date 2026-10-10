@@ -62,6 +62,10 @@ export class IncrementalCardIndex {
     }
 
     async get(noteFile: ISRNoteTFile, revision: CardIndexFileRevision): Promise<Note | undefined> {
+        if (this.dirtyPaths.has(noteFile.path)) {
+            this.stats.misses++;
+            return undefined;
+        }
         try {
             const record = await this.storage.get(noteFile.path);
             if (
@@ -114,6 +118,10 @@ export class IncrementalCardIndex {
 
     hasPendingChanges(): boolean {
         return this.dirtyPaths.size > 0;
+    }
+
+    getPendingPaths(): string[] {
+        return [...this.dirtyPaths];
     }
 
     getChangeToken(): number {

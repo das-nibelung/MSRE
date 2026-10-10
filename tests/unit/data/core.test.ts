@@ -8,6 +8,7 @@ import { NoteDueDateHistogram } from "src/scheduling/due-date-histogram";
 import { formatDateYYYYMMDD, setupStaticDateProvider20230906 } from "src/utils/dates";
 
 import { UnitTestOsrCore } from "../helpers/unit-test-core";
+import { UnitTestSRFile } from "../helpers/unit-test-file";
 import { unitTestCheckNoteFrontmatter } from "../helpers/unit-test-helper";
 import { unitTestSetupStandardDataStoreAlgorithm } from "../helpers/unit-test-setup";
 
@@ -50,6 +51,30 @@ function checkScheduledNote(
 beforeAll(() => {
     setupStaticDateProvider20230906();
     unitTestSetupStandardDataStoreAlgorithm(DEFAULT_SETTINGS);
+});
+
+test("Incrementally replaces and removes the cards from one changed note", async () => {
+    const osrCore = new UnitTestOsrCore(DEFAULT_SETTINGS);
+    const file = new UnitTestSRFile("#flashcards/language\nOne::Один", "cards.md");
+    await osrCore.loadTestVault("filesButNoQuestions");
+    await osrCore.processFile(file);
+    await osrCore.finalizeLoad();
+    checkDeckTreeCounts(osrCore, 1, 1);
+
+    file.content = "#flashcards/language\nTwo::Два\nThree::Три";
+    await osrCore.replaceFile(file);
+    await osrCore.finalizeLoad();
+    checkDeckTreeCounts(osrCore, 2, 2);
+    expect(
+        osrCore.reviewableDeckTree
+            .getFlattenedRepItemArray(RepItemState.AnyItem, true)
+            .map((card) => card.front),
+    ).toEqual(["Two", "Three"]);
+
+    osrCore.removeFile(file.path);
+    await osrCore.finalizeLoad();
+    checkDeckTreeCounts(osrCore, 0, 0);
+    expect(osrCore.reviewableDeckTree.subdecks).toHaveLength(0);
 });
 
 test("No questions in the text; no files tagged as notes", async () => {

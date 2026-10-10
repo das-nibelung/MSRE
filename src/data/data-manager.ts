@@ -41,6 +41,7 @@ export class DataManager {
     private cardIndex: IncrementalCardIndex;
     private hasLoadedVault = false;
     private lastSyncContext: string | null = null;
+    private requiresFullScan = false;
 
     constructor(
         plugin: SRPlugin,
@@ -151,6 +152,8 @@ export class DataManager {
             this.plugin.app.vault.on("delete", (file) => {
                 if (file instanceof TFile && file.extension === "md") {
                     void this.cardIndex.invalidate(file.path);
+                } else if (!(file instanceof TFile)) {
+                    this.requiresFullScan = true;
                 }
             }),
         );
@@ -159,7 +162,14 @@ export class DataManager {
                 if (file instanceof TFile && file.extension === "md") {
                     void this.cardIndex.invalidate(oldPath);
                     void this.cardIndex.invalidate(file.path);
+                } else if (!(file instanceof TFile)) {
+                    this.requiresFullScan = true;
                 }
+            }),
+        );
+        this.plugin.registerEvent(
+            this.plugin.app.metadataCache.on("changed", (file) => {
+                if (file.extension === "md") void this.cardIndex.invalidate(file.path);
             }),
         );
     }
@@ -188,9 +198,42 @@ export class DataManager {
                 this.hasLoadedVault &&
                 !parserContextChanged &&
                 !settingsChanged &&
+                !this.requiresFullScan &&
                 !this.cardIndex.hasPendingChanges()
             ) {
                 await this.osrCore.finalizeLoad();
+                return;
+            }
+
+            const pendingPaths = this.cardIndex.getPendingPaths();
+            if (
+                this.hasLoadedVault &&
+                !parserContextChanged &&
+                !settingsChanged &&
+                !this.requiresFullScan &&
+                pendingPaths.length <= 500
+            ) {
+                for (const path of pendingPaths) {
+                    const file = this.plugin.app.vault.getAbstractFileByPath(path);
+                    if (!(file instanceof TFile) || file.extension !== "md") {
+                        this.osrCore.removeFile(path);
+                        continue;
+                    }
+                    if (
+                        SettingsUtil.isPathInFoldersToIgnore(
+                            this.settingsManager.settings,
+                            file.path,
+                        )
+                    ) {
+                        this.osrCore.removeFile(path);
+                        continue;
+                    }
+                    await this.osrCore.replaceFile(this.createSRNoteTFile(file));
+                }
+
+                await this.osrCore.finalizeLoad();
+                this.cardIndex.markSynchronized(changeToken);
+                this.lastSyncContext = syncContext;
                 return;
             }
 
@@ -216,6 +259,7 @@ export class DataManager {
             this.cardIndex.markSynchronized(changeToken);
             this.hasLoadedVault = true;
             this.lastSyncContext = syncContext;
+            this.requiresFullScan = false;
             if (this.settingsManager.settings.showSchedulingDebugMessages) {
                 const stats = this.cardIndex.getStats();
                 console.log(
