@@ -58,6 +58,24 @@ export class NoteReviewQueue {
         }
     }
 
+    removeNote(path: string): void {
+        for (const [deckName, reviewDeck] of this.reviewDecks.entries()) {
+            const newNotes = reviewDeck.newNotes;
+            for (let i = newNotes.length - 1; i >= 0; i--) {
+                if (newNotes[i].path === path) newNotes.splice(i, 1);
+            }
+
+            const scheduledNotes = reviewDeck.scheduledNotes;
+            for (let i = scheduledNotes.length - 1; i >= 0; i--) {
+                if (scheduledNotes[i].note.path === path) scheduledNotes.splice(i, 1);
+            }
+
+            if (newNotes.length === 0 && scheduledNotes.length === 0) {
+                this.reviewDecks.delete(deckName);
+            }
+        }
+    }
+
     updateScheduleInfo(note: ISRNoteTFile, scheduleInfo: RepItemScheduleInfo): void {
         for (const reviewDeck of this.reviewDecks.values()) {
             const isNewNoteInDeck = reviewDeck.newNotes.some(

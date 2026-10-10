@@ -63,9 +63,10 @@ Reverse:::Back
 
         expect(await index.get(file, { ...revision, mtime: revision.mtime + 1 })).toBeUndefined();
         const changeToken = index.getChangeToken();
-        await index.invalidate(file.path);
+        const invalidation = index.invalidate(file.path);
         expect(index.hasPendingChanges()).toBe(true);
         expect(await index.get(file, revision)).toBeUndefined();
+        await invalidation;
         index.markSynchronized(changeToken);
         expect(index.hasPendingChanges()).toBe(true);
         index.markSynchronized(index.getChangeToken());

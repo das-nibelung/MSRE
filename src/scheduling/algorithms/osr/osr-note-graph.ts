@@ -23,6 +23,7 @@ export class OsrNoteGraph {
     // For simplicity, we just store the filename without the directory or filename extension
     incomingLinks: Record<string, LinkStat[]> = {};
     pageranks: Record<string, number> = {};
+    private outgoingLinks: Record<string, Record<string, number>> = {};
 
     constructor(vaultNoteLinkInfoFinder: IOsrVaultNoteLinkInfoFinder) {
         this.vaultNoteLinkInfoFinder = vaultNoteLinkInfoFinder;
@@ -32,30 +33,18 @@ export class OsrNoteGraph {
     reset() {
         this.incomingLinks = {};
         this.pageranks = {};
+        this.outgoingLinks = {};
         graph.reset();
     }
 
     processLinks(path: string) {
-        if (this.incomingLinks[path] === undefined) {
-            this.incomingLinks[path] = [];
-        }
+        this.outgoingLinks[path] = {
+            ...(this.vaultNoteLinkInfoFinder.getResolvedTargetLinksForNotePath(path) || {}),
+        };
+    }
 
-        const targetLinks =
-            this.vaultNoteLinkInfoFinder.getResolvedTargetLinksForNotePath(path) || {};
-        for (const targetPath in targetLinks) {
-            if (this.incomingLinks[targetPath] === undefined) this.incomingLinks[targetPath] = [];
-
-            // markdown files only
-            if (isSupportedFileType(targetPath)) {
-                const linkCount: number = targetLinks[targetPath];
-                this.incomingLinks[targetPath].push({
-                    sourcePath: path,
-                    linkCount,
-                });
-
-                graph.link(path, targetPath, linkCount);
-            }
-        }
+    removePath(path: string): void {
+        delete this.outgoingLinks[path];
     }
 
     calcNoteLinkStat(notePath: string, noteEaseList: INoteEaseList): NoteLinkStat {
@@ -89,6 +78,24 @@ export class OsrNoteGraph {
     }
 
     generatePageRanks() {
+        this.incomingLinks = {};
+        this.pageranks = {};
+        graph.reset();
+
+        for (const sourcePath of Object.keys(this.outgoingLinks)) {
+            if (this.incomingLinks[sourcePath] === undefined) {
+                this.incomingLinks[sourcePath] = [];
+            }
+            for (const [targetPath, linkCount] of Object.entries(this.outgoingLinks[sourcePath])) {
+                if (!isSupportedFileType(targetPath)) continue;
+                if (this.incomingLinks[targetPath] === undefined) {
+                    this.incomingLinks[targetPath] = [];
+                }
+                this.incomingLinks[targetPath].push({ sourcePath, linkCount });
+                graph.link(sourcePath, targetPath, linkCount);
+            }
+        }
+
         graph.rank(0.85, 0.000001, (node: string, rank: number) => {
             this.pageranks[node] = rank * 10000;
         });

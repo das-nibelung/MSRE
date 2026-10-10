@@ -6,6 +6,7 @@ export interface INoteEaseList {
     hasEaseForPath(path: string): boolean;
     getEaseByPath(path: string): number | null;
     setEaseForPath(path: string, ease: number): void;
+    deleteEaseForPath(path: string): void;
 }
 
 export class NoteEaseList implements INoteEaseList {
@@ -34,5 +35,9 @@ export class NoteEaseList implements INoteEaseList {
 
     setEaseForPath(path: string, ease: number): void {
         this.dict[path] = ease;
+    }
+
+    deleteEaseForPath(path: string): void {
+        delete this.dict[path];
     }
 }

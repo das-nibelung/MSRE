@@ -45,6 +45,7 @@ export class OsrCore {
     private _cardStats: Stats | null = null;
     private _dueDateFlashcardHistogram: CardDueDateHistogram;
     private _dueDateNoteHistogram: NoteDueDateHistogram;
+    private loadedNotes = new Map<string, Note>();
 
     constructor(
         questionPostponementList: QuestionPostponementList,
@@ -200,6 +201,7 @@ export class OsrCore {
 
         // reset flashcards stuff
         this.fullDeckTree = new Deck("root", null);
+        this.loadedNotes.clear();
     }
 
     /**
@@ -222,8 +224,12 @@ export class OsrCore {
         const topicPath: TopicPath = this.findTopicPath(noteFile);
         if (topicPath.hasPath && !SettingsUtil.isAnyTagIgnoredForFlashcards(this.settings, tags)) {
             note = await this.loadNote(noteFile, topicPath);
-            if (note !== null && this.fullDeckTree !== null)
+            if (note !== null && this.fullDeckTree !== null) {
                 note.appendCardsToDeck(this.fullDeckTree);
+                this.loadedNotes.set(noteFile.path, note);
+            }
+        } else {
+            this.loadedNotes.delete(noteFile.path);
         }
 
         // Give the algorithm a chance to do something with the loaded note
@@ -243,6 +249,24 @@ export class OsrCore {
         }
         const noteSchedule: RepItemScheduleInfo | null = await this.readNoteSchedule(noteFile);
         this._noteReviewQueue.addNoteToQueue(noteFile, noteSchedule, matchedNoteTags);
+    }
+
+    public removeFile(path: string): void {
+        const previousNote = this.loadedNotes.get(path);
+        if (previousNote && this.fullDeckTree) {
+            for (const question of previousNote.questionList) {
+                this.fullDeckTree.deleteQuestionFromAllDecks(question, false);
+            }
+        }
+        this.loadedNotes.delete(path);
+        this._noteReviewQueue.removeNote(path);
+        this.osrNoteGraph?.removePath(path);
+        SRAlgorithm.getInstance().noteStats().deleteEaseForPath(path);
+    }
+
+    public async replaceFile(noteFile: ISRNoteTFile): Promise<void> {
+        this.removeFile(noteFile.path);
+        await this.processFile(noteFile);
     }
 
     /**
@@ -282,6 +306,7 @@ export class OsrCore {
         if (this.fullDeckTree === null) {
             return;
         }
+        this.fullDeckTree.pruneEmptySubdecks();
         this._reviewableDeckTree = this.fullDeckTree
             ? this.fullDeckTree.clone()
             : new Deck("root", null);
