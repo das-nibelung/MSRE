@@ -3554,7 +3554,9 @@ th.gridjs-th:last-child {
 }
 .sr-native-occlusion-canvas {
   display: block;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
+  height: auto;
   max-height: min(58vh, 680px);
   object-fit: contain;
   touch-action: none;
