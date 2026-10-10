@@ -1,5 +1,14 @@
 import "src/ui/styles.css";
-import { Menu, MenuItem, Notice, Platform, TAbstractFile, TFile, WorkspaceLeaf } from "obsidian";
+import {
+    MarkdownView,
+    Menu,
+    MenuItem,
+    Notice,
+    Platform,
+    TAbstractFile,
+    TFile,
+    WorkspaceLeaf,
+} from "obsidian";
 
 import { DataStore } from "src/data/data-store/base/data-store";
 import { SettingsManager } from "src/data/settings-manager";
@@ -430,6 +439,37 @@ export class UIManager {
             this.openFlashcardModal(reviewQueueLoader);
         }
         this.focusObsidianWindow();
+    }
+
+    public async openCardBrowser(): Promise<void> {
+        await this.tabViewManager.openCardBrowser();
+    }
+
+    /** Creates a small, valid starter note so a new user can enter the first card immediately. */
+    public async createStarterCardNote(): Promise<void> {
+        const settings = this.settingsManager.settings;
+        const tag = settings.flashcardTags[0] ?? "#flashcards";
+        const separator = settings.singleLineCardSeparator;
+        let path = `${t("FLASHCARDS")}.md`;
+        let suffix = 2;
+        while (this.plugin.app.vault.getAbstractFileByPath(path)) {
+            path = `${t("FLASHCARDS")} ${suffix}.md`;
+            suffix++;
+        }
+
+        const question = t("CARD_TEMPLATE_QUESTION");
+        const answer = t("CARD_TEMPLATE_ANSWER");
+        const file = await this.plugin.app.vault.create(
+            path,
+            `${tag}\n\n${question}${separator}${answer}\n`,
+        );
+        const leaf = this.plugin.app.workspace.getLeaf("tab");
+        await leaf.openFile(file);
+        if (leaf.view instanceof MarkdownView) {
+            leaf.view.editor.setSelection({ line: 2, ch: 0 }, { line: 2, ch: question.length });
+            leaf.view.editor.focus();
+        }
+        new Notice(t("STARTER_CARD_CREATED"));
     }
 
     public openFlashcardModal(reviewQueueLoader: ReviewQueueLoader): void {

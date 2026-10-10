@@ -20,7 +20,8 @@ export class DeckContainer {
         parentEl: HTMLElement,
         changeReviewMode: (reviewMode: FlashcardReviewMode) => void,
         startReviewOfDeck: (deck: Deck) => void,
-        closeModal?: () => void,
+        openCardBrowser: () => void,
+        createStarterCardNote: () => void,
     ) {
         // Build ui
         this.containerEl = parentEl.createDiv();
@@ -29,10 +30,15 @@ export class DeckContainer {
         this.deckListHeader = new DeckListHeaderComponent(
             this.containerEl,
             changeReviewMode,
-            closeModal,
+            openCardBrowser,
         );
 
-        this.deckList = new DeckListComponent(this.containerEl, startReviewOfDeck);
+        this.deckList = new DeckListComponent(
+            this.containerEl,
+            startReviewOfDeck,
+            openCardBrowser,
+            createStarterCardNote,
+        );
     }
 
     /**

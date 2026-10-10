@@ -1,7 +1,40 @@
 .sr-deck-container {
-    .sr-no-decks-to-review {
-        padding: var(--size-4-8);
-        font-style: italic;
+    .sr-deck-empty-state {
+        min-height: 240px;
+        padding: var(--size-4-12) var(--size-4-6);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+
+        & .sr-deck-empty-state-icon {
+            color: var(--text-muted);
+            margin-bottom: var(--size-4-3);
+
+            & svg {
+                width: 42px;
+                height: 42px;
+            }
+        }
+
+        & h3 {
+            margin: 0 0 var(--size-4-2);
+        }
+
+        & p {
+            max-width: 440px;
+            margin: 0;
+            color: var(--text-muted);
+        }
+
+        & .sr-deck-empty-state-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: var(--size-4-2);
+            margin-top: var(--size-4-5);
+        }
     }
 
     .sr-scroll-wrapper {

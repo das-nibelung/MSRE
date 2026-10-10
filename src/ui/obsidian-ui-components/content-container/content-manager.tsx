@@ -110,7 +110,8 @@ export default class ContentManager {
             parentEl,
             this._changeReviewMode.bind(this),
             this._startReviewOfDeck.bind(this),
-            closeModal,
+            this.uiManager.openCardBrowser.bind(this.uiManager),
+            this.uiManager.createStarterCardNote.bind(this.uiManager),
         );
 
         this.cardContainer = new CardContainer(

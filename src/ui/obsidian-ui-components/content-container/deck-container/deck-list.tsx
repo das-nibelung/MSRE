@@ -1,5 +1,5 @@
 import "src/ui/obsidian-ui-components/content-container/deck-container/deck-list.css";
-import { setIcon } from "obsidian";
+import { ButtonComponent, setIcon } from "obsidian";
 
 import { Deck } from "src/data/data-structures/deck/deck";
 import { SRSettings } from "src/data/settings";
@@ -24,9 +24,18 @@ export default class DeckListComponent {
     private totalCardsText: HTMLDivElement;
 
     private startReviewOfDeck: (deck: Deck) => void;
+    private openCardBrowser: () => void;
+    private createStarterCardNote: () => void;
 
-    public constructor(parentEl: HTMLElement, startReviewOfDeck: (deck: Deck) => void) {
+    public constructor(
+        parentEl: HTMLElement,
+        startReviewOfDeck: (deck: Deck) => void,
+        openCardBrowser: () => void,
+        createStarterCardNote: () => void,
+    ) {
         this.startReviewOfDeck = startReviewOfDeck;
+        this.openCardBrowser = openCardBrowser;
+        this.createStarterCardNote = createStarterCardNote;
         // Prep main container
         this.scrollWrapper = parentEl.createDiv();
         this.scrollWrapper.addClass("sr-scroll-wrapper");
@@ -117,9 +126,20 @@ export default class DeckListComponent {
         );
 
         if (originDeckStats.totalCount === 0) {
-            const noDecksToReviewEl = this.treeContainer.createDiv();
-            noDecksToReviewEl.addClass("sr-no-decks-to-review");
-            noDecksToReviewEl.setText(t("NO_DECKS_TO_REVIEW"));
+            const emptyState = this.treeContainer.createDiv("sr-deck-empty-state");
+            const icon = emptyState.createDiv("sr-deck-empty-state-icon");
+            setIcon(icon, "layers-3");
+            emptyState.createEl("h3", { text: t("NO_CARDS_TITLE") });
+            emptyState.createEl("p", { text: t("NO_CARDS_DESCRIPTION") });
+
+            const actions = emptyState.createDiv("sr-deck-empty-state-actions");
+            new ButtonComponent(actions)
+                .setButtonText(t("CREATE_FIRST_CARD"))
+                .setCta()
+                .onClick(this.createStarterCardNote);
+            new ButtonComponent(actions)
+                .setButtonText(t("BROWSE_CARDS"))
+                .onClick(this.openCardBrowser);
             return;
         }
 

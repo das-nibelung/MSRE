@@ -420,6 +420,26 @@ const en: IBaseLocale = {
     COPY: "Copy",
     NO_DECKS_TO_REVIEW:
         "There are no decks with cards to review. Make sure you have created some flashcards by adding the tag 'flashcards' to a note and then add cards to it (see plugin page for details on that). In case you did all that and still don't see any decks here, then it will probably caused by a bug in the plugin. There is a known bug that happens when one reviews the cards very fast, then the system bugs out and the decks are not shown. Please try again to open the deck list after a few seconds.",
+    CARD_BROWSER: "Cards",
+    BROWSE_CARDS: "Browse cards",
+    CREATE_CARD: "Create flashcard",
+    CREATE_FIRST_CARD: "Create first card",
+    START_REVIEW: "Start review",
+    SEARCH_CARDS: "Search cards…",
+    ALL_CARDS: "All cards",
+    SCHEDULED_CARDS: "Scheduled cards",
+    LOADING_CARDS: "Loading cards…",
+    CARD_BROWSER_COUNT: "${shown} of ${total} cards",
+    NO_CARDS_TITLE: "No cards yet",
+    NO_CARDS_DESCRIPTION:
+        "Create a starter note, then replace the example question and answer with your own.",
+    NO_CARDS_MATCH: "No cards match the current search and filter.",
+    LOAD_MORE_CARDS: "Load more cards",
+    OPEN_SOURCE_NOTE: "Open source note",
+    CARD_TEMPLATE_QUESTION: "Question",
+    CARD_TEMPLATE_ANSWER: "Answer",
+    STARTER_CARD_CREATED: "Starter flashcard note created.",
+    CARD_CREATED_IN_NOTE: "Flashcard created in ${note}.",
 };
 
 export default en;

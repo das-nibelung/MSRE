@@ -502,9 +502,37 @@ body:not(.is-mobile)
 
 /* src/ui/obsidian-ui-components/content-container/deck-container/deck-list.css */
 .sr-deck-container {
-  .sr-no-decks-to-review {
-    padding: var(--size-4-8);
-    font-style: italic;
+  .sr-deck-empty-state {
+    min-height: 240px;
+    padding: var(--size-4-12) var(--size-4-6);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    & .sr-deck-empty-state-icon {
+      color: var(--text-muted);
+      margin-bottom: var(--size-4-3);
+      & svg {
+        width: 42px;
+        height: 42px;
+      }
+    }
+    & h3 {
+      margin: 0 0 var(--size-4-2);
+    }
+    & p {
+      max-width: 440px;
+      margin: 0;
+      color: var(--text-muted);
+    }
+    & .sr-deck-empty-state-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: var(--size-4-2);
+      margin-top: var(--size-4-5);
+    }
   }
   .sr-scroll-wrapper {
     height: 100px;
@@ -1198,5 +1226,164 @@ th.gridjs-th:last-child {
   gap: var(--size-4-1);
   &.mod-clickable {
     --cursor: pointer;
+  }
+}
+
+/* src/ui/card-browser/card-browser-view.css */
+.sr-card-browser-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--size-4-4);
+  gap: var(--size-4-3);
+  overflow: hidden;
+}
+.sr-card-browser-header,
+.sr-card-browser-toolbar,
+.sr-card-browser-summary,
+.sr-card-browser-row-main,
+.sr-card-browser-row-meta {
+  display: flex;
+  align-items: center;
+}
+.sr-card-browser-header {
+  gap: var(--size-4-2);
+}
+.sr-card-browser-header h2 {
+  margin: 0;
+  flex: 1;
+}
+.sr-card-browser-toolbar {
+  gap: var(--size-4-2);
+  flex-wrap: wrap;
+}
+.sr-card-browser-search {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+.sr-card-browser-search .search-input-container,
+.sr-card-browser-search input {
+  width: 100%;
+}
+.sr-card-browser-summary {
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+.sr-card-browser-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: max(var(--size-4-6), var(--safe-area-inset-bottom));
+}
+button.sr-card-browser-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  min-height: 3.25rem;
+  height: auto;
+  padding: var(--size-4-3);
+  gap: var(--size-2-2);
+  color: var(--text-normal);
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  box-shadow: none;
+  text-align: start;
+  white-space: normal;
+}
+button.sr-card-browser-row:hover,
+button.sr-card-browser-row:focus-visible {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+.sr-card-browser-row-main {
+  gap: var(--size-4-3);
+  min-width: 0;
+}
+.sr-card-browser-front,
+.sr-card-browser-back {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sr-card-browser-front {
+  font-weight: var(--font-semibold);
+}
+.sr-card-browser-back {
+  color: var(--text-muted);
+}
+.sr-card-browser-row-meta {
+  gap: var(--size-4-2);
+  min-width: 0;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+.sr-card-browser-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sr-card-browser-state {
+  flex: 0 0 auto;
+  padding: var(--size-2-1) var(--size-4-1);
+  border-radius: var(--tag-radius);
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+}
+.sr-card-browser-state.is-new {
+  background: var(--color-blue);
+}
+.sr-card-browser-state.is-due {
+  background: var(--color-red);
+}
+.sr-card-browser-state.is-scheduled {
+  background: var(--color-green);
+}
+.sr-card-browser-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-3);
+  max-width: 32rem;
+  margin: auto;
+  padding: var(--size-4-6);
+  text-align: center;
+}
+.sr-card-browser-empty-icon {
+  color: var(--text-muted);
+}
+.sr-card-browser-empty-icon svg {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+.sr-card-browser-empty h3,
+.sr-card-browser-empty p {
+  margin: 0;
+}
+.sr-card-browser-empty p {
+  color: var(--text-muted);
+}
+.sr-card-browser-load-more {
+  align-self: center;
+  margin: var(--size-4-2);
+}
+@media (max-width: 600px) {
+  .sr-card-browser-view {
+    padding: var(--size-4-2);
+  }
+  .sr-card-browser-row-main {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--size-2-1);
+  }
+  .sr-card-browser-back {
+    font-size: var(--font-ui-small);
   }
 }

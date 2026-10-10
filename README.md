@@ -17,6 +17,18 @@ Install the fork separately on desktop and iPhone. Disable the official
 `Spaced Repetition` plugin before enabling this fork so that both plugins do not
 write scheduling information to the same notes.
 
+## Obsidian-native card workflow
+
+The fork includes a persistent **Cards** view that uses the already-loaded
+incremental index instead of rescanning the vault. It supports instant search
+across questions, answers, decks, and note paths; filters for new, due, and
+scheduled cards; and opens every result at its original note block.
+
+Use **Personal Spaced Repetition: Create flashcard** from the command palette to
+turn selected text into a basic card. The plugin adds the configured flashcard
+tag when necessary. A new vault can also create its first starter card directly
+from the empty deck screen. These workflows work offline on desktop and mobile.
+
 ## Incremental card index
 
 This fork keeps a disposable, device-local card index in IndexedDB. Unchanged

@@ -353,4 +353,23 @@ export interface IBaseLocale {
     DEBUG_LOG: string;
     COPY: string;
     NO_DECKS_TO_REVIEW: string;
+    CARD_BROWSER: string;
+    BROWSE_CARDS: string;
+    CREATE_CARD: string;
+    CREATE_FIRST_CARD: string;
+    START_REVIEW: string;
+    SEARCH_CARDS: string;
+    ALL_CARDS: string;
+    SCHEDULED_CARDS: string;
+    LOADING_CARDS: string;
+    CARD_BROWSER_COUNT: string;
+    NO_CARDS_TITLE: string;
+    NO_CARDS_DESCRIPTION: string;
+    NO_CARDS_MATCH: string;
+    LOAD_MORE_CARDS: string;
+    OPEN_SOURCE_NOTE: string;
+    CARD_TEMPLATE_QUESTION: string;
+    CARD_TEMPLATE_ANSWER: string;
+    STARTER_CARD_CREATED: string;
+    CARD_CREATED_IN_NOTE: string;
 }

@@ -1,10 +1,8 @@
 import "src/ui/obsidian-ui-components/content-container/deck-container/deck-list-header.css";
-import { DropdownComponent, Platform, setIcon } from "obsidian";
+import { ButtonComponent, DropdownComponent, setIcon } from "obsidian";
 
 import { t } from "src/lang/helpers";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
-import ModalCloseButtonComponent from "src/ui/obsidian-ui-components/content-container/modal-close-button";
-import EmulatedPlatform from "src/utils/platform-detector";
 
 export default class DeckListHeaderComponent {
     private header: HTMLDivElement;
@@ -15,7 +13,7 @@ export default class DeckListHeaderComponent {
     public constructor(
         parentEl: HTMLElement,
         changeReviewMode: (reviewMode: FlashcardReviewMode) => void,
-        closeModal?: () => void,
+        openCardBrowser: () => void,
     ) {
         this.header = parentEl.createDiv();
         this.header.addClass("sr-deck-list-header");
@@ -44,26 +42,10 @@ export default class DeckListHeaderComponent {
             if (value === "Cram") changeReviewMode(FlashcardReviewMode.Cram);
         });
 
-        // TODO: Add a menu button here, if there are any more actions we want to add
-
-        // If we don't have a close modal, we don't need the close button
-        if (closeModal === undefined) return;
-
-        const closeButtonClasses = [
-            "sr-modal-close-button",
-            EmulatedPlatform().isPhone || Platform.isPhone ? "mod-raised" : "clickable-icon",
-        ];
-
-        if (EmulatedPlatform().isPhone || Platform.isPhone) {
-            closeButtonClasses.push("mod-raised");
-            closeButtonClasses.push("clickable-icon");
-        }
-
-        new ModalCloseButtonComponent(
-            this.header,
-            () => closeModal && closeModal(),
-            closeButtonClasses,
-        );
+        new ButtonComponent(this.header)
+            .setIcon("library-big")
+            .setTooltip(t("BROWSE_CARDS"))
+            .onClick(openCardBrowser);
     }
 
     public updateReviewMode(reviewMode: FlashcardReviewMode) {

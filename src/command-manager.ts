@@ -1,4 +1,4 @@
-import { Platform, TFile } from "obsidian";
+import { Editor, MarkdownView, Notice, Platform, TFile } from "obsidian";
 
 import { SettingsManager } from "src/data/settings-manager";
 import { t } from "src/lang/helpers";
@@ -266,7 +266,7 @@ export class CommandManager {
         });
 
         this.plugin.addCommand({
-            id: "srs-card-review-reset",
+            id: "srs-card-review-open-in-background",
             name: t("OPEN_IN_BACKGROUND"),
             repeatable: false,
             checkCallback: (checking: boolean) => {
@@ -299,6 +299,39 @@ export class CommandManager {
      * add all the plugin commands
      */
     private addPluginCommands() {
+        this.plugin.addCommand({
+            id: "create-basic-card",
+            name: t("CREATE_CARD"),
+            editorCallback: (editor: Editor, view: MarkdownView) => {
+                const settings = this.settingsManager.settings;
+                const selectedText = editor.getSelection().trim();
+                const question = selectedText || t("CARD_TEMPLATE_QUESTION");
+                const answer = t("CARD_TEMPLATE_ANSWER");
+                editor.replaceSelection(`${question}${settings.singleLineCardSeparator}${answer}`);
+
+                const noteText = editor.getValue();
+                const hasFlashcardTag = settings.flashcardTags.some((tag) =>
+                    noteText.includes(tag),
+                );
+                if (!hasFlashcardTag) {
+                    editor.replaceRange(`${settings.flashcardTags[0] ?? "#flashcards"}\n\n`, {
+                        line: 0,
+                        ch: 0,
+                    });
+                }
+                new Notice(t("CARD_CREATED_IN_NOTE", { note: view.file?.basename ?? "" }));
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "open-card-browser",
+            name: t("BROWSE_CARDS"),
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await this.uiManager.openCardBrowser();
+            },
+        });
+
         this.plugin.addCommand({
             id: "srs-note-review-open-note",
             name: t("OPEN_NOTE_FOR_REVIEW"),

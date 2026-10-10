@@ -1,8 +1,9 @@
 import { PaneType, WorkspaceLeaf } from "obsidian";
 
-import { SR_TAB_VIEW } from "src/data/constants";
+import { CARD_BROWSER_VIEW_TYPE, SR_TAB_VIEW } from "src/data/constants";
 import { SettingsManager } from "src/data/settings-manager";
 import SRPlugin from "src/main";
+import { CardBrowserView } from "src/ui/card-browser/card-browser-view";
 import { SRTabView } from "src/ui/obsidian-ui-components/item-views/sr-tab-view";
 import { ReviewQueueLoader } from "src/ui/review-queue-loader";
 import { TabViewType } from "src/utils/types";
@@ -36,6 +37,10 @@ export default class TabViewManager {
                 );
             },
         },
+        {
+            type: CARD_BROWSER_VIEW_TYPE,
+            viewCreator: (leaf) => new CardBrowserView(leaf, this.plugin),
+        },
     ];
 
     // Add any needed resource
@@ -63,6 +68,16 @@ export default class TabViewManager {
         await this.openTabView(SR_TAB_VIEW, true);
     }
 
+    public async openCardBrowser(): Promise<void> {
+        await this.openTabView(CARD_BROWSER_VIEW_TYPE, true);
+    }
+
+    public refreshCardBrowser(): void {
+        for (const leaf of this.plugin.app.workspace.getLeavesOfType(CARD_BROWSER_VIEW_TYPE)) {
+            if (leaf.view instanceof CardBrowserView) leaf.view.refresh();
+        }
+    }
+
     /**
      * Closes all open tab views in the application.
      *
@@ -70,11 +85,9 @@ export default class TabViewManager {
      * their corresponding leaves from the workspace, effectively closing them.
      */
     public closeAllTabViews() {
-        this.forEachTabViewType((viewType) => {
-            this.plugin.app.workspace
-                .getLeavesOfType(viewType.type)
-                .forEach((leaf: WorkspaceLeaf) => leaf.detach());
-        });
+        this.plugin.app.workspace
+            .getLeavesOfType(SR_TAB_VIEW)
+            .forEach((leaf: WorkspaceLeaf) => leaf.detach());
     }
 
     public forEachTabViewType(callback: (type: TabViewType) => void) {
