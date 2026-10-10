@@ -3,6 +3,7 @@ import { ButtonComponent, DropdownComponent, setIcon } from "obsidian";
 
 import { t } from "src/lang/helpers";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
+import ModalCloseButtonComponent from "src/ui/obsidian-ui-components/content-container/modal-close-button";
 
 export default class DeckListHeaderComponent {
     private header: HTMLDivElement;
@@ -14,6 +15,7 @@ export default class DeckListHeaderComponent {
         parentEl: HTMLElement,
         changeReviewMode: (reviewMode: FlashcardReviewMode) => void,
         openCardBrowser: () => void,
+        closeModal?: () => void,
     ) {
         this.header = parentEl.createDiv();
         this.header.addClass("sr-deck-list-header");
@@ -46,6 +48,10 @@ export default class DeckListHeaderComponent {
             .setIcon("library-big")
             .setTooltip(t("BROWSE_CARDS"))
             .onClick(openCardBrowser);
+
+        if (closeModal !== undefined) {
+            new ModalCloseButtonComponent(this.header, closeModal, ["sr-deck-close-button"]);
+        }
     }
 
     public updateReviewMode(reviewMode: FlashcardReviewMode) {

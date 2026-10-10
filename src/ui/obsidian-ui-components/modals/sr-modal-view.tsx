@@ -43,6 +43,7 @@ export class SRModalView extends Modal {
 
         this.modalEl.setAttribute("id", "sr-modal-view");
         this.modalEl.addClass("sr-view");
+        this.containerEl.addClass("sr-modal-host");
 
         this.contentEl.addClass("sr-modal-content");
 

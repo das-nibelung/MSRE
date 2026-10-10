@@ -8,6 +8,11 @@
     border-bottom: 1px solid var(--background-modifier-border);
     padding: var(--size-4-2);
 
+    & > select {
+        min-width: 0;
+        max-width: min(40vw, 190px);
+    }
+
     & .sr-deck-icon {
         display: flex;
     }
@@ -17,6 +22,22 @@
         font-weight: var(--font-semibold);
         text-align: center;
         line-height: var(--line-height-tight);
+    }
+}
+
+.is-phone #sr-modal-view .sr-deck-list-header {
+    gap: var(--size-4-1);
+    padding-inline: var(--size-4-2);
+
+    & .sr-button,
+    & button {
+        flex: 0 0 auto;
+        min-width: var(--interactive-size);
+        min-height: var(--interactive-size);
+    }
+
+    & .sr-title {
+        white-space: nowrap;
     }
 }
 

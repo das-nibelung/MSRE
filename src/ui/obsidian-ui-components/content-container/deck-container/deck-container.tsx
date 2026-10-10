@@ -22,6 +22,7 @@ export class DeckContainer {
         startReviewOfDeck: (deck: Deck) => void,
         openCardBrowser: () => void,
         createStarterCardNote: () => void,
+        closeModal?: () => void,
     ) {
         // Build ui
         this.containerEl = parentEl.createDiv();
@@ -31,6 +32,7 @@ export class DeckContainer {
             this.containerEl,
             changeReviewMode,
             openCardBrowser,
+            closeModal,
         );
 
         this.deckList = new DeckListComponent(

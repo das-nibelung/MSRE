@@ -11,9 +11,9 @@
     padding: 0;
 }
 
-#sr-modal-view .modal-close-button,
+.sr-modal-host .modal-close-button,
 #sr-modal-view .modal-header {
-    display: none;
+    display: none !important;
 }
 
 body:not(.is-mobile) #sr-modal-view {
