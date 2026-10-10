@@ -1,10 +1,11 @@
-import { Editor, MarkdownView, Notice, Platform, TFile } from "obsidian";
+import { Editor, MarkdownView, Platform, TFile } from "obsidian";
 
 import { SettingsManager } from "src/data/settings-manager";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
+import { createCardInEditor } from "src/ui/card-creation";
 import { UIManager, UIState } from "src/ui/ui-manager";
 import EmulatedPlatform from "src/utils/platform-detector";
 
@@ -303,23 +304,38 @@ export class CommandManager {
             id: "create-basic-card",
             name: t("CREATE_CARD"),
             editorCallback: (editor: Editor, view: MarkdownView) => {
-                const settings = this.settingsManager.settings;
-                const selectedText = editor.getSelection().trim();
-                const question = selectedText || t("CARD_TEMPLATE_QUESTION");
-                const answer = t("CARD_TEMPLATE_ANSWER");
-                editor.replaceSelection(`${question}${settings.singleLineCardSeparator}${answer}`);
-
-                const noteText = editor.getValue();
-                const hasFlashcardTag = settings.flashcardTags.some((tag) =>
-                    noteText.includes(tag),
+                createCardInEditor(
+                    editor,
+                    this.settingsManager.settings,
+                    "basic",
+                    view.file?.basename ?? "",
                 );
-                if (!hasFlashcardTag) {
-                    editor.replaceRange(`${settings.flashcardTags[0] ?? "#flashcards"}\n\n`, {
-                        line: 0,
-                        ch: 0,
-                    });
-                }
-                new Notice(t("CARD_CREATED_IN_NOTE", { note: view.file?.basename ?? "" }));
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "create-reversed-card",
+            name: t("CREATE_REVERSED_CARD"),
+            editorCallback: (editor: Editor, view: MarkdownView) => {
+                createCardInEditor(
+                    editor,
+                    this.settingsManager.settings,
+                    "reversed",
+                    view.file?.basename ?? "",
+                );
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "create-cloze-card",
+            name: t("CREATE_CLOZE_CARD"),
+            editorCallback: (editor: Editor, view: MarkdownView) => {
+                createCardInEditor(
+                    editor,
+                    this.settingsManager.settings,
+                    "cloze",
+                    view.file?.basename ?? "",
+                );
             },
         });
 
@@ -329,6 +345,17 @@ export class CommandManager {
             callback: async () => {
                 if (!this.plugin.isInitialized) return;
                 await this.uiManager.openCardBrowser();
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "browse-cards-in-current-note",
+            name: t("BROWSE_CARDS_IN_NOTE"),
+            checkCallback: (checking) => {
+                const file = this.plugin.app.workspace.getActiveFile();
+                if (!this.plugin.isInitialized || !file || file.extension !== "md") return false;
+                if (!checking) void this.uiManager.openCardBrowser(file.path);
+                return true;
             },
         });
 

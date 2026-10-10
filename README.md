@@ -29,6 +29,11 @@ turn selected text into a basic card. The plugin adds the configured flashcard
 tag when necessary. A new vault can also create its first starter card directly
 from the empty deck screen. These workflows work offline on desktop and mobile.
 
+The editor context menu can also create basic, two-way, and cloze cards from a
+selection. The file menu opens the browser already filtered to the current note.
+Inside the browser, cards can be narrowed by scheduling state and deck, then
+sorted by due status, question, or source note without rescanning Markdown.
+
 ## Incremental card index
 
 This fork keeps a disposable, device-local card index in IndexedDB. Unchanged

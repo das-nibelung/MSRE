@@ -2,6 +2,8 @@ import { Card } from "src/data/data-structures/card/card";
 import {
     CardBrowserRecord,
     filterCardBrowserRecords,
+    getCardBrowserDeckNames,
+    sortCardBrowserRecords,
 } from "src/ui/card-browser/card-browser-model";
 
 function record(overrides: Partial<CardBrowserRecord>): CardBrowserRecord {
@@ -56,5 +58,35 @@ describe("card browser filtering", () => {
         expect(filterCardBrowserRecords(records, "", "new")).toEqual([records[0]]);
         expect(filterCardBrowserRecords(records, "", "due")).toEqual([records[1]]);
         expect(filterCardBrowserRecords(records, "", "scheduled")).toEqual([records[2]]);
+    });
+
+    it("combines deck and note filters", () => {
+        expect(filterCardBrowserRecords(records, "", "all", "Medicine")).toEqual([records[1]]);
+        expect(filterCardBrowserRecords(records, "", "all", "all", "Math/Calculus.md")).toEqual([
+            records[2],
+        ]);
+    });
+
+    it("returns a unique alphabetical deck list", () => {
+        expect(
+            getCardBrowserDeckNames([
+                ...records,
+                record({ id: "card-4", deckNames: ["Medicine", "Biology"] }),
+            ]),
+        ).toEqual(["Biology", "Law/Procedure", "Math", "Medicine"]);
+    });
+
+    it("sorts cards without mutating the loaded index order", () => {
+        expect(sortCardBrowserRecords(records, "due").map(({ id }) => id)).toEqual([
+            "card-2",
+            "card-1",
+            "card-3",
+        ]);
+        expect(sortCardBrowserRecords(records, "front").map(({ id }) => id)).toEqual([
+            "card-3",
+            "card-2",
+            "card-1",
+        ]);
+        expect(records.map(({ id }) => id)).toEqual(["card-1", "card-2", "card-3"]);
     });
 });

@@ -1241,10 +1241,37 @@ th.gridjs-th:last-child {
 .sr-card-browser-header,
 .sr-card-browser-toolbar,
 .sr-card-browser-summary,
+.sr-card-browser-scope,
 .sr-card-browser-row-main,
 .sr-card-browser-row-meta {
   display: flex;
   align-items: center;
+}
+.sr-card-browser-results {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--size-4-3);
+}
+.sr-card-browser-scope {
+  align-self: flex-start;
+  gap: var(--size-4-1);
+  max-width: 100%;
+  padding: var(--size-2-2) var(--size-4-2);
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-small);
+}
+.sr-card-browser-scope span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sr-card-browser-scope button {
+  flex: 0 0 auto;
+  padding: var(--size-2-1);
 }
 .sr-card-browser-header {
   gap: var(--size-4-2);
@@ -1382,6 +1409,10 @@ button.sr-card-browser-row:focus-visible {
     align-items: flex-start;
     flex-direction: column;
     gap: var(--size-2-1);
+  }
+  .sr-card-browser-toolbar select {
+    flex: 1 1 calc(50% - var(--size-4-2));
+    min-width: 0;
   }
   .sr-card-browser-back {
     font-size: var(--font-ui-small);

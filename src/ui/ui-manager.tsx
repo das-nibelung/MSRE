@@ -1,5 +1,7 @@
 import "src/ui/styles.css";
 import {
+    Editor,
+    MarkdownFileInfo,
     MarkdownView,
     Menu,
     MenuItem,
@@ -17,6 +19,7 @@ import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { RepItemState, ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
+import { CardCreationMode, createCardInEditor } from "src/ui/card-creation";
 import ContentManager from "src/ui/obsidian-ui-components/content-container/content-manager";
 import { SRTabView } from "src/ui/obsidian-ui-components/item-views/sr-tab-view";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
@@ -93,6 +96,11 @@ export class UIManager {
         this.plugin.registerEvent(
             this.plugin.app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile) => {
                 this.fileMenuHandler(menu, file);
+            }),
+        );
+        this.plugin.registerEvent(
+            this.plugin.app.workspace.on("editor-menu", (menu, editor, info) => {
+                this.editorMenuHandler(menu, editor, info);
             }),
         );
 
@@ -441,8 +449,8 @@ export class UIManager {
         this.focusObsidianWindow();
     }
 
-    public async openCardBrowser(): Promise<void> {
-        await this.tabViewManager.openCardBrowser();
+    public async openCardBrowser(notePath: string | null = null): Promise<void> {
+        await this.tabViewManager.openCardBrowser(notePath);
     }
 
     /** Creates a small, valid starter note so a new user can enter the first card immediately. */
@@ -495,6 +503,13 @@ export class UIManager {
         if (!(file instanceof TFile && file.extension === "md")) return;
 
         const settings = this.settingsManager.settings;
+
+        menu.addItem((item) => {
+            item.setTitle(t("BROWSE_CARDS_IN_NOTE"))
+                .setIcon("library-big")
+                .setSection("spaced-repetition")
+                .onClick(() => void this.openCardBrowser(file.path));
+        });
 
         if (settings.showFileMenuReviewOptions) {
             menu.addItem((item: MenuItem) => {
@@ -591,6 +606,34 @@ export class UIManager {
                         ).open();
                     });
             });
+        }
+    }
+
+    private editorMenuHandler(
+        menu: Menu,
+        editor: Editor,
+        info: MarkdownView | MarkdownFileInfo,
+    ): void {
+        const addCardAction = (mode: CardCreationMode, title: string, icon: string) => {
+            menu.addItem((item) => {
+                item.setTitle(title)
+                    .setIcon(icon)
+                    .setSection("spaced-repetition")
+                    .onClick(() =>
+                        createCardInEditor(
+                            editor,
+                            this.settingsManager.settings,
+                            mode,
+                            info.file?.basename ?? "",
+                        ),
+                    );
+            });
+        };
+
+        addCardAction("basic", t("CREATE_CARD"), "rectangle-horizontal");
+        addCardAction("reversed", t("CREATE_REVERSED_CARD"), "repeat-2");
+        if (editor.somethingSelected()) {
+            addCardAction("cloze", t("CREATE_CLOZE_CARD"), "text-cursor-input");
         }
     }
 }

@@ -15,8 +15,11 @@ import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
 import {
     CardBrowserFilter,
     CardBrowserRecord,
+    CardBrowserSort,
     createCardBrowserRecords,
     filterCardBrowserRecords,
+    getCardBrowserDeckNames,
+    sortCardBrowserRecords,
 } from "src/ui/card-browser/card-browser-model";
 
 const PAGE_SIZE = 100;
@@ -32,7 +35,11 @@ function compactCardText(value: string): string {
 export class CardBrowserView extends ItemView {
     private query = "";
     private filter: CardBrowserFilter = "all";
+    private deck = "all";
+    private sort: CardBrowserSort = "due";
+    private notePath: string | null = null;
     private visibleLimit = PAGE_SIZE;
+    private resultsEl: HTMLDivElement | null = null;
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -64,6 +71,12 @@ export class CardBrowserView extends ItemView {
         if (this.contentEl.isShown()) this.render();
     }
 
+    setNoteScope(notePath: string | null): void {
+        this.notePath = notePath;
+        this.visibleLimit = PAGE_SIZE;
+        this.render();
+    }
+
     private getRecords(): CardBrowserRecord[] {
         if (!this.plugin.dataManager.isOsrCoreLoaded()) return [];
         return createCardBrowserRecords(this.plugin.dataManager.osrCore.getAllCards());
@@ -71,6 +84,7 @@ export class CardBrowserView extends ItemView {
 
     private render(): void {
         this.contentEl.empty();
+        this.resultsEl = null;
         this.contentEl.addClass("sr-card-browser-view");
 
         const header = this.contentEl.createDiv("sr-card-browser-header");
@@ -104,7 +118,7 @@ export class CardBrowserView extends ItemView {
             .onChange((value) => {
                 this.query = value;
                 this.visibleLimit = PAGE_SIZE;
-                this.render();
+                this.renderResults(records);
             });
         new DropdownComponent(toolbar)
             .addOptions({
@@ -117,20 +131,66 @@ export class CardBrowserView extends ItemView {
             .onChange((value) => {
                 this.filter = value as CardBrowserFilter;
                 this.visibleLimit = PAGE_SIZE;
-                this.render();
+                this.renderResults(records);
             });
 
-        const filtered = filterCardBrowserRecords(records, this.query, this.filter);
-        this.contentEl
-            .createDiv("sr-card-browser-summary")
-            .setText(t("CARD_BROWSER_COUNT", { shown: filtered.length, total: records.length }));
+        const deckDropdown = new DropdownComponent(toolbar).addOption("all", t("ALL_DECKS"));
+        for (const deckName of getCardBrowserDeckNames(records)) {
+            deckDropdown.addOption(deckName, deckName);
+        }
+        deckDropdown.setValue(this.deck).onChange((value) => {
+            this.deck = value;
+            this.visibleLimit = PAGE_SIZE;
+            this.renderResults(records);
+        });
+
+        new DropdownComponent(toolbar)
+            .addOptions({
+                due: t("SORT_BY_DUE"),
+                front: t("SORT_BY_FRONT"),
+                note: t("SORT_BY_NOTE"),
+            })
+            .setValue(this.sort)
+            .onChange((value) => {
+                this.sort = value as CardBrowserSort;
+                this.visibleLimit = PAGE_SIZE;
+                this.renderResults(records);
+            });
+
+        if (this.notePath !== null) {
+            const scope = this.contentEl.createDiv("sr-card-browser-scope");
+            scope.createSpan({ text: t("CARDS_IN_NOTE", { note: this.notePath }) });
+            new ButtonComponent(scope)
+                .setIcon("x")
+                .setTooltip(t("CLEAR_NOTE_FILTER"))
+                .onClick(() => this.setNoteScope(null));
+        }
+
+        this.resultsEl = this.contentEl.createDiv("sr-card-browser-results");
+        this.renderResults(records);
+    }
+
+    private renderResults(records: CardBrowserRecord[]): void {
+        if (this.resultsEl === null) return;
+        this.resultsEl.empty();
+
+        const filtered = sortCardBrowserRecords(
+            filterCardBrowserRecords(records, this.query, this.filter, this.deck, this.notePath),
+            this.sort,
+        );
+        this.resultsEl.createDiv("sr-card-browser-summary").setText(
+            t("CARD_BROWSER_COUNT", {
+                shown: Math.min(filtered.length, this.visibleLimit),
+                total: filtered.length,
+            }),
+        );
 
         if (filtered.length === 0) {
-            this.renderEmpty(t("NO_CARDS_MATCH"), "search-x", false);
+            this.renderEmpty(t("NO_CARDS_MATCH"), "search-x", false, this.resultsEl);
             return;
         }
 
-        const list = this.contentEl.createDiv("sr-card-browser-list");
+        const list = this.resultsEl.createDiv("sr-card-browser-list");
         for (const record of filtered.slice(0, this.visibleLimit)) {
             this.renderCardRow(list, record);
         }
@@ -140,13 +200,18 @@ export class CardBrowserView extends ItemView {
                 .setClass("sr-card-browser-load-more")
                 .onClick(() => {
                     this.visibleLimit += PAGE_SIZE;
-                    this.render();
+                    this.renderResults(records);
                 });
         }
     }
 
-    private renderEmpty(message: string, icon: string, showCreateButton: boolean): void {
-        const empty = this.contentEl.createDiv("sr-card-browser-empty");
+    private renderEmpty(
+        message: string,
+        icon: string,
+        showCreateButton: boolean,
+        parent: HTMLElement = this.contentEl,
+    ): void {
+        const empty = parent.createDiv("sr-card-browser-empty");
         const iconEl = empty.createDiv("sr-card-browser-empty-icon");
         setIcon(iconEl, icon);
         empty.createEl("h3", { text: showCreateButton ? t("NO_CARDS_TITLE") : message });

@@ -68,8 +68,9 @@ export default class TabViewManager {
         await this.openTabView(SR_TAB_VIEW, true);
     }
 
-    public async openCardBrowser(): Promise<void> {
-        await this.openTabView(CARD_BROWSER_VIEW_TYPE, true);
+    public async openCardBrowser(notePath: string | null = null): Promise<void> {
+        const leaf = await this.openTabView(CARD_BROWSER_VIEW_TYPE, true);
+        if (leaf?.view instanceof CardBrowserView) leaf.view.setNoteScope(notePath);
     }
 
     public refreshCardBrowser(): void {
@@ -100,7 +101,10 @@ export default class TabViewManager {
         );
     }
 
-    public async openTabView(type: string, newLeaf?: PaneType | boolean) {
+    public async openTabView(
+        type: string,
+        newLeaf?: PaneType | boolean,
+    ): Promise<WorkspaceLeaf | null> {
         const { workspace } = this.plugin.app;
 
         let leaf: WorkspaceLeaf | null;
@@ -121,5 +125,6 @@ export default class TabViewManager {
         if (leaf !== null && leaf !== undefined) {
             await workspace.revealLeaf(leaf);
         }
+        return leaf ?? null;
     }
 }

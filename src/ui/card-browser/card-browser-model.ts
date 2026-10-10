@@ -2,6 +2,7 @@ import { Card } from "src/data/data-structures/card/card";
 
 export type CardBrowserFilter = "all" | "new" | "due" | "scheduled";
 export type CardBrowserState = Exclude<CardBrowserFilter, "all">;
+export type CardBrowserSort = "due" | "front" | "note";
 
 export interface CardBrowserRecord {
     card: Card;
@@ -51,13 +52,41 @@ export function filterCardBrowserRecords(
     records: CardBrowserRecord[],
     query: string,
     filter: CardBrowserFilter,
+    deck: string = "all",
+    notePath: string | null = null,
 ): CardBrowserRecord[] {
     const normalizedQuery = normalizeForSearch(query);
     return records.filter((record) => {
         if (filter !== "all" && record.state !== filter) return false;
+        if (deck !== "all" && !record.deckNames.includes(deck)) return false;
+        if (notePath !== null && record.notePath !== notePath) return false;
         if (!normalizedQuery) return true;
         return normalizeForSearch(
             [record.front, record.back, record.notePath, ...record.deckNames].join(" "),
         ).includes(normalizedQuery);
+    });
+}
+
+export function getCardBrowserDeckNames(records: CardBrowserRecord[]): string[] {
+    return [...new Set(records.flatMap((record) => record.deckNames))].sort((left, right) =>
+        left.localeCompare(right),
+    );
+}
+
+export function sortCardBrowserRecords(
+    records: CardBrowserRecord[],
+    sort: CardBrowserSort,
+): CardBrowserRecord[] {
+    const stateOrder: Record<CardBrowserState, number> = { due: 0, new: 1, scheduled: 2 };
+    return [...records].sort((left, right) => {
+        let result = 0;
+        if (sort === "front")
+            result = normalizeForSearch(left.front).localeCompare(normalizeForSearch(right.front));
+        if (sort === "note") result = left.notePath.localeCompare(right.notePath);
+        if (sort === "due") {
+            result = stateOrder[left.state] - stateOrder[right.state];
+            if (result === 0) result = (left.dueDate ?? "").localeCompare(right.dueDate ?? "");
+        }
+        return result || left.id.localeCompare(right.id);
     });
 }
