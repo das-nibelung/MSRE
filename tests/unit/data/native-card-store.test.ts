@@ -7,6 +7,7 @@ import {
     NativeCardStore,
     normalizeManagedDeckPath,
     renderNoteTypeTemplate,
+    serializeImageOcclusionBody,
     serializeNativeCard,
     serializeStructuredNoteBody,
 } from "src/data/native-card-store";
@@ -177,6 +178,103 @@ describe("native card storage", () => {
         );
         expect(cloze).toContain("==powerhouse==");
         expect(parse(cloze, DEFAULT_SETTINGS)[0].cardType).toBe(CardType.Cloze);
+
+        const boldCloze = serializeNativeCard(
+            {
+                deckPath: "Biology",
+                type: "cloze",
+                front: "The cell has a nucleus.",
+                back: "nucleus",
+            },
+            { ...DEFAULT_SETTINGS, clozePatterns: ["**"] },
+        );
+        expect(boldCloze).toContain("**nucleus**");
+    });
+
+    it("serializes labelled image occlusion siblings with typed-answer metadata", () => {
+        const result = serializeImageOcclusionBody(
+            [
+                {
+                    maskId: "heart",
+                    questionPath: "Media/heart-question.png",
+                    answerPath: "Media/heart-answer.png",
+                    label: "Left ventricle",
+                },
+                {
+                    maskId: "lung",
+                    questionPath: "Media/lung-question.png",
+                    answerPath: "Media/lung-answer.png",
+                    label: "",
+                },
+            ],
+            "^occlusion-note",
+            DEFAULT_SETTINGS.multilineCardSeparator,
+        );
+
+        expect(parse(`#flashcards\n\n${result.body}\n`, DEFAULT_SETTINGS)).toHaveLength(2);
+        expect(result.legacyQuestionIds).toEqual({
+            0: "^occlusion-note-1",
+            1: "^occlusion-note-2",
+        });
+        expect(result.body).toContain("sr-typed-answer: Left%20ventricle");
+        expect(result.body).not.toContain("sr-typed-answer:  -->");
+    });
+
+    it("creates and updates grouped image occlusion notes", async () => {
+        const harness = createStoreHarness();
+        const draft = {
+            deckPath: "Medicine/Anatomy",
+            sourcePath: "Spaced Repetition/Media/anatomy.png",
+            masksJson: JSON.stringify([{ id: "heart", label: "Heart" }]),
+            mode: "hide-all" as const,
+            assets: [
+                {
+                    maskId: "heart",
+                    questionPath: "Spaced Repetition/Media/heart-q.png",
+                    answerPath: "Spaced Repetition/Media/heart-a.png",
+                    label: "Heart",
+                },
+            ],
+            tags: ["anatomy"],
+        };
+
+        const file = await harness.store.createImageOcclusionNote(draft);
+        expect(harness.createdContents.get(file.path)).toContain("sr-typed-answer: Heart");
+        expect(harness.collectionStore.createNote).toHaveBeenCalledWith(
+            expect.objectContaining({
+                noteTypeId: "builtin-image-occlusion",
+                legacyQuestionIds: { 0: "^sr-data-id-note-fixed-1" },
+            }),
+        );
+        const inboxFile = await harness.store.createImageOcclusionNote({
+            ...draft,
+            deckPath: "",
+            masksJson: "[]",
+            assets: [],
+        });
+        expect(inboxFile.path).toContain("/Cards/Inbox/");
+
+        await harness.store.updateImageOcclusionNote(
+            {
+                id: "note-fixed",
+                noteTypeId: "builtin-image-occlusion",
+                fields: {},
+                tags: [],
+                source: {
+                    kind: "managed",
+                    path: file.path,
+                    questionId: null,
+                },
+                createdAt: 1,
+                updatedAt: 1,
+            },
+            { ...draft, mode: "hide-one" },
+        );
+        expect(harness.modifiedContents.get(file.path)).toContain("Heart");
+        expect(harness.collectionStore.updateNote).toHaveBeenCalledWith(
+            "note-fixed",
+            expect.objectContaining({ legacyQuestionIds: { 0: "^sr-data-id-note-fixed-1" } }),
+        );
     });
 
     it("creates a structured note with stable ids for every template", async () => {

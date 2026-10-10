@@ -46,6 +46,23 @@ export interface ImageOcclusionNoteDraft {
     tags?: string[];
 }
 
+export function serializeImageOcclusionBody(
+    assets: ImageOcclusionAssetDraft[],
+    baseQuestionId: string,
+    separator: string,
+): { body: string; legacyQuestionIds: Record<number, string> } {
+    const legacyQuestionIds: Record<number, string> = {};
+    const cards = assets.map((asset, index) => {
+        const questionId = `${baseQuestionId}-${index + 1}`;
+        legacyQuestionIds[index] = questionId;
+        const label = asset.label.trim();
+        const marker = label ? `\n<!-- sr-typed-answer: ${encodeURIComponent(label)} -->` : "";
+        const answer = [`![[${asset.answerPath}]]`, label].filter(Boolean).join("\n\n");
+        return `![[${asset.questionPath}]]\n${separator}\n${answer}${marker} ${questionId}`;
+    });
+    return { body: cards.join("\n\n"), legacyQuestionIds };
+}
+
 const FALLBACK_ROOT_TAG = "#flashcards";
 
 export function normalizeManagedDeckPath(value: string): string {
@@ -436,9 +453,10 @@ export class NativeCardStore {
         if (normalizedDeck) await this.createDeck(normalizedDeck);
         const noteId = collection.createId("note");
         const baseQuestionId = `^sr-data-id-${noteId}`;
-        const { body, legacyQuestionIds } = this.serializeImageOcclusionBody(
+        const { body, legacyQuestionIds } = serializeImageOcclusionBody(
             draft.assets,
             baseQuestionId,
+            this.plugin.dataManager.data.settings.multilineCardSeparator,
         );
         const settings = this.plugin.dataManager.data.settings;
         const rootTag = (settings.flashcardTags[0] ?? FALLBACK_ROOT_TAG).replace(/\/+$/g, "");
@@ -484,9 +502,10 @@ export class NativeCardStore {
         const normalizedDeck = normalizeManagedDeckPath(draft.deckPath);
         if (normalizedDeck) await this.createDeck(normalizedDeck);
         const baseQuestionId = note.source.questionId ?? `^sr-data-id-${note.id}`;
-        const { body, legacyQuestionIds } = this.serializeImageOcclusionBody(
+        const { body, legacyQuestionIds } = serializeImageOcclusionBody(
             draft.assets,
             baseQuestionId,
+            this.plugin.dataManager.data.settings.multilineCardSeparator,
         );
         const settings = this.plugin.dataManager.data.settings;
         const rootTag = (settings.flashcardTags[0] ?? FALLBACK_ROOT_TAG).replace(/\/+$/g, "");
@@ -508,23 +527,6 @@ export class NativeCardStore {
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
         return file;
-    }
-
-    private serializeImageOcclusionBody(
-        assets: ImageOcclusionAssetDraft[],
-        baseQuestionId: string,
-    ): { body: string; legacyQuestionIds: Record<number, string> } {
-        const separator = this.plugin.dataManager.data.settings.multilineCardSeparator;
-        const legacyQuestionIds: Record<number, string> = {};
-        const cards = assets.map((asset, index) => {
-            const questionId = `${baseQuestionId}-${index + 1}`;
-            legacyQuestionIds[index] = questionId;
-            const label = asset.label.trim();
-            const marker = label ? `\n<!-- sr-typed-answer: ${encodeURIComponent(label)} -->` : "";
-            const answer = [`![[${asset.answerPath}]]`, label].filter(Boolean).join("\n\n");
-            return `![[${asset.questionPath}]]\n${separator}\n${answer}${marker} ${questionId}`;
-        });
-        return { body: cards.join("\n\n"), legacyQuestionIds };
     }
 
     async updateStructuredNote(note: CollectionNote, draft: StructuredNoteDraft): Promise<TFile> {
