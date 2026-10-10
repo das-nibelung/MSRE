@@ -51,6 +51,9 @@ four adaptive rating controls, swipe shortcuts, one-step source-note access,
 single-level review undo, and an end-of-session summary. Keyboard review follows
 the familiar `1` Again, `2` Hard, `3` Good, `4` Easy layout, with `Ctrl/Cmd+Z`
 for undo. Visible controls remain available for every gesture action.
+Mobile review opens as a native Obsidian workspace view to keep controls clear
+of the iOS status bar. The study canvas uses a centered layered card, adaptive
+reading typography, and a compact response dock.
 
 ## Incremental card index
 

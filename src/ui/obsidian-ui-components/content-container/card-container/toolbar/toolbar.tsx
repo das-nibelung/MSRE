@@ -9,7 +9,6 @@ import CardMenuButtonComponent from "src/ui/obsidian-ui-components/content-conta
 import EditButtonComponent from "src/ui/obsidian-ui-components/content-container/card-container/toolbar/toolbar-buttons/edit-button";
 import ResetButtonComponent from "src/ui/obsidian-ui-components/content-container/card-container/toolbar/toolbar-buttons/reset-button";
 import SkipButtonComponent from "src/ui/obsidian-ui-components/content-container/card-container/toolbar/toolbar-buttons/skip-button";
-import ModalCloseButtonComponent from "src/ui/obsidian-ui-components/content-container/modal-close-button";
 import SRButtonComponent from "src/ui/sr-button";
 
 export default class CardToolbarComponent {
@@ -119,10 +118,8 @@ export default class CardToolbarComponent {
             [...iconButtonClasses, "sr-extended-menu-button"],
         );
 
-        // If we don't have a close modal, we don't need the close button
-        if (closeModal === undefined) return;
-
-        new ModalCloseButtonComponent(this.toolbar, closeModal, iconButtonClasses);
+        // The back button is the predictable exit from study mode. A second close icon made
+        // the mobile header crowded and duplicated Obsidian's own navigation affordances.
     }
 
     /**

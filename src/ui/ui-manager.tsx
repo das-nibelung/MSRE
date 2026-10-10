@@ -430,9 +430,10 @@ export class UIManager {
         const settings = this.settingsManager.settings;
 
         const isMobile = Platform.isMobile || EmulatedPlatform().isMobile;
-        const openInNewTab =
-            (!isMobile && settings.openViewInNewTab) ||
-            (isMobile && settings.openViewInNewTabMobile);
+        // A real workspace view is the native mobile experience: it avoids Obsidian's
+        // system modal close control overlapping the iOS status bar and participates in
+        // the normal tab/back-stack navigation. Desktop keeps the user's preference.
+        const openInNewTab = isMobile || settings.openViewInNewTab;
 
         const reviewQueueLoader = new ReviewQueueLoader(
             this.plugin,

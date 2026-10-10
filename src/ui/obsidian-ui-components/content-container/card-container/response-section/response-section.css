@@ -4,16 +4,18 @@
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--size-4-2);
-    padding: var(--size-4-3) var(--internal-side-padding) var(--size-4-5);
-    border-top: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
+    width: 100%;
+    padding: var(--size-4-4) max(var(--internal-side-padding), calc((100% - 820px) / 2));
+    border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 76%, transparent);
+    background: color-mix(in srgb, var(--background-primary) 88%, transparent);
+    backdrop-filter: blur(22px) saturate(1.15);
 
     &.is-cram {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     & .sr-response-button {
-        min-height: 50px;
+        min-height: 56px;
         height: auto;
         width: 100%;
         display: flex;
@@ -23,9 +25,10 @@
         gap: 2px;
         margin: auto;
         padding: var(--size-4-2);
-        border: 0;
-        border-radius: var(--radius-m);
-        box-shadow: var(--input-shadow);
+        border: 1px solid var(--background-modifier-border);
+        border-radius: 16px;
+        background: var(--background-secondary);
+        box-shadow: 0 1px 0 color-mix(in srgb, var(--text-normal) 5%, transparent) inset;
         line-height: 1.2;
         text-align: center;
         font-weight: var(--font-semibold);
@@ -33,8 +36,9 @@
         user-select: none;
         touch-action: manipulation;
         transition:
-            background-color 140ms ease,
-            transform 100ms ease;
+            border-color 160ms ease,
+            background-color 160ms ease,
+            transform 120ms ease;
 
         &:active {
             transform: scale(0.985);
@@ -53,28 +57,60 @@
 
     & .sr-show-answer-button.sr-bg-blue {
         grid-column: 1 / -1;
-        border-color: var(--interactive-accent);
-        background: var(--interactive-accent) !important;
-        color: var(--text-on-accent) !important;
+        width: min(100%, 680px);
+        min-height: 54px;
+        margin-inline: auto;
+        border-color: color-mix(in srgb, var(--text-normal) 88%, transparent);
+        background: var(--text-normal) !important;
+        box-shadow:
+            0 1px 0 rgb(255 255 255 / 16%) inset,
+            0 8px 24px rgb(0 0 0 / 12%);
+        color: var(--background-primary) !important;
+        font-size: var(--font-ui-medium);
+        letter-spacing: -0.01em;
     }
 
     & .sr-again-button.sr-bg-red {
-        background: var(--background-primary) !important;
+        border-color: color-mix(in srgb, var(--color-red) 24%, var(--background-modifier-border));
+        background: color-mix(in srgb, var(--color-red) 7%, var(--background-secondary)) !important;
         color: var(--color-red) !important;
     }
 
     & .sr-hard-button.sr-bg-yellow {
-        background: var(--background-primary) !important;
+        border-color: color-mix(
+            in srgb,
+            var(--color-orange) 24%,
+            var(--background-modifier-border)
+        );
+        background: color-mix(
+            in srgb,
+            var(--color-orange) 7%,
+            var(--background-secondary)
+        ) !important;
         color: var(--color-orange) !important;
     }
 
     & .sr-good-button.sr-bg-blue {
-        background: var(--background-primary) !important;
-        color: var(--color-blue) !important;
+        border-color: color-mix(
+            in srgb,
+            var(--interactive-accent) 28%,
+            var(--background-modifier-border)
+        );
+        background: color-mix(
+            in srgb,
+            var(--interactive-accent) 8%,
+            var(--background-secondary)
+        ) !important;
+        color: var(--interactive-accent) !important;
     }
 
     & .sr-easy-button.sr-bg-green {
-        background: var(--background-primary) !important;
+        border-color: color-mix(in srgb, var(--color-green) 24%, var(--background-modifier-border));
+        background: color-mix(
+            in srgb,
+            var(--color-green) 7%,
+            var(--background-secondary)
+        ) !important;
         color: var(--color-green) !important;
     }
 }
@@ -109,11 +145,12 @@
 
 @container (width < 580px) {
     .sr-response {
-        gap: var(--size-4-1);
-        padding-inline: var(--size-4-3);
+        gap: 6px;
+        padding: var(--size-4-3) var(--size-4-4) max(var(--size-4-4), var(--safe-area-inset-bottom));
     }
 
     .sr-response .sr-response-button {
+        min-height: 54px;
         min-width: 0;
         padding-inline: var(--size-2-1);
 
@@ -134,7 +171,7 @@
 
     .is-phone .sr-response {
         padding-top: var(--size-2-1);
-        padding-bottom: 0;
+        padding-bottom: var(--size-2-1);
     }
 }
 

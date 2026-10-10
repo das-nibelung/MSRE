@@ -205,9 +205,13 @@ export class CardContainer {
         }
     }
 
-    private drawCardContext(sessionData: SessionData, settings: SRSettings) {
+    private drawCardContext(
+        sessionData: SessionData,
+        settings: SRSettings,
+        parentEl: HTMLDivElement = this.content,
+    ) {
         if (settings.showContextInCards) {
-            this.contextSection = new ContextSectionComponent(this.content);
+            this.contextSection = new ContextSectionComponent(parentEl);
             this.contextSection.updateCardContext(
                 settings.showContextInCards,
                 sessionData.currentQuestion,
@@ -224,8 +228,14 @@ export class CardContainer {
         // Update card content
         this.content.empty();
 
+        const cardSurface = this.content.createDiv("sr-study-card");
+
         // Create context section
-        this.drawCardContext(sessionData, settings);
+        this.drawCardContext(sessionData, settings, cardSurface);
+
+        const cardFace = cardSurface.createDiv({
+            cls: "sr-study-card-face sr-study-card-front",
+        });
 
         // Build card content
         const wrapper: RenderMarkdownWrapper = new RenderMarkdownWrapper(
@@ -236,7 +246,7 @@ export class CardContainer {
 
         await wrapper.renderMarkdownWrapper(
             sessionData.cardData.currentCard.front.trimStart(),
-            this.content,
+            cardFace,
             sessionData.currentQuestion.questionText.textDirection,
             // sessionData.cardData.currentCardState
         );
@@ -244,7 +254,7 @@ export class CardContainer {
         const isMobile = Platform.isMobile || EmulatedPlatform().isMobile;
         this.content.toggleClass("sr-can-reveal-answer", allowTapToReveal && isMobile);
         if (allowTapToReveal && isMobile) {
-            const hint = this.content.createDiv("sr-tap-answer-hint");
+            const hint = cardSurface.createDiv("sr-tap-answer-hint");
             const icon = hint.createSpan("sr-tap-answer-hint-icon");
             setIcon(icon, "mouse-pointer-click");
             hint.createSpan({ text: t("TAP_CARD_TO_SHOW_ANSWER") });
@@ -383,14 +393,22 @@ export class CardContainer {
         this.toolbar.setResetButtonDisabled(false);
 
         // Show answer text
+        let cardSurface: HTMLDivElement;
         if (sessionData.currentQuestion.questionType !== CardType.Cloze) {
             await this.drawCardFrontContent(sessionData, settings, false);
-            const hr: HTMLElement = activeDocument.createElement("hr");
-            this.content.appendChild(hr);
+            cardSurface = this.content.querySelector<HTMLDivElement>(".sr-study-card")!;
         } else {
             this.content.empty();
-            this.drawCardContext(sessionData, settings);
+            cardSurface = this.content.createDiv("sr-study-card");
+            this.drawCardContext(sessionData, settings, cardSurface);
         }
+
+        cardSurface.addClass("sr-study-card-answer-visible");
+        const divider = cardSurface.createDiv("sr-study-card-divider");
+        divider.setAttribute("aria-hidden", "true");
+        const answerFace = cardSurface.createDiv({
+            cls: "sr-study-card-face sr-study-card-back",
+        });
 
         const wrapper: RenderMarkdownWrapper = new RenderMarkdownWrapper(
             this.app,
@@ -399,7 +417,7 @@ export class CardContainer {
         );
         await wrapper.renderMarkdownWrapper(
             sessionData.cardData.currentCard.back,
-            this.content,
+            answerFace,
             sessionData.currentQuestion.questionText.textDirection,
             // sessionData.cardData.currentCardState,
         );
@@ -535,7 +553,9 @@ export class CardContainer {
                 direction === "up"
                     ? "translateY(-12px)"
                     : `translateX(${direction === "left" ? "-16px" : "16px"})`;
-            const animation = this.content.animate(
+            const animatedCard =
+                this.content.querySelector<HTMLElement>(".sr-study-card") ?? this.content;
+            const animation = animatedCard.animate(
                 [
                     { transform: "translate3d(0, 0, 0)", opacity: 1 },
                     { transform, opacity: 0.78 },

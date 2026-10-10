@@ -468,10 +468,8 @@ export default class ContentManager {
         if (!currentQuestion) return;
 
         if (
-            (!this.settings.openViewInNewTab &&
-                !(Platform.isMobile || EmulatedPlatform().isMobile)) ||
-            (!this.settings.openViewInNewTabMobile &&
-                (Platform.isMobile || EmulatedPlatform().isMobile))
+            !this.settings.openViewInNewTab &&
+            !(Platform.isMobile || EmulatedPlatform().isMobile)
         ) {
             new Notice("Note was opened in new tab in the background");
         }

@@ -3,14 +3,16 @@
     --tool-button-section-width: 218px;
 
     position: relative;
-    min-height: 58px;
+    min-height: 62px;
 
     display: flex;
     gap: var(--size-4-2);
     justify-content: space-between;
     align-items: center;
-    padding: var(--size-4-1) var(--size-4-4);
-    border-bottom: 1px solid var(--background-modifier-border);
+    padding: var(--size-4-2) max(var(--size-4-4), calc((100% - 900px) / 2));
+    border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+    background: color-mix(in srgb, var(--background-primary) 92%, transparent);
+    backdrop-filter: blur(18px) saturate(1.12);
 
     & > * {
         margin: 0;
@@ -34,7 +36,7 @@
         min-width: var(--interactive-size);
         padding: 0;
         border: 0;
-        border-radius: 50%;
+        border-radius: 14px;
         background: transparent;
         box-shadow: none;
         color: var(--text-muted);
@@ -69,7 +71,7 @@
 }
 
 .is-mobile .sr-card-toolbar {
-    min-height: 60px;
+    min-height: 64px;
 }
 
 .is-phone .sr-tab-view .sr-card-toolbar {
@@ -88,6 +90,20 @@
     }
 
     &:has(.sr-undo-button:not(.sr-is-hidden)) .sr-source-button {
+        display: none;
+    }
+}
+
+.is-phone .sr-card-toolbar {
+    padding-inline: var(--size-4-3);
+
+    & .sr-toolbar-icon-button {
+        width: 44px;
+        height: 44px;
+        min-width: 44px;
+    }
+
+    & .sr-source-button {
         display: none;
     }
 }
