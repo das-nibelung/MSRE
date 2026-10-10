@@ -1,9 +1,11 @@
 import "src/ui/obsidian-ui-components/item-views/tab-view.css";
-import { ItemView, Platform, WorkspaceLeaf } from "obsidian";
+import { ItemView, Platform, setIcon, WorkspaceLeaf } from "obsidian";
 
 import { SR_TAB_VIEW } from "src/data/constants";
 import { SRSettings } from "src/data/settings";
+import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
+import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
 import ContentManager from "src/ui/obsidian-ui-components/content-container/content-manager";
 import { ReviewQueueLoader } from "src/ui/review-queue-loader";
 import EmulatedPlatform from "src/utils/platform-detector";
@@ -31,6 +33,7 @@ export class SRTabView extends ItemView {
     private viewContainerEl: HTMLElement | null = null;
     private viewContentEl: HTMLElement | null = null;
     private settings: SRSettings | null = null;
+    private openingPromise: Promise<void> | null = null;
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -40,12 +43,6 @@ export class SRTabView extends ItemView {
     ) {
         super(leaf);
 
-        if (!plugin.isDataManagerLoaded()) {
-            this.leaf.detach();
-            return;
-        }
-
-        // throw new Error("SR plugin or data not initialized!!!");
         // Init properties
         this.plugin = plugin;
         this.navigation = false;
@@ -110,14 +107,31 @@ export class SRTabView extends ItemView {
      * and setting up the deck and flashcard views if they are not already initialized.
      */
     async onOpen() {
-        // This happens when the tab was open before the plugin was loaded -> Closing and reopening the obsidian window
-        // So we have to wait for the plugin to load and just ignore this
-        if (
-            this.viewContainerEl === null ||
-            this.viewContentEl === null ||
-            this.reviewQueueLoader === null
-        )
+        await this.openContent();
+    }
+
+    /** Rehydrates a workspace-restored tab once the review command supplies its queue. */
+    async setReviewQueueLoader(reviewQueueLoader: ReviewQueueLoader): Promise<void> {
+        if (this.reviewQueueLoader === reviewQueueLoader && this.contentManager !== null) return;
+        this.reviewQueueLoader = reviewQueueLoader;
+        await this.openContent();
+    }
+
+    private async openContent(): Promise<void> {
+        if (this.openingPromise !== null) return this.openingPromise;
+        this.openingPromise = this.initializeContent().finally(() => {
+            this.openingPromise = null;
+        });
+        return this.openingPromise;
+    }
+
+    private async initializeContent(): Promise<void> {
+        if (this.viewContainerEl === null || this.viewContentEl === null) return;
+
+        if (this.reviewQueueLoader === null || this.settings === null || this.plugin === null) {
+            this.drawRecoveryState();
             return;
+        }
 
         // Reposition the navbar if it's mobile, because lese it overlaps the buttons in the tab view
         if (activeDocument.body.classList.contains("is-mobile")) {
@@ -138,22 +152,77 @@ export class SRTabView extends ItemView {
             );
         }
 
-        if (this.settings === null || this.plugin === null) {
-            this.leaf.detach();
-            return;
+        this.contentManager?.close();
+        this.viewContentEl.empty();
+        this.viewContentEl.addClass("is-loading");
+        this.drawLoadingState();
+
+        try {
+            this.contentManager = new ContentManager(
+                this.app,
+                this.plugin,
+                this.reviewQueueLoader,
+                this.settings,
+                this.viewContentEl,
+            );
+            this.plugin.uiManager.setContentManager(this.contentManager);
+            await this.contentManager.open();
+            this.viewContentEl.removeClass("is-loading");
+            this.viewContentEl.querySelector(".sr-view-status")?.remove();
+        } catch (error) {
+            console.error("Spaced Repetition: failed to open review view", error);
+            this.contentManager?.close();
+            this.contentManager = null;
+            this.drawErrorState();
         }
+    }
 
-        this.contentManager = new ContentManager(
-            this.app,
-            this.plugin,
-            this.reviewQueueLoader,
-            this.settings,
-            this.viewContentEl,
-        );
-        if (this.plugin.uiManager === null) throw new Error("UI manager not initialized!!!");
-        this.plugin.uiManager.setContentManager(this.contentManager);
+    private drawLoadingState(): void {
+        if (!this.viewContentEl) return;
+        const status = this.viewContentEl.createDiv("sr-view-status");
+        const icon = status.createDiv("sr-view-status-icon is-loading");
+        setIcon(icon, "loader-circle");
+        status.createEl("h2", { text: t("REVIEW_VIEW_PREPARING") });
+        status.createEl("p", { text: t("REVIEW_VIEW_PREPARING_HELP") });
+    }
 
-        await this.contentManager.open();
+    private drawRecoveryState(): void {
+        if (!this.viewContentEl) return;
+        this.viewContentEl.empty();
+        const status = this.viewContentEl.createDiv("sr-view-status");
+        const icon = status.createDiv("sr-view-status-icon");
+        setIcon(icon, "refresh-cw");
+        status.createEl("h2", { text: t("REVIEW_VIEW_RESTORE") });
+        status.createEl("p", {
+            text: t("REVIEW_VIEW_RESTORE_HELP"),
+        });
+        const retry = status.createEl("button", { text: t("REVIEW_VIEW_OPEN_LIBRARY") });
+        retry.addClass("mod-cta");
+        retry.addEventListener("click", () => {
+            if (!this.plugin?.isInitialized) {
+                window.setTimeout(() => this.drawRecoveryState(), 350);
+                return;
+            }
+            void this.plugin.uiManager.openDeckContainer(
+                this.reviewQueueLoader?.getReviewMode() ?? FlashcardReviewMode.Review,
+            );
+        });
+    }
+
+    private drawErrorState(): void {
+        if (!this.viewContentEl) return;
+        this.viewContentEl.empty();
+        this.viewContentEl.removeClass("is-loading");
+        const status = this.viewContentEl.createDiv("sr-view-status is-error");
+        const icon = status.createDiv("sr-view-status-icon");
+        setIcon(icon, "triangle-alert");
+        status.createEl("h2", { text: t("REVIEW_VIEW_ERROR") });
+        status.createEl("p", {
+            text: t("REVIEW_VIEW_ERROR_HELP"),
+        });
+        const retry = status.createEl("button", { text: t("TRY_AGAIN") });
+        retry.addClass("mod-cta");
+        retry.addEventListener("click", () => void this.openContent());
     }
 
     /**

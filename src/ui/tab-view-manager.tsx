@@ -74,8 +74,10 @@ export default class TabViewManager {
      */
     public async openSRTabView(reviewQueueLoader: ReviewQueueLoader) {
         this.reviewQueueLoader = reviewQueueLoader;
-
-        await this.openTabView(SR_TAB_VIEW, true);
+        const leaf = await this.openTabView(SR_TAB_VIEW, true);
+        if (leaf?.view instanceof SRTabView) {
+            await leaf.view.setReviewQueueLoader(reviewQueueLoader);
+        }
     }
 
     public async openCardBrowser(notePath: string | null = null): Promise<void> {

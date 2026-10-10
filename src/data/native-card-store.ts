@@ -261,8 +261,51 @@ export class NativeCardStore {
     }
 
     async createCard(draft: NativeCardDraft): Promise<TFile> {
+        const [file] = await this.createCards([draft]);
+        return file;
+    }
+
+    /** Creates a group of cards with one final index refresh (used by image occlusion). */
+    async createCards(drafts: NativeCardDraft[]): Promise<TFile[]> {
+        if (drafts.length === 0) return [];
+        const deckPaths = new Set(
+            drafts.map((draft) => normalizeManagedDeckPath(draft.deckPath)).filter(Boolean),
+        );
+        for (const deckPath of deckPaths) await this.createDeck(deckPath);
+
+        const files: TFile[] = [];
+        for (const draft of drafts) files.push(await this.createCardFile(draft));
+        for (const file of files) await this.waitForMetadata(this.plugin.app, file);
+        await this.plugin.dataManager.sync();
+        this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+        return files;
+    }
+
+    /** Saves an offline attachment in the vault and returns its embeddable vault path. */
+    async saveMediaAsset(fileName: string, data: ArrayBuffer): Promise<string> {
+        const settings = this.plugin.dataManager.data.settings;
+        const mediaFolder = normalizePath(`${settings.scheduleDataVaultLocation}/Media`);
+        await this.ensureFolder(mediaFolder);
+        const safeName =
+            fileName
+                .normalize("NFKD")
+                .replace(/[^\p{L}\p{N}._-]+/gu, "-")
+                .replace(/^-+|-+$/g, "") || `media-${Date.now()}`;
+        const dot = safeName.lastIndexOf(".");
+        const stem = dot > 0 ? safeName.slice(0, dot) : safeName;
+        const extension = dot > 0 ? safeName.slice(dot) : "";
+        let path = normalizePath(`${mediaFolder}/${stem}${extension}`);
+        let suffix = 2;
+        while (this.plugin.app.vault.getAbstractFileByPath(path)) {
+            path = normalizePath(`${mediaFolder}/${stem}-${suffix}${extension}`);
+            suffix++;
+        }
+        await this.plugin.app.vault.createBinary(path, data);
+        return path;
+    }
+
+    private async createCardFile(draft: NativeCardDraft): Promise<TFile> {
         const normalizedDeck = normalizeManagedDeckPath(draft.deckPath);
-        if (normalizedDeck) await this.createDeck(normalizedDeck);
 
         const settings = this.plugin.dataManager.data.settings;
         const rootFolder = normalizePath(`${settings.scheduleDataVaultLocation}/Cards`);
@@ -302,9 +345,6 @@ export class NativeCardStore {
             questionId,
             tags: draft.tags,
         });
-        await this.waitForMetadata(this.plugin.app, file);
-        await this.plugin.dataManager.sync();
-        this.plugin.uiManager.tabViewManager.refreshCardBrowser();
         return file;
     }
 
