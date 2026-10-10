@@ -130,6 +130,7 @@ describe("native card storage", () => {
                 back: "Answer",
             }),
         ).toBe("Question → Answer");
+        expect(renderNoteTypeTemplate("{{back}}", basic, { front: "Question" })).toBe("");
         expect(convertAnkiClozesToLegacy("{{c1::Aspirin}} blocks {{c2::COX::enzyme}}")).toBe(
             "==Aspirin== blocks ==COX==",
         );
