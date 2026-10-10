@@ -4,7 +4,6 @@ on:
     push:
         branches:
             - main
-            - personal-main
         paths:
             - manifest.json
             - package.json
@@ -45,7 +44,9 @@ jobs:
 
             - name: Read plugin version
               id: version
-              run: echo "value=$(node -p \"require('./manifest.json').version\")" >> "$GITHUB_OUTPUT"
+              run: |
+                  version="$(node -p 'require("./manifest.json").version')"
+                  echo "value=$version" >> "$GITHUB_OUTPUT"
 
             - name: Package plugin
               run: |
