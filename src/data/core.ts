@@ -1,3 +1,5 @@
+import { CardIndexFileRevision } from "src/data/card-index/card-index-types";
+import { IncrementalCardIndex } from "src/data/card-index/incremental-card-index";
 import { QuestionPostponementList } from "src/data/data-structures/card/questions/question-postponement-list";
 import { Deck, DeckTreeFilter } from "src/data/data-structures/deck/deck";
 import { DeckTreeStatsCalculator } from "src/data/data-structures/deck/deck-tree-stats-calculator";
@@ -35,6 +37,7 @@ export class OsrCore {
     private osrNoteLinkInfoFinder: IOsrVaultNoteLinkInfoFinder;
     private _questionPostponementList: QuestionPostponementList;
     private _noteReviewQueue: NoteReviewQueue;
+    private cardIndex: IncrementalCardIndex | null;
 
     private fullDeckTree: Deck | null = null;
     private _reviewableDeckTree: Deck = new Deck("root", null);
@@ -50,6 +53,7 @@ export class OsrCore {
         dataChangedHandler: () => Promise<void>,
         noteReviewQueue: NoteReviewQueue,
         defaultTextDirection: TextDirection,
+        cardIndex: IncrementalCardIndex | null = null,
     ) {
         this.settings = settings;
         this.osrNoteLinkInfoFinder = osrNoteLinkInfoFinder;
@@ -59,6 +63,7 @@ export class OsrCore {
         this._dueDateFlashcardHistogram = new CardDueDateHistogram();
         this._dueDateNoteHistogram = new NoteDueDateHistogram();
         this.defaultTextDirection = defaultTextDirection;
+        this.cardIndex = cardIndex;
 
         try {
             const startOfDayElements: string[] = this.settings.startOfDay.split(":");
@@ -394,10 +399,23 @@ export class OsrCore {
      * @returns {Promise<Note | null>} - A promise that resolves with the loaded note.
      */
     async loadNote(noteFile: ISRNoteTFile, topicPath: TopicPath): Promise<Note | null> {
+        let revision: CardIndexFileRevision | null = null;
+        if (this.cardIndex) {
+            revision = {
+                mtime: noteFile.tfile.stat.mtime,
+                size: noteFile.tfile.stat.size,
+            };
+            const cachedNote = await this.cardIndex.get(noteFile, revision);
+            if (cachedNote) return cachedNote;
+        }
+
         const loader: NoteFileLoader = new NoteFileLoader(this.settings);
         const note: Note | null = await loader.load(noteFile, this.defaultTextDirection, topicPath);
         if (note !== null && note.hasChanged) {
             await note.writeNoteFile(this.settings);
+            await this.cardIndex?.invalidate(noteFile.path);
+        } else if (note !== null && revision !== null) {
+            await this.cardIndex?.put(noteFile, revision, note);
         }
         return note;
     }

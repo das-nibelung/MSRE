@@ -130,6 +130,7 @@ export default class SRPlugin extends Plugin {
 
     onunload(): void {
         this.reminderManager.stopReviewReminders();
+        this.dataManager.close();
         this.app.workspace.getLeavesOfType(REVIEW_QUEUE_VIEW_TYPE).forEach((leaf) => leaf.detach());
         this.uiManager.destroy();
         this.commandManager.onunload();
