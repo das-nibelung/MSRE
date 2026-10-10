@@ -1,4 +1,30 @@
-# Obsidian Spaced Repetition Plugin
+# Personal Spaced Repetition
+
+This is a personal, mobile-compatible fork of
+[Obsidian Spaced Repetition](https://github.com/st3v3nmw/obsidian-spaced-repetition).
+It keeps the upstream MIT license and attribution while providing an independent
+plugin ID so that custom releases can be installed and updated with BRAT without
+being overwritten by the official plugin.
+
+## Install with BRAT
+
+1. Install and enable **BRAT** from Obsidian Community Plugins.
+2. Run **BRAT: Add a beta plugin for testing**.
+3. Enter `https://github.com/das-nibelung/MSRE`.
+4. Select the latest release and enable the plugin after installation.
+
+Install the fork separately on desktop and iPhone. Disable the official
+`Spaced Repetition` plugin before enabling this fork so that both plugins do not
+write scheduling information to the same notes.
+
+## Upstream project
+
+The original project, documentation, and contributor history are available at
+[st3v3nmw/obsidian-spaced-repetition](https://github.com/st3v3nmw/obsidian-spaced-repetition).
+
+---
+
+# Upstream documentation
 
 ![SR_Banner](./docs/media/en/SR_Banner.jpg)
 

@@ -1,7 +1,7 @@
 {
-    "name": "obsidian-spaced-repetition",
-    "version": "1.15.4",
-    "description": "Fight the forgetting curve by reviewing flashcards & entire notes.",
+    "name": "personal-spaced-repetition",
+    "version": "1.15.4-personal.1",
+    "description": "A personal, mobile-compatible fork of the Obsidian Spaced Repetition plugin.",
     "main": "main.js",
     "scripts": {
         "build": "pnpm install && tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
@@ -19,7 +19,7 @@
         "flashcard",
         "flashcards"
     ],
-    "author": "Stephen Mwangi",
+    "author": "das-nibelung; based on work by Stephen Mwangi and contributors",
     "maintainers": [
         "Kyle Klus"
     ],
