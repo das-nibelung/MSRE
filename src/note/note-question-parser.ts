@@ -132,7 +132,7 @@ export class NoteQuestionParser {
                 question.questionText.textHash,
                 question.questionText.obsidianBlockId ?? undefined,
             );
-            let cardScheduleInfoList: RepItemScheduleInfo[] =
+            let cardScheduleInfoList: Array<RepItemScheduleInfo | null> =
                 DataStore.getInstance().createSchedule(question.questionText.original, storageInfo);
 
             // we have some extra scheduling dates to delete
@@ -188,7 +188,7 @@ export class NoteQuestionParser {
 
     private createCardList(
         cardFrontBackList: CardFrontBack[],
-        cardScheduleInfoList: RepItemScheduleInfo[],
+        cardScheduleInfoList: Array<RepItemScheduleInfo | null>,
         storageInfo: RepItemStorageInfo,
     ): Card[] {
         const siblings: Card[] = [];
@@ -198,7 +198,7 @@ export class NoteQuestionParser {
             const { front, back } = cardFrontBackList[i];
 
             const hasScheduleInfo: boolean = i < cardScheduleInfoList.length;
-            const schedule: RepItemScheduleInfo = cardScheduleInfoList[i];
+            const schedule: RepItemScheduleInfo | null = cardScheduleInfoList[i];
 
             const cardObj: Card = new Card({
                 front,

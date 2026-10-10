@@ -31,7 +31,7 @@ export interface IDataStore {
     createSchedule(
         originalQuestionText: string,
         storageInfo: RepItemStorageInfo,
-    ): RepItemScheduleInfo[];
+    ): Array<RepItemScheduleInfo | null>;
 
     /**
      * Removes scheduling information from a question text.

@@ -8,6 +8,11 @@ import { DataStoreAlgorithm } from "src/data/data-store/base/data-store-algorith
 import { NoteDataFileModifier } from "src/data/data-store/notes-data-store/note-data-file-modifier";
 import { NoteDataStoreAlgorithmOsr } from "src/data/data-store/notes-data-store/note-data-store-algorithm-osr";
 import { NotesDataStore } from "src/data/data-store/notes-data-store/notes-data-store";
+import {
+    SCHEDULE_LEDGER_PATH,
+    ScheduleLedger,
+    VaultScheduleLedgerStorage,
+} from "src/data/data-store/schedule-ledger";
 import { QuestionPostponementList } from "src/data/data-structures/card/questions/question-postponement-list";
 import { TopicPath } from "src/data/data-structures/deck/topic-path";
 import { ISRNoteTFile, SRNoteTFile } from "src/data/data-structures/file/note-file";
@@ -39,6 +44,7 @@ export class DataManager {
     private _osrCore: OsrCore | null = null;
     private _syncLock = false;
     private cardIndex: IncrementalCardIndex;
+    private scheduleLedger: ScheduleLedger | null = null;
     private hasLoadedVault = false;
     private lastSyncContext: string | null = null;
     private requiresFullScan = false;
@@ -136,21 +142,45 @@ export class DataManager {
     private registerCardIndexEvents(): void {
         this.plugin.registerEvent(
             this.plugin.app.vault.on("modify", (file) => {
-                if (file instanceof TFile && file.extension === "md") {
+                if (file instanceof TFile && file.path === SCHEDULE_LEDGER_PATH) {
+                    void this.scheduleLedger?.reload();
+                    return;
+                }
+                if (
+                    file instanceof TFile &&
+                    file.extension === "md" &&
+                    file.path !== SCHEDULE_LEDGER_PATH
+                ) {
                     void this.cardIndex.invalidate(file.path);
                 }
             }),
         );
         this.plugin.registerEvent(
             this.plugin.app.vault.on("create", (file) => {
-                if (file instanceof TFile && file.extension === "md") {
+                if (file instanceof TFile && file.path === SCHEDULE_LEDGER_PATH) {
+                    void this.scheduleLedger?.reload();
+                    return;
+                }
+                if (
+                    file instanceof TFile &&
+                    file.extension === "md" &&
+                    file.path !== SCHEDULE_LEDGER_PATH
+                ) {
                     void this.cardIndex.invalidate(file.path);
                 }
             }),
         );
         this.plugin.registerEvent(
             this.plugin.app.vault.on("delete", (file) => {
-                if (file instanceof TFile && file.extension === "md") {
+                if (file instanceof TFile && file.path === SCHEDULE_LEDGER_PATH) {
+                    this.scheduleLedger?.reset();
+                    return;
+                }
+                if (
+                    file instanceof TFile &&
+                    file.extension === "md" &&
+                    file.path !== SCHEDULE_LEDGER_PATH
+                ) {
                     void this.cardIndex.invalidate(file.path);
                 } else if (!(file instanceof TFile)) {
                     this.requiresFullScan = true;
@@ -159,7 +189,18 @@ export class DataManager {
         );
         this.plugin.registerEvent(
             this.plugin.app.vault.on("rename", (file, oldPath) => {
-                if (file instanceof TFile && file.extension === "md") {
+                if (oldPath === SCHEDULE_LEDGER_PATH) {
+                    this.scheduleLedger?.reset();
+                }
+                if (file instanceof TFile && file.path === SCHEDULE_LEDGER_PATH) {
+                    void this.scheduleLedger?.reload();
+                    return;
+                }
+                if (
+                    file instanceof TFile &&
+                    file.extension === "md" &&
+                    file.path !== SCHEDULE_LEDGER_PATH
+                ) {
                     void this.cardIndex.invalidate(oldPath);
                     void this.cardIndex.invalidate(file.path);
                 } else if (!(file instanceof TFile)) {
@@ -169,7 +210,9 @@ export class DataManager {
         );
         this.plugin.registerEvent(
             this.plugin.app.metadataCache.on("changed", (file) => {
-                if (file.extension === "md") void this.cardIndex.invalidate(file.path);
+                if (file.extension === "md" && file.path !== SCHEDULE_LEDGER_PATH) {
+                    void this.cardIndex.invalidate(file.path);
+                }
             }),
         );
     }
@@ -181,6 +224,7 @@ export class DataManager {
         this._syncLock = true;
 
         try {
+            await DataStore.getInstance().isStructureInitialized;
             const defaultTextDirection = this.plugin.getObsidianRtlSetting();
             const parserContextChanged = this.cardIndex.setContext(
                 this.settingsManager.settings,
@@ -239,7 +283,9 @@ export class DataManager {
 
             this.osrCore.loadInitialStateOfCore();
 
-            const notes: TFile[] = this.plugin.app.vault.getMarkdownFiles();
+            const notes: TFile[] = this.plugin.app.vault
+                .getMarkdownFiles()
+                .filter((note) => note.path !== SCHEDULE_LEDGER_PATH);
             await this.cardIndex.prune(new Set(notes.map((note) => note.path)));
             for (const noteFile of notes) {
                 // Skip files in the note ignore folder
@@ -293,13 +339,19 @@ export class DataManager {
      */
     setupDataStoreAndAlgorithmInstances(settings: SRSettings) {
         switch (settings.dataStore) {
-            case StorageType.NOTES:
+            case StorageType.NOTES: {
+                const scheduleLedger = new ScheduleLedger(
+                    new VaultScheduleLedgerStorage(this.plugin.app.vault),
+                );
+                this.scheduleLedger = scheduleLedger;
                 DataStore.instance = new NotesDataStore(
                     settings,
-                    new NoteDataFileModifier(this.plugin),
+                    new NoteDataFileModifier(this.plugin, scheduleLedger),
+                    scheduleLedger,
                 );
                 DataStoreAlgorithm.instance = new NoteDataStoreAlgorithmOsr(settings);
                 break;
+            }
         }
 
         // TODO: Move this to the scheduling manager once it is implemented
