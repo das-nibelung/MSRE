@@ -1,4 +1,4 @@
-import { CardLifecycleState } from "src/data/collection/collection-types";
+import { CardFlag, CardLifecycleState } from "src/data/collection/collection-types";
 import { Card } from "src/data/data-structures/card/card";
 
 export type CardBrowserFilter = "all" | "new" | "due" | "scheduled" | "suspended" | "buried";
@@ -17,6 +17,8 @@ export interface CardBrowserRecord {
     interval: number | null;
     ease: number | null;
     lifecycleState: CardLifecycleState;
+    flag: CardFlag;
+    tags: string[];
 }
 
 function normalizeForSearch(value: string): string {
@@ -51,6 +53,8 @@ export function createCardBrowserRecords(cards: Card[]): CardBrowserRecord[] {
             interval: card.scheduleInfo?.interval ?? null,
             ease: card.scheduleInfo?.latestEase ?? null,
             lifecycleState: "active",
+            flag: 0,
+            tags: [] as string[],
         };
     });
 }
@@ -61,6 +65,8 @@ export function filterCardBrowserRecords(
     filter: CardBrowserFilter,
     deck: string = "all",
     notePath: string | null = null,
+    tag: string = "all",
+    flag: string = "all",
 ): CardBrowserRecord[] {
     const normalizedQuery = normalizeForSearch(query);
     return records.filter((record) => {
@@ -71,11 +77,21 @@ export function filterCardBrowserRecords(
         }
         if (deck !== "all" && !record.deckNames.includes(deck)) return false;
         if (notePath !== null && record.notePath !== notePath) return false;
+        if (tag !== "all" && !record.tags.includes(tag)) return false;
+        if (flag !== "all" && record.flag !== Number(flag)) return false;
         if (!normalizedQuery) return true;
         return normalizeForSearch(
-            [record.front, record.back, record.notePath, ...record.deckNames].join(" "),
+            [record.front, record.back, record.notePath, ...record.deckNames, ...record.tags].join(
+                " ",
+            ),
         ).includes(normalizedQuery);
     });
+}
+
+export function getCardBrowserTags(records: CardBrowserRecord[]): string[] {
+    return [...new Set(records.flatMap((record) => record.tags))].sort((left, right) =>
+        left.localeCompare(right),
+    );
 }
 
 export function getCardBrowserDeckNames(records: CardBrowserRecord[]): string[] {

@@ -13,12 +13,14 @@ export interface NativeCardDraft {
     type: NativeCardType;
     front: string;
     back: string;
+    tags?: string[];
 }
 
 export interface StructuredNoteDraft {
     deckPath: string;
     noteTypeId: string;
     fields: Record<string, string>;
+    tags?: string[];
 }
 
 const FALLBACK_ROOT_TAG = "#flashcards";
@@ -298,6 +300,7 @@ export class NativeCardStore {
             deckPath: normalizedDeck,
             sourcePath: file.path,
             questionId,
+            tags: draft.tags,
         });
         await this.waitForMetadata(this.plugin.app, file);
         await this.plugin.dataManager.sync();
@@ -353,6 +356,7 @@ export class NativeCardStore {
             id: noteId,
             noteTypeId: noteType.id,
             fields: draft.fields,
+            tags: draft.tags,
             deckPath: normalizedDeck,
             source: { kind: "managed", path: file.path, questionId: baseQuestionId },
             legacyQuestionIds: noteType.kind === "standard" ? legacyQuestionIds : undefined,
@@ -384,6 +388,7 @@ export class NativeCardStore {
         await this.plugin.app.vault.modify(file, `${tag}\n\n${body}\n`);
         await collection.updateNote(note.id, {
             fields: draft.fields,
+            tags: draft.tags,
             deckPath: normalizedDeck,
             source: { ...note.source, questionId: baseQuestionId },
             legacyQuestionIds: noteType.kind === "standard" ? legacyQuestionIds : undefined,

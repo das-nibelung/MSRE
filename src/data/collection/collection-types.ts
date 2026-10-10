@@ -1,11 +1,12 @@
 import { ISerializedScheduleEntry } from "src/data/plugin-data";
 
-export const COLLECTION_SCHEMA_VERSION = 2;
+export const COLLECTION_SCHEMA_VERSION = 3;
 export const REVIEW_LOG_SCHEMA_VERSION = 1;
 
 export type NoteTypeKind = "standard" | "cloze";
 export type FieldKind = "text" | "rich-text" | "media" | "number" | "formula";
 export type CardLifecycleState = "active" | "suspended" | "buried";
+export type CardFlag = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export type CardQueue = "new" | "learning" | "review" | "relearning";
 
 export interface NoteFieldDefinition {
@@ -88,6 +89,7 @@ export interface CollectionCard {
     state: CardLifecycleState;
     /** Unix timestamp when a temporarily buried card becomes active again. */
     buriedUntil: number | null;
+    flag: CardFlag;
     queue: CardQueue;
     schedule: ISerializedScheduleEntry | null;
     reps: number;
@@ -141,6 +143,7 @@ export interface NativeNoteInput {
     deckPath: string;
     sourcePath: string;
     questionId: string;
+    tags?: string[];
 }
 
 export interface CollectionNoteInput {

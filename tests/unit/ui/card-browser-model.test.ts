@@ -3,6 +3,7 @@ import {
     CardBrowserRecord,
     filterCardBrowserRecords,
     getCardBrowserDeckNames,
+    getCardBrowserTags,
     sortCardBrowserRecords,
 } from "src/ui/card-browser/card-browser-model";
 
@@ -19,6 +20,8 @@ function record(overrides: Partial<CardBrowserRecord>): CardBrowserRecord {
         interval: null,
         ease: null,
         lifecycleState: "active",
+        flag: 0,
+        tags: [],
         ...overrides,
     };
 }
@@ -54,6 +57,10 @@ describe("card browser filtering", () => {
         expect(filterCardBrowserRecords(records, "HABEAS", "all")).toEqual([records[0]]);
         expect(filterCardBrowserRecords(records, "blood glucose", "all")).toEqual([records[1]]);
         expect(filterCardBrowserRecords(records, "calculus", "all")).toEqual([records[2]]);
+        const tagged = record({ id: "tagged", tags: ["high-yield"] });
+        expect(filterCardBrowserRecords([...records, tagged], "high-yield", "all")).toEqual([
+            tagged,
+        ]);
     });
 
     it("ignores HTML tags when searching", () => {
@@ -84,6 +91,17 @@ describe("card browser filtering", () => {
         ]);
     });
 
+    it("filters by note tag and card flag", () => {
+        const marked = record({ id: "marked", tags: ["medicine"], flag: 1 });
+        const candidates = [...records, marked];
+        expect(filterCardBrowserRecords(candidates, "", "all", "all", null, "medicine")).toEqual([
+            marked,
+        ]);
+        expect(filterCardBrowserRecords(candidates, "", "all", "all", null, "all", "1")).toEqual([
+            marked,
+        ]);
+    });
+
     it("returns a unique alphabetical deck list", () => {
         expect(
             getCardBrowserDeckNames([
@@ -91,6 +109,15 @@ describe("card browser filtering", () => {
                 record({ id: "card-4", deckNames: ["Medicine", "Biology"] }),
             ]),
         ).toEqual(["Biology", "Law/Procedure", "Math", "Medicine"]);
+    });
+
+    it("returns a unique alphabetical tag list", () => {
+        expect(
+            getCardBrowserTags([
+                record({ id: "a", tags: ["zeta", "alpha"] }),
+                record({ id: "b", tags: ["alpha", "medicine"] }),
+            ]),
+        ).toEqual(["alpha", "medicine", "zeta"]);
     });
 
     it("sorts cards without mutating the loaded index order", () => {

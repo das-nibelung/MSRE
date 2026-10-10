@@ -10,7 +10,7 @@ import {
     WorkspaceLeaf,
 } from "obsidian";
 
-import { LegacyCardInput } from "src/data/collection/collection-types";
+import { CardFlag, LegacyCardInput } from "src/data/collection/collection-types";
 import { CARD_BROWSER_VIEW_TYPE } from "src/data/constants";
 import { DataStore } from "src/data/data-store/base/data-store";
 import { t } from "src/lang/helpers";
@@ -24,6 +24,7 @@ import {
     createCardBrowserRecords,
     filterCardBrowserRecords,
     getCardBrowserDeckNames,
+    getCardBrowserTags,
     sortCardBrowserRecords,
 } from "src/ui/card-browser/card-browser-model";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
@@ -62,6 +63,8 @@ export class CardBrowserView extends ItemView {
     private deck = "all";
     private sort: CardBrowserSort = "due";
     private notePath: string | null = null;
+    private tag = "all";
+    private flag = "all";
     private visibleLimit = PAGE_SIZE;
     private resultsEl: HTMLDivElement | null = null;
     private selectionBarEl: HTMLDivElement | null = null;
@@ -107,9 +110,18 @@ export class CardBrowserView extends ItemView {
     private getRecords(): CardBrowserRecord[] {
         if (!this.plugin.dataManager.isOsrCoreLoaded()) return [];
         const collection = this.plugin.dataManager.collectionStore;
+        const snapshot = collection.getCollectionSnapshot();
+        const storedByLegacyId = new Map<string, (typeof snapshot.cards)[string]>();
+        for (const card of Object.values(snapshot.cards)) {
+            if (!card.deletedAt && card.legacyStableId) {
+                storedByLegacyId.set(card.legacyStableId, card);
+            }
+        }
         return createCardBrowserRecords(this.plugin.dataManager.osrCore.getAllCards()).map(
             (record) => {
-                const stored = collection.getCardByLegacyStableId(record.card.stableId);
+                const stored = record.card.stableId
+                    ? storedByLegacyId.get(record.card.stableId)
+                    : undefined;
                 const expired =
                     stored?.state === "buried" &&
                     stored.buriedUntil !== null &&
@@ -117,6 +129,8 @@ export class CardBrowserView extends ItemView {
                 return {
                     ...record,
                     lifecycleState: expired ? "active" : (stored?.state ?? "active"),
+                    flag: stored?.flag ?? 0,
+                    tags: stored ? (snapshot.notes[stored.noteId]?.tags ?? []) : [],
                 };
             },
         );
@@ -214,6 +228,32 @@ export class CardBrowserView extends ItemView {
                 this.render();
             },
             this.deck !== "all",
+        );
+
+        const tagOptions: Record<string, string> = { all: t("ALL_TAGS") };
+        for (const tag of getCardBrowserTags(records)) tagOptions[tag] = tag;
+        this.createFilterButton(
+            filterRow,
+            tagOptions,
+            this.tag,
+            (value) => {
+                this.tag = value;
+                this.visibleLimit = PAGE_SIZE;
+                this.render();
+            },
+            this.tag !== "all",
+        );
+
+        this.createFilterButton(
+            filterRow,
+            this.getFlagOptions(true),
+            this.flag,
+            (value) => {
+                this.flag = value;
+                this.visibleLimit = PAGE_SIZE;
+                this.render();
+            },
+            this.flag !== "all",
         );
 
         this.createFilterButton(
@@ -336,7 +376,15 @@ export class CardBrowserView extends ItemView {
         this.resultsEl.empty();
 
         const filtered = sortCardBrowserRecords(
-            filterCardBrowserRecords(records, this.query, this.filter, this.deck, this.notePath),
+            filterCardBrowserRecords(
+                records,
+                this.query,
+                this.filter,
+                this.deck,
+                this.notePath,
+                this.tag,
+                this.flag,
+            ),
             this.sort,
         );
         const summary = this.resultsEl.createDiv("sr-card-browser-summary");
@@ -367,6 +415,8 @@ export class CardBrowserView extends ItemView {
                 this.query = "";
                 this.filter = "all";
                 this.deck = "all";
+                this.tag = "all";
+                this.flag = "all";
                 this.notePath = null;
                 this.visibleLimit = PAGE_SIZE;
                 this.render();
@@ -460,6 +510,18 @@ export class CardBrowserView extends ItemView {
         }
         const location = [record.deckNames.join(", "), record.notePath].filter(Boolean).join(" · ");
         meta.createSpan("sr-card-browser-path").setText(location);
+        for (const tag of record.tags.slice(0, 2)) {
+            meta.createSpan("sr-card-browser-tag").setText(`#${tag}`);
+        }
+
+        const flagButton = new ButtonComponent(row)
+            .setIcon("flag")
+            .setTooltip(this.getFlagOptions(false)[String(record.flag)])
+            .setClass("sr-card-browser-flag")
+            .onClick((event) => this.openFlagMenu(event, [record]));
+        flagButton.buttonEl.addClass(`is-flag-${record.flag}`);
+        flagButton.buttonEl.toggleClass("is-empty", record.flag === 0);
+        flagButton.buttonEl.addEventListener("click", (event) => event.stopPropagation());
 
         const actionsButton = new ButtonComponent(row)
             .setIcon("ellipsis")
@@ -511,6 +573,12 @@ export class CardBrowserView extends ItemView {
         const allInactive = records.every((record) => record.lifecycleState !== "active");
         menu.addItem((item) =>
             item
+                .setTitle(t("SET_FLAG"))
+                .setIcon("flag")
+                .onClick(() => window.setTimeout(() => this.openFlagMenu(event, records), 0)),
+        );
+        menu.addItem((item) =>
+            item
                 .setTitle(allInactive ? t("RESUME_SELECTED_CARDS") : t("SUSPEND_SELECTED_CARDS"))
                 .setIcon(allInactive ? "play" : "pause")
                 .onClick(() => void this.setSelectionSuspended(records, !allInactive)),
@@ -530,6 +598,47 @@ export class CardBrowserView extends ItemView {
                 .onClick(() => this.confirmResetSelection(records)),
         );
         menu.showAtMouseEvent(event);
+    }
+
+    private openFlagMenu(event: MouseEvent, records: CardBrowserRecord[]): void {
+        const menu = new Menu();
+        const options = this.getFlagOptions(false);
+        const sharedFlag = records.every((record) => record.flag === records[0]?.flag)
+            ? records[0]?.flag
+            : null;
+        for (const value of [0, 1, 2, 3, 4, 5, 6, 7] as CardFlag[]) {
+            menu.addItem((item) =>
+                item
+                    .setTitle(options[String(value)])
+                    .setIcon(value === 0 ? "x" : "flag")
+                    .setChecked(sharedFlag === value)
+                    .onClick(() => void this.setRecordsFlag(records, value)),
+            );
+        }
+        menu.showAtMouseEvent(event);
+    }
+
+    private async setRecordsFlag(records: CardBrowserRecord[], flag: CardFlag): Promise<void> {
+        await this.plugin.dataManager.collectionStore.setLegacyCardsFlag(
+            records.map(recordToLegacyInput),
+            flag,
+        );
+        new Notice(flag === 0 ? t("FLAGS_CLEARED") : t("FLAG_SET"));
+        this.render();
+    }
+
+    private getFlagOptions(includeAll: boolean): Record<string, string> {
+        return {
+            ...(includeAll ? { all: t("ALL_FLAGS") } : {}),
+            "0": t("NO_FLAG"),
+            "1": t("FLAG_RED"),
+            "2": t("FLAG_ORANGE"),
+            "3": t("FLAG_GREEN"),
+            "4": t("FLAG_BLUE"),
+            "5": t("FLAG_PINK"),
+            "6": t("FLAG_TURQUOISE"),
+            "7": t("FLAG_PURPLE"),
+        };
     }
 
     private async burySelection(records: CardBrowserRecord[]): Promise<void> {

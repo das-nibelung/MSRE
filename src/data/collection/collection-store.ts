@@ -10,6 +10,7 @@ import {
     TEXT_FIELD_ID,
 } from "src/data/collection/builtin-note-types";
 import {
+    CardFlag,
     CardLifecycleState,
     COLLECTION_SCHEMA_VERSION,
     CollectionCard,
@@ -160,7 +161,7 @@ export function migrateCollection(value: unknown): CollectionData {
         cards: Object.fromEntries(
             Object.entries(asRecord<CollectionCard>(raw.cards)).map(([id, card]) => [
                 id,
-                { ...card, buriedUntil: card.buriedUntil ?? null },
+                { ...card, buriedUntil: card.buriedUntil ?? null, flag: card.flag ?? 0 },
             ]),
         ),
     };
@@ -263,6 +264,12 @@ function sortRecord<T>(record: Record<string, T>): Record<string, T> {
 
 function cloneJson<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function normalizeTags(tags: string[]): string[] {
+    return [...new Set(tags.map((tag) => tag.trim().replace(/^#+/, "")).filter(Boolean))].sort(
+        (left, right) => left.localeCompare(right),
+    );
 }
 
 export function formatCollection(data: CollectionData): string {
@@ -472,6 +479,20 @@ export class CollectionStore {
         return [...changedCards.values()].map((card) => cloneJson(card));
     }
 
+    async setLegacyCardsFlag(inputs: LegacyCardInput[], flag: CardFlag): Promise<CollectionCard[]> {
+        await this.initialize();
+        const timestamp = this.now();
+        const changedCards = new Map<string, CollectionCard>();
+        for (const input of inputs) {
+            const { card } = this.ensureLegacyCard(input);
+            card.flag = flag;
+            card.updatedAt = timestamp;
+            changedCards.set(card.id, card);
+        }
+        if (changedCards.size > 0) await this.persistCollection();
+        return [...changedCards.values()].map((card) => cloneJson(card));
+    }
+
     async restoreExpiredBuriedCards(timestamp = this.now()): Promise<number> {
         await this.initialize();
         const expired = Object.values(this.collection.cards).filter(
@@ -501,7 +522,7 @@ export class CollectionStore {
             id,
             noteTypeId,
             fields,
-            tags: [],
+            tags: normalizeTags(input.tags ?? []),
             source: { kind: "managed", path: input.sourcePath, questionId: input.questionId },
             createdAt: timestamp,
             updatedAt: timestamp,
@@ -616,7 +637,7 @@ export class CollectionStore {
             id,
             noteTypeId: input.noteTypeId,
             fields: { ...input.fields },
-            tags: [...new Set(input.tags ?? [])],
+            tags: normalizeTags(input.tags ?? []),
             source: { ...input.source },
             createdAt: timestamp,
             updatedAt: timestamp,
@@ -651,7 +672,7 @@ export class CollectionStore {
         }
         const timestamp = this.now();
         note.fields = { ...input.fields };
-        note.tags = [...new Set(input.tags ?? note.tags)];
+        note.tags = normalizeTags(input.tags ?? note.tags);
         note.source = { ...input.source };
         note.updatedAt = timestamp;
         const deck = this.ensureDeckPathInMemory(input.deckPath, timestamp);
@@ -729,6 +750,7 @@ export class CollectionStore {
         const timestamp = this.now();
         existing.noteTypeId = noteTypeIdForNativeType(input.type);
         existing.fields = fieldsForNativeInput(input);
+        existing.tags = normalizeTags(input.tags ?? existing.tags);
         existing.source.questionId = input.questionId;
         existing.updatedAt = timestamp;
         const deck = this.ensureDeckPathInMemory(input.deckPath, timestamp);
@@ -832,6 +854,7 @@ export class CollectionStore {
                 deckPath: input.deckPath,
                 state: "active",
                 buriedUntil: null,
+                flag: 0,
                 queue: "new",
                 schedule: null,
                 reps: 0,
@@ -902,6 +925,7 @@ export class CollectionStore {
                 deckPath: targetDeck.name,
                 state: "active",
                 buriedUntil: null,
+                flag: 0,
                 queue: "new",
                 schedule: null,
                 reps: 0,

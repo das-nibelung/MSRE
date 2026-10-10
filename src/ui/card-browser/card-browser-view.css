@@ -420,6 +420,58 @@
     border-radius: var(--tag-radius);
 }
 
+.sr-card-browser-tag {
+    flex: 0 0 auto;
+    padding: var(--size-2-1) var(--size-4-1);
+    border-radius: var(--tag-radius);
+    background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+    color: var(--text-accent);
+}
+
+.sr-card-browser-flag {
+    flex: 0 0 auto;
+    color: var(--text-faint);
+    opacity: 1;
+}
+
+.sr-card-browser-flag.is-empty {
+    opacity: 0;
+}
+
+.sr-card-browser-row:hover .sr-card-browser-flag.is-empty,
+.sr-card-browser-row:focus-within .sr-card-browser-flag.is-empty,
+.is-mobile .sr-card-browser-flag.is-empty {
+    opacity: 0.55;
+}
+
+.sr-card-browser-flag.is-flag-1 {
+    color: var(--color-red);
+}
+
+.sr-card-browser-flag.is-flag-2 {
+    color: var(--color-orange);
+}
+
+.sr-card-browser-flag.is-flag-3 {
+    color: var(--color-green);
+}
+
+.sr-card-browser-flag.is-flag-4 {
+    color: var(--color-blue);
+}
+
+.sr-card-browser-flag.is-flag-5 {
+    color: var(--color-pink);
+}
+
+.sr-card-browser-flag.is-flag-6 {
+    color: var(--color-cyan);
+}
+
+.sr-card-browser-flag.is-flag-7 {
+    color: var(--color-purple);
+}
+
 .sr-card-browser-state.is-new {
     color: var(--color-blue);
     background: color-mix(in srgb, var(--color-blue) 10%, transparent);
@@ -534,15 +586,26 @@
 
     .sr-card-browser-filter-row {
         gap: 6px;
+        justify-content: flex-start;
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        padding-bottom: 2px;
+        scrollbar-width: none;
     }
 
     .sr-card-browser-filter-row .sr-card-browser-filter {
+        min-width: max-content;
+        flex: 0 0 auto;
         padding-inline: 10px;
         font-size: var(--font-ui-smaller);
 
         & .sr-card-browser-filter-icon {
             display: none;
         }
+    }
+
+    .sr-card-browser-filter-row::-webkit-scrollbar {
+        display: none;
     }
 
     .sr-card-browser-summary button {

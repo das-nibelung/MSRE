@@ -69,6 +69,7 @@ export class NativeCreatorView extends ItemView {
     private selectedDeckOptionsId = DEFAULT_DECK_OPTIONS_ID;
     private deckOptionsDraft: DeckOptionsDefinition | null = null;
     private deckDescription = "";
+    private tagsText = "";
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -125,6 +126,7 @@ export class NativeCreatorView extends ItemView {
                 sourcePath,
                 this.editingCard.storageInfo?.questionId,
             );
+            this.tagsText = structuredNote?.tags.join(", ") ?? "";
             if (structuredNote && !structuredNote.noteTypeId.startsWith("builtin-")) {
                 this.editingStructuredNote = structuredNote;
                 this.selectedNoteTypeId = structuredNote.noteTypeId;
@@ -141,6 +143,7 @@ export class NativeCreatorView extends ItemView {
             this.back = "";
             this.cardType = "basic";
             this.customFieldValues = {};
+            this.tagsText = "";
         }
         this.error = "";
         if (this.contentEl.isShown()) this.render();
@@ -318,6 +321,8 @@ export class NativeCreatorView extends ItemView {
             this.back = backInput.value;
             this.clearError();
         });
+
+        this.renderTagsField(surface);
 
         if (this.error) {
             surface.createDiv({
@@ -1106,6 +1111,31 @@ export class NativeCreatorView extends ItemView {
         return group;
     }
 
+    private renderTagsField(parent: HTMLElement): void {
+        const group = this.createFieldGroup(parent, t("TAGS"), t("TAGS_HELP"));
+        const input = group.createEl("input", {
+            cls: "sr-native-input",
+            attr: {
+                type: "text",
+                placeholder: t("TAGS_PLACEHOLDER"),
+                autocomplete: "off",
+                autocapitalize: "none",
+                "aria-label": t("TAGS"),
+            },
+        });
+        input.value = this.tagsText;
+        input.addEventListener("input", () => {
+            this.tagsText = input.value;
+        });
+    }
+
+    private getTags(): string[] {
+        return this.tagsText
+            .split(/[\s,]+/)
+            .map((tag) => tag.trim().replace(/^#+/, ""))
+            .filter(Boolean);
+    }
+
     private createCardTypeButton(
         parent: HTMLElement,
         type: NativeCardType,
@@ -1248,6 +1278,8 @@ export class NativeCreatorView extends ItemView {
             firstInput ??= input;
         }
 
+        this.renderTagsField(surface);
+
         if (this.error) {
             surface.createDiv({
                 cls: "sr-native-form-error",
@@ -1297,6 +1329,7 @@ export class NativeCreatorView extends ItemView {
                 deckPath: this.selectedDeck,
                 noteTypeId: noteType.id,
                 fields: { ...this.customFieldValues },
+                tags: this.getTags(),
             };
             if (this.editingStructuredNote) {
                 await this.store.updateStructuredNote(this.editingStructuredNote, draft);
@@ -1342,6 +1375,7 @@ export class NativeCreatorView extends ItemView {
                 type: this.cardType,
                 front: this.front,
                 back: this.back,
+                tags: this.getTags(),
             };
             if (this.editingCard) await this.saveEditedCard(draft);
             else await this.store.createCard(draft);
@@ -1523,6 +1557,7 @@ export class NativeCreatorView extends ItemView {
             deckPath: this.selectedDeck,
             sourcePath: question.note.filePath,
             questionId,
+            tags: draft.tags,
         });
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();

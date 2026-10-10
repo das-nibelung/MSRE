@@ -102,7 +102,7 @@ describe("Anki-style collection store", () => {
                 statement: "{{c1::Aspirin}} inhibits {{c2::COX}}.",
                 source: "Pharmacology",
             },
-            tags: ["medicine", "medicine"],
+            tags: ["#medicine", "medicine", " exam "],
             deckPath: "Medicine/Pharmacology",
             source: { kind: "managed", path: "Cards/aspirin.md", questionId: "^aspirin" },
         });
@@ -110,7 +110,7 @@ describe("Anki-style collection store", () => {
         const snapshot = store.getCollectionSnapshot();
         const cards = Object.values(snapshot.cards).filter((card) => card.noteId === note.id);
         expect(cards.map((card) => card.ordinal)).toEqual([0, 1]);
-        expect(note.tags).toEqual(["medicine"]);
+        expect(note.tags).toEqual(["exam", "medicine"]);
         expect(snapshot.deckOptions["builtin-default-options"].desiredRetention).toBe(0.9);
     });
 
@@ -192,6 +192,8 @@ describe("Anki-style collection store", () => {
         await store.setLegacyCardsState([input], "suspended");
         expect(store.isLegacyCardReviewable("^state-id:0")).toBe(false);
         expect(store.getCardByLegacyStableId("^state-id:0")?.buriedUntil).toBeNull();
+        await store.setLegacyCardsFlag([input], 4);
+        expect(store.getCardByLegacyStableId("^state-id:0")?.flag).toBe(4);
 
         await store.setLegacyCardsState([input], "buried", 400);
         expect(store.isLegacyCardReviewable("^state-id:0", 399)).toBe(false);
@@ -448,9 +450,10 @@ describe("Anki-style collection store", () => {
         newer.notes.n1.updatedAt = 2;
 
         const merged = mergeCollections(older, newer);
-        expect(merged.schemaVersion).toBe(2);
+        expect(merged.schemaVersion).toBe(3);
         expect(merged.notes.n1.fields.front).toBe("new");
         expect(merged.cards.c1.buriedUntil).toBeNull();
+        expect(merged.cards.c1.flag).toBe(0);
         expect(Object.keys(merged.noteTypes)).toEqual(
             expect.arrayContaining([
                 "builtin-basic",
