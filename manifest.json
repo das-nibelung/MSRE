@@ -3,7 +3,7 @@
     "name": "Personal Spaced Repetition",
     "version": "1.15.4-personal.30",
     "minAppVersion": "1.2.8",
-    "description": "A personal, mobile-compatible fork of Spaced Repetition for reviewing flashcards and notes in Obsidian.",
+    "description": "A mobile-compatible spaced repetition workspace with native cards, media, and image occlusion.",
     "author": "das-nibelung; based on work by Stephen Mwangi and contributors",
     "authorUrl": "https://github.com/das-nibelung",
     "helpUrl": "https://github.com/das-nibelung/MSRE",
