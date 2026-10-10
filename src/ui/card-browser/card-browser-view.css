@@ -26,6 +26,63 @@
     gap: var(--size-4-3);
 }
 
+.sr-card-browser-insights {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--size-4-2);
+}
+
+.sr-card-browser-insight {
+    display: flex;
+    min-width: 0;
+    min-height: 58px;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 2px;
+    padding: var(--size-4-2) var(--size-4-3);
+    overflow: hidden;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 14px;
+    background: var(--background-secondary);
+    box-shadow: none;
+    text-align: start;
+    transition:
+        border-color 150ms ease,
+        background-color 150ms ease,
+        transform 120ms ease;
+}
+
+.sr-card-browser-insight.is-active {
+    border-color: color-mix(
+        in srgb,
+        var(--interactive-accent) 42%,
+        var(--background-modifier-border)
+    );
+    background: color-mix(in srgb, var(--interactive-accent) 9%, var(--background-secondary));
+}
+
+.sr-card-browser-insight:active {
+    transform: scale(0.98);
+}
+
+.sr-card-browser-insight-value {
+    color: var(--text-normal);
+    font-size: var(--font-ui-large);
+    font-weight: var(--font-semibold);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+}
+
+.sr-card-browser-insight-label {
+    width: 100%;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .sr-card-browser-title-block {
     min-width: 0;
     flex: 1;
@@ -123,7 +180,8 @@
 }
 
 .sr-card-browser-search {
-    flex: 1 1 16rem;
+    width: 100%;
+    flex: 0 0 auto;
     min-width: 0;
 }
 
@@ -443,6 +501,19 @@
 
     .sr-card-browser-toolbar {
         padding: 0;
+    }
+
+    .sr-card-browser-insights {
+        gap: 6px;
+    }
+
+    .sr-card-browser-insight {
+        min-height: 54px;
+        padding: 8px 10px;
+    }
+
+    .sr-card-browser-insight-value {
+        font-size: var(--font-ui-medium);
     }
 
     .sr-card-browser-row-main {

@@ -134,6 +134,8 @@ export class CardBrowserView extends ItemView {
             return;
         }
 
+        this.renderInsights(records);
+
         const toolbar = this.contentEl.createDiv("sr-card-browser-toolbar");
         const searchWrapper = toolbar.createDiv("sr-card-browser-search");
         new SearchComponent(searchWrapper)
@@ -206,6 +208,50 @@ export class CardBrowserView extends ItemView {
 
         this.resultsEl = this.contentEl.createDiv("sr-card-browser-results");
         this.renderResults(records);
+    }
+
+    private renderInsights(records: CardBrowserRecord[]): void {
+        const insights = this.contentEl.createDiv("sr-card-browser-insights");
+        const metrics: Array<{ filter: CardBrowserFilter; label: string; value: number }> = [
+            { filter: "all", label: t("ALL_CARDS"), value: records.length },
+            {
+                filter: "due",
+                label: t("DUE"),
+                value: records.filter((record) => record.state === "due").length,
+            },
+            {
+                filter: "new",
+                label: t("NEW_CARDS"),
+                value: records.filter((record) => record.state === "new").length,
+            },
+            {
+                filter: "scheduled",
+                label: t("SCHEDULED_CARDS"),
+                value: records.filter((record) => record.state === "scheduled").length,
+            },
+        ];
+
+        for (const metric of metrics) {
+            const button = new ButtonComponent(insights)
+                .setClass("sr-card-browser-insight")
+                .setTooltip(metric.label)
+                .onClick(() => {
+                    this.filter = metric.filter;
+                    this.visibleLimit = PAGE_SIZE;
+                    this.render();
+                });
+            button.buttonEl.empty();
+            button.buttonEl.toggleClass("is-active", this.filter === metric.filter);
+            button.buttonEl.setAttribute("aria-pressed", String(this.filter === metric.filter));
+            button.buttonEl.createSpan({
+                cls: "sr-card-browser-insight-value",
+                text: String(metric.value),
+            });
+            button.buttonEl.createSpan({
+                cls: "sr-card-browser-insight-label",
+                text: metric.label,
+            });
+        }
     }
 
     private createFilterButton(

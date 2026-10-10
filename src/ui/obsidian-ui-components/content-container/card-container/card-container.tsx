@@ -49,7 +49,17 @@ export class CardContainer {
     private jumpToCardHandler: () => Promise<void>;
     private backToDeckHandler: () => Promise<void>;
     private undoLastReviewHandler: () => Promise<void>;
-    private gestureStart: { x: number; y: number; time: number } | null = null;
+    private gestureStart: {
+        pointerId: number;
+        x: number;
+        y: number;
+        lastX: number;
+        lastTime: number;
+        velocityX: number;
+        axis: "pending" | "horizontal" | "vertical";
+        card: HTMLElement;
+    } | null = null;
+    private suppressNextCardClick = false;
 
     constructor(
         app: App,
@@ -118,8 +128,10 @@ export class CardContainer {
         this.content.addEventListener("click", (event) => {
             this.revealAnswerFromCard(event);
         });
-        this.content.addEventListener("touchstart", this.onGestureStart, { passive: true });
-        this.content.addEventListener("touchend", this.onGestureEnd, { passive: true });
+        this.content.addEventListener("pointerdown", this.onGestureStart);
+        this.content.addEventListener("pointermove", this.onGestureMove);
+        this.content.addEventListener("pointerup", this.onGestureEnd);
+        this.content.addEventListener("pointercancel", this.onGestureCancel);
 
         this.response = new ResponseSectionComponent(
             this.view,
@@ -490,8 +502,12 @@ export class CardContainer {
         stat.createSpan({ text: label });
     }
 
-    private onGestureStart = (event: TouchEvent): void => {
-        if (!(Platform.isMobile || EmulatedPlatform().isMobile) || event.touches.length !== 1) {
+    private onGestureStart = (event: PointerEvent): void => {
+        if (
+            !(Platform.isMobile || EmulatedPlatform().isMobile) ||
+            !event.isPrimary ||
+            (event.pointerType !== "touch" && event.pointerType !== "pen")
+        ) {
             this.gestureStart = null;
             return;
         }
@@ -503,65 +519,123 @@ export class CardContainer {
             this.gestureStart = null;
             return;
         }
-        const touch = event.touches[0];
-        const bounds = this.content.getBoundingClientRect();
-        if (touch.clientX - bounds.left < 32 || bounds.right - touch.clientX < 32) {
-            this.gestureStart = null;
-            return;
-        }
-        this.gestureStart = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+        const card = this.content.querySelector<HTMLElement>(".sr-study-card");
+        if (card === null) return;
+        this.gestureStart = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            lastX: event.clientX,
+            lastTime: event.timeStamp,
+            velocityX: 0,
+            axis: "pending",
+            card,
+        };
+        this.content.setPointerCapture(event.pointerId);
     };
 
-    private onGestureEnd = (event: TouchEvent): void => {
+    private onGestureMove = (event: PointerEvent): void => {
         const start = this.gestureStart;
-        this.gestureStart = null;
-        if (start === null || event.changedTouches.length !== 1 || Date.now() - start.time > 800) {
-            return;
-        }
-        const touch = event.changedTouches[0];
-        const deltaX = touch.clientX - start.x;
-        const deltaY = touch.clientY - start.y;
+        if (start === null || start.pointerId !== event.pointerId) return;
 
-        if (
-            this.cardState === CardState.Front &&
-            deltaY < -72 &&
-            Math.abs(deltaY) > Math.abs(deltaX) * 1.15
-        ) {
-            void this.animateGesture("up", this.showAnswerHandler);
-            return;
+        const deltaX = event.clientX - start.x;
+        const deltaY = event.clientY - start.y;
+        if (start.axis === "pending" && Math.max(Math.abs(deltaX), Math.abs(deltaY)) >= 8) {
+            start.axis = Math.abs(deltaX) > Math.abs(deltaY) * 1.08 ? "horizontal" : "vertical";
         }
+        if (start.axis !== "horizontal" || this.cardState !== CardState.Back) return;
 
-        if (
-            this.cardState === CardState.Back &&
-            Math.abs(deltaX) > 72 &&
-            Math.abs(deltaX) > Math.abs(deltaY) * 1.2
-        ) {
-            const response = deltaX < 0 ? ReviewResponse.Again : ReviewResponse.Good;
-            void this.animateGesture(deltaX < 0 ? "left" : "right", () =>
-                this.processReviewHandler(response),
-            );
-        }
+        event.preventDefault();
+        const elapsed = Math.max(1, event.timeStamp - start.lastTime);
+        start.velocityX = (event.clientX - start.lastX) / elapsed;
+        start.lastX = event.clientX;
+        start.lastTime = event.timeStamp;
+
+        const limitedX = Math.max(-180, Math.min(180, deltaX));
+        const rotation = limitedX / 55;
+        start.card.addClass("is-swiping");
+        start.card.toggleClass("is-swiping-left", limitedX < 0);
+        start.card.toggleClass("is-swiping-right", limitedX > 0);
+        start.card.dataset.swipeLabel = limitedX < 0 ? t("AGAIN") : t("GOOD");
+        start.card.setCssProps({
+            transform: `translate3d(${limitedX}px, 0, 0) rotate(${rotation}deg)`,
+            opacity: String(1 - Math.min(Math.abs(limitedX) / 720, 0.2)),
+        });
     };
+
+    private onGestureEnd = (event: PointerEvent): void => {
+        const start = this.gestureStart;
+        if (start === null || start.pointerId !== event.pointerId) return;
+        this.gestureStart = null;
+        if (this.content.hasPointerCapture(event.pointerId)) {
+            this.content.releasePointerCapture(event.pointerId);
+        }
+
+        const deltaX = event.clientX - start.x;
+        const shouldRate =
+            start.axis === "horizontal" &&
+            this.cardState === CardState.Back &&
+            (Math.abs(deltaX) >= Math.min(88, this.content.clientWidth * 0.18) ||
+                (Math.abs(deltaX) >= 24 && Math.abs(start.velocityX) >= 0.45));
+
+        if (start.axis === "horizontal" && Math.abs(deltaX) > 8) {
+            this.suppressNextCardClick = true;
+            window.setTimeout(() => {
+                this.suppressNextCardClick = false;
+            }, 0);
+        }
+
+        if (!shouldRate) {
+            void this.resetGestureCard(start.card, true);
+            return;
+        }
+
+        const response = deltaX < 0 ? ReviewResponse.Again : ReviewResponse.Good;
+        void this.animateGesture(start.card, deltaX < 0 ? "left" : "right", () =>
+            this.processReviewHandler(response),
+        );
+    };
+
+    private onGestureCancel = (event: PointerEvent): void => {
+        const start = this.gestureStart;
+        if (start === null || start.pointerId !== event.pointerId) return;
+        this.gestureStart = null;
+        void this.resetGestureCard(start.card, true);
+    };
+
+    private async resetGestureCard(card: HTMLElement, animate: boolean): Promise<void> {
+        if (animate && card.style.transform !== "") {
+            const animation = card.animate(
+                [
+                    { transform: card.style.transform, opacity: card.style.opacity || "1" },
+                    { transform: "translate3d(0, 0, 0) rotate(0deg)", opacity: 1 },
+                ],
+                { duration: 190, easing: "cubic-bezier(.2,.8,.2,1)" },
+            );
+            await animation.finished.catch((): void => {});
+        }
+        card.removeClasses(["is-swiping", "is-swiping-left", "is-swiping-right"]);
+        card.removeAttribute("data-swipe-label");
+        card.style.removeProperty("transform");
+        card.style.removeProperty("opacity");
+    }
 
     private async animateGesture(
-        direction: "left" | "right" | "up",
+        card: HTMLElement,
+        direction: "left" | "right",
         action: () => void | Promise<void>,
     ): Promise<void> {
         const reduceMotion = activeWindow.matchMedia("(prefers-reduced-motion: reduce)").matches;
         if (!reduceMotion) {
-            const transform =
-                direction === "up"
-                    ? "translateY(-12px)"
-                    : `translateX(${direction === "left" ? "-16px" : "16px"})`;
-            const animatedCard =
-                this.content.querySelector<HTMLElement>(".sr-study-card") ?? this.content;
-            const animation = animatedCard.animate(
+            const animation = card.animate(
                 [
-                    { transform: "translate3d(0, 0, 0)", opacity: 1 },
-                    { transform, opacity: 0.78 },
-                    { transform: "translate3d(0, 0, 0)", opacity: 1 },
+                    { transform: card.style.transform || "translate3d(0, 0, 0)", opacity: 1 },
+                    {
+                        transform: `translate3d(${direction === "left" ? "-115vw" : "115vw"}, 0, 0) rotate(${direction === "left" ? "-8deg" : "8deg"})`,
+                        opacity: 0.05,
+                    },
                 ],
-                { duration: 160, easing: "ease-out" },
+                { duration: 180, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" },
             );
             await animation.finished.catch((): void => {});
         }
@@ -569,6 +643,10 @@ export class CardContainer {
     }
 
     private revealAnswerFromCard(event: MouseEvent): void {
+        if (this.suppressNextCardClick) {
+            event.preventDefault();
+            return;
+        }
         if (
             this.cardState !== CardState.Front ||
             !(Platform.isMobile || EmulatedPlatform().isMobile)

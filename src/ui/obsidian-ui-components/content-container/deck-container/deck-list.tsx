@@ -1,5 +1,5 @@
 import "src/ui/obsidian-ui-components/content-container/deck-container/deck-list.css";
-import { ButtonComponent, setIcon } from "obsidian";
+import { ButtonComponent, SearchComponent, setIcon } from "obsidian";
 
 import { Deck } from "src/data/data-structures/deck/deck";
 import { SRSettings } from "src/data/settings";
@@ -10,7 +10,12 @@ export default class DeckListComponent {
     private scrollWrapper: HTMLDivElement;
     private content: HTMLDivElement;
     private overview: HTMLDivElement;
+    private organization: HTMLDivElement;
+    private areaSummary: HTMLSpanElement;
     private treeContainer: HTMLDivElement;
+    private searchQuery = "";
+    private currentReviewSequencer: IFlashcardReviewSequencer | null = null;
+    private currentSettings: SRSettings | null = null;
 
     private treeHeaderRow: HTMLDivElement;
     private treeHeaderRowSelf: HTMLDivElement;
@@ -45,6 +50,18 @@ export default class DeckListComponent {
         this.content.addClass("sr-content");
 
         this.overview = this.content.createDiv("sr-deck-overview");
+
+        this.organization = this.content.createDiv("sr-deck-organization");
+        const organizationHeading = this.organization.createDiv("sr-deck-organization-heading");
+        organizationHeading.createEl("h2", { text: t("KNOWLEDGE_AREAS") });
+        this.areaSummary = organizationHeading.createSpan();
+        const searchWrapper = this.organization.createDiv("sr-deck-search");
+        new SearchComponent(searchWrapper).setPlaceholder(t("SEARCH_DECKS")).onChange((value) => {
+            this.searchQuery = value.trim().toLocaleLowerCase();
+            if (this.currentReviewSequencer !== null && this.currentSettings !== null) {
+                this.redraw(this.currentReviewSequencer, this.currentSettings);
+            }
+        });
 
         // Prep header row
         this.treeHeaderRow = this.content.createDiv();
@@ -122,8 +139,15 @@ export default class DeckListComponent {
      * @param reviewSequencer - The review sequencer object.
      */
     redraw(reviewSequencer: IFlashcardReviewSequencer, settings: SRSettings) {
+        this.currentReviewSequencer = reviewSequencer;
+        this.currentSettings = settings;
         this.overview.empty();
         this.treeContainer.empty();
+        this.areaSummary.setText(
+            t("KNOWLEDGE_AREAS_SUMMARY", {
+                count: reviewSequencer.originalDeckTree.subdecks.length,
+            }),
+        );
 
         const originDeckStats = reviewSequencer.getDeckStats(
             reviewSequencer.originalDeckTree.getTopicPath(),
@@ -150,6 +174,7 @@ export default class DeckListComponent {
                 .setButtonText(t("BROWSE_CARDS"))
                 .onClick(this.openCardBrowser);
             for (const subdeck of reviewSequencer.originalDeckTree.subdecks) {
+                if (!this.deckMatchesSearch(subdeck)) continue;
                 this._createTree(
                     subdeck,
                     this.treeContainer,
@@ -170,6 +195,7 @@ export default class DeckListComponent {
         );
 
         for (const subdeck of reviewSequencer.originalDeckTree.subdecks) {
+            if (!this.deckMatchesSearch(subdeck)) continue;
             // Create the tree row for each deck
             this._createTree(
                 subdeck,
@@ -179,6 +205,25 @@ export default class DeckListComponent {
                 this.startReviewOfDeck,
             );
         }
+
+        if (
+            this.searchQuery.length > 0 &&
+            this.treeContainer.querySelector(".sr-tree-row") === null
+        ) {
+            this.treeHeaderRow.addClass("sr-is-hidden");
+            const noResults = this.treeContainer.createDiv("sr-deck-search-empty");
+            const icon = noResults.createDiv();
+            setIcon(icon, "search-x");
+            noResults.createSpan({ text: t("NO_DECKS_MATCH") });
+        } else {
+            this.treeHeaderRow.removeClass("sr-is-hidden");
+        }
+    }
+
+    private deckMatchesSearch(deck: Deck): boolean {
+        if (this.searchQuery.length === 0) return true;
+        if (deck.deckName.toLocaleLowerCase().includes(this.searchQuery)) return true;
+        return deck.subdecks.some((subdeck) => this.deckMatchesSearch(subdeck));
     }
 
     private renderOverview(deck: Deck, stats: DeckStats): void {
@@ -213,6 +258,7 @@ export default class DeckListComponent {
         reviewSequencer: IFlashcardReviewSequencer,
         settings: SRSettings,
         startReviewOfDeck: (deck: Deck) => void,
+        depth: number = 0,
     ) {
         const deckStats = reviewSequencer.getDeckStats(deck.getTopicPath());
 
@@ -222,12 +268,14 @@ export default class DeckListComponent {
             deckStats,
             deck.subdecks.length,
             parentEl,
-            settings.initiallyExpandAllSubdecksInTree,
+            settings.initiallyExpandAllSubdecksInTree || this.searchQuery.length > 0,
             deck,
             startReviewOfDeck,
+            depth,
         );
 
         for (const subdeck of deck.subdecks) {
+            if (!this.deckMatchesSearch(subdeck)) continue;
             // Create the tree row for each subdeck
             this._createTree(
                 subdeck,
@@ -235,6 +283,7 @@ export default class DeckListComponent {
                 reviewSequencer,
                 settings,
                 startReviewOfDeck,
+                depth + 1,
             );
         }
     }
@@ -247,6 +296,7 @@ export default class DeckListComponent {
         initiallyExpanded: boolean = false,
         deck: Deck | null = null,
         startReviewOfDeck: (deck: Deck) => void = () => {},
+        depth: number = 0,
     ): HTMLDivElement {
         const disableInteraction = deck === null;
         const hasSubdecks = numOfSubdecks > 0;
@@ -254,6 +304,8 @@ export default class DeckListComponent {
         treeRow.addClass("sr-tree-row");
         treeRow.addClass("tree-item");
         treeRow.addClass("sr-tree-item-container");
+        treeRow.addClass(depth === 0 ? "sr-knowledge-area" : "sr-nested-deck");
+        treeRow.dataset.depth = String(depth);
 
         const treeRowSelf = treeRow.createDiv();
         treeRowSelf.addClass("tree-item-self");
@@ -270,7 +322,7 @@ export default class DeckListComponent {
 
         const treeRowInner: HTMLElement = treeRowSelf.createDiv("tree-item-inner");
         const deckIcon = treeRowInner.createDiv("sr-deck-row-icon");
-        setIcon(deckIcon, hasSubdecks ? "folders" : "folder");
+        setIcon(deckIcon, depth === 0 ? "library-big" : hasSubdecks ? "folders" : "folder");
         const treeRowInnerText: HTMLElement = treeRowInner.createDiv("tag-pane-tag-text");
         const treeRowInnerTextSpan: HTMLElement = treeRowInnerText.createSpan({
             cls: "tag-pane-tag-self sr-deck-row-title",

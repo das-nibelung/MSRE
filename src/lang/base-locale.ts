@@ -410,6 +410,10 @@ export interface IBaseLocale {
     READY_TO_REVIEW: string;
     CARDS_READY: string;
     DECKS_READY: string;
+    KNOWLEDGE_AREAS: string;
+    KNOWLEDGE_AREAS_SUMMARY: string;
+    SEARCH_DECKS: string;
+    NO_DECKS_MATCH: string;
     UNDO_LAST_REVIEW: string;
     REVIEW_UNDONE: string;
     UNDO_REVIEW_FAILED: string;
