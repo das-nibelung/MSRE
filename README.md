@@ -35,6 +35,13 @@ On first review, each question receives a persistent Obsidian block ID such as
 the sibling card number, this gives every card a stable identity that survives
 question text edits and moves within the vault.
 
+Reviewed-card schedules are also backed up to
+`Spaced Repetition/schedule-data.sr.md`. The file stays inside the vault for
+offline use and normal vault sync. Inline `<!--SR:...-->` comments remain the
+primary source; if one is accidentally removed, the schedule is restored by
+stable ID. Use the plugin's reset/delete actions when removal is intentional so
+the synchronized backup is cleared as well.
+
 Markdown remains the source of truth. The index is safe to discard and is not
 written into the vault, so it does not create sync conflicts between desktop
 and mobile devices. If IndexedDB is unavailable, the plugin falls back to an

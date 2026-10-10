@@ -3,6 +3,11 @@ import { Notice, TFile, Vault } from "obsidian";
 import { SR_COMMENT_AND_WHITESPACE_FINDER, SR_METADATA_CALLOUT } from "src/data/constants";
 import { StorageType } from "src/data/data-store/base/data-store";
 import { IFileModifier as IFileModifier } from "src/data/data-store/base/file-modifier";
+import {
+    extractStableQuestionIds,
+    SCHEDULE_LEDGER_PATH,
+    ScheduleLedger,
+} from "src/data/data-store/schedule-ledger";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 
@@ -11,12 +16,17 @@ import SRPlugin from "src/main";
 export class NoteDataFileModifier implements IFileModifier {
     private plugin: SRPlugin;
 
-    constructor(plugin: SRPlugin) {
+    constructor(
+        plugin: SRPlugin,
+        private readonly scheduleLedger?: ScheduleLedger,
+    ) {
         this.plugin = plugin;
     }
 
     async migrateCommentsToCallouts(): Promise<void> {
-        const files = this.plugin.app.vault.getMarkdownFiles();
+        const files = this.plugin.app.vault
+            .getMarkdownFiles()
+            .filter((file) => file.path !== SCHEDULE_LEDGER_PATH);
 
         for (let i = 0; i < files.length; i++) {
             await this.migrateCommentsToCalloutsInFile(files[i], this.plugin.app.vault);
@@ -137,7 +147,11 @@ export class NoteDataFileModifier implements IFileModifier {
         file: TFile,
         deleteTags: boolean,
         tagsToDelete: string[] = [],
+        removeFromLedger: boolean = true,
     ) {
+        if (removeFromLedger && this.scheduleLedger) {
+            await this.scheduleLedger.deleteMany(extractStableQuestionIds(await vault.read(file)));
+        }
         await vault.process(file, (data) => {
             return data.replace(SR_COMMENT_AND_WHITESPACE_FINDER, "");
         });
@@ -155,7 +169,10 @@ export class NoteDataFileModifier implements IFileModifier {
         deckTagsToDelete: string[] = [],
         noteTagsToDelete: string[] = [],
     ) {
-        const files = this.plugin.app.vault.getMarkdownFiles();
+        const files = this.plugin.app.vault
+            .getMarkdownFiles()
+            .filter((file) => file.path !== SCHEDULE_LEDGER_PATH);
+        await this.scheduleLedger?.clear();
 
         for (let i = 0; i < files.length; i++) {
             await this.removeSchedulingInfoInNotes(
@@ -169,6 +186,7 @@ export class NoteDataFileModifier implements IFileModifier {
                 files[i],
                 deleteTags,
                 deckTagsToDelete,
+                false,
             );
         }
 
@@ -179,7 +197,9 @@ export class NoteDataFileModifier implements IFileModifier {
      * Deletes all note scheduling data from all files in the vault.
      */
     async deleteAllSchedulingDataInNotes(deleteTags: boolean, tagsToDelete: string[] = []) {
-        const files = this.plugin.app.vault.getMarkdownFiles();
+        const files = this.plugin.app.vault
+            .getMarkdownFiles()
+            .filter((file) => file.path !== SCHEDULE_LEDGER_PATH);
 
         for (let i = 0; i < files.length; i++) {
             await this.removeSchedulingInfoInNotes(
@@ -197,7 +217,10 @@ export class NoteDataFileModifier implements IFileModifier {
      * Deletes all card scheduling data from all files in the vault.
      */
     async deleteAllSchedulingDataInCards(deleteTags: boolean, tagsToDelete: string[] = []) {
-        const files = this.plugin.app.vault.getMarkdownFiles();
+        const files = this.plugin.app.vault
+            .getMarkdownFiles()
+            .filter((file) => file.path !== SCHEDULE_LEDGER_PATH);
+        await this.scheduleLedger?.clear();
 
         for (let i = 0; i < files.length; i++) {
             await this.removeSchedulingInfoInCards(
@@ -205,6 +228,7 @@ export class NoteDataFileModifier implements IFileModifier {
                 files[i],
                 deleteTags,
                 tagsToDelete,
+                false,
             );
         }
 

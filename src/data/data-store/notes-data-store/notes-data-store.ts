@@ -2,6 +2,7 @@ import { MULTI_SCHEDULING_EXTRACTOR, SM2_SCHEDULE_INFO_EXTRACTOR } from "src/dat
 import { IDataStore, StorageType } from "src/data/data-store/base/data-store";
 import { IFileModifier } from "src/data/data-store/base/file-modifier";
 import { RepItemStorageInfo } from "src/data/data-store/base/rep-item-storage-info";
+import { ScheduleLedger } from "src/data/data-store/schedule-ledger";
 import { Question } from "src/data/data-structures/card/questions/question";
 import { SRSettings } from "src/data/settings";
 import { RepItemScheduleInfo } from "src/scheduling/algorithms/base/rep-item-schedule-info";
@@ -14,10 +15,14 @@ export class NotesDataStore implements IDataStore {
     public readonly fileModifier: IFileModifier;
     public isStructureInitialized: Promise<boolean>;
 
-    constructor(settings: SRSettings, scheduleDeleter: IFileModifier) {
+    constructor(
+        settings: SRSettings,
+        scheduleDeleter: IFileModifier,
+        private readonly scheduleLedger?: ScheduleLedger,
+    ) {
         this.settings = settings;
         this.fileModifier = scheduleDeleter;
-        this.isStructureInitialized = Promise.resolve(true);
+        this.isStructureInitialized = scheduleLedger?.initialize() ?? Promise.resolve(true);
     }
 
     /**
@@ -27,7 +32,10 @@ export class NotesDataStore implements IDataStore {
      * @param _
      * @returns
      */
-    createSchedule(originalQuestionText: string, _: RepItemStorageInfo): RepItemScheduleInfo[] {
+    createSchedule(
+        originalQuestionText: string,
+        storageInfo: RepItemStorageInfo,
+    ): Array<RepItemScheduleInfo | null> {
         const schedulingComment = originalQuestionText.match(/<!--SR:(.+?)-->/m)?.[1];
         if (schedulingComment) {
             return CommentParser.parseMultiScheduleComment(schedulingComment) ?? [];
@@ -58,7 +66,11 @@ export class NotesDataStore implements IDataStore {
                 result.push(parsedSchedule);
             }
         }
-        return result;
+        if (result.length > 0) return result;
+
+        return storageInfo?.questionId
+            ? (this.scheduleLedger?.getSchedules(storageInfo.questionId) ?? [])
+            : [];
     }
 
     /**
@@ -78,8 +90,18 @@ export class NotesDataStore implements IDataStore {
      * @returns
      */
     async writeSchedule(question: Question): Promise<void> {
-        question.ensureStableId();
+        const questionId = question.ensureStableId();
         await this.write(question);
+        if (this.scheduleLedger) {
+            try {
+                await this.scheduleLedger.setSchedules(
+                    questionId,
+                    question.cards.map((card) => card.scheduleInfo),
+                );
+            } catch (error) {
+                console.warn("SR: Unable to back up the card schedule", error);
+            }
+        }
     }
 
     /**
@@ -109,6 +131,8 @@ export class NotesDataStore implements IDataStore {
         // Only write if note hasn't changed
         if (newText) {
             await question.note.file.write(newText);
+            const questionId = question.questionText.obsidianBlockId;
+            if (questionId) await this.scheduleLedger?.delete(questionId);
         }
     }
 }
