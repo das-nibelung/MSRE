@@ -313,12 +313,16 @@ export default class DeckListComponent {
             treeRowSelf.addClass("tag-pane-tag");
         }
         treeRowSelf.addClass("sr-tree-item-row");
+        treeRowSelf.addClass(hasSubdecks ? "has-subdecks" : "is-leaf");
 
         let collapsed = !initiallyExpanded;
         const collapseIconEl = treeRowSelf.createDiv("tree-item-icon collapse-icon");
         setIcon(collapseIconEl, "chevron-down");
         if (collapsed) collapseIconEl.addClass("is-collapsed");
-        if (numOfSubdecks === 0) collapseIconEl.setCssProps({ display: "none" });
+        if (!hasSubdecks) {
+            collapseIconEl.addClass("is-placeholder");
+            collapseIconEl.setAttribute("aria-hidden", "true");
+        }
 
         const treeRowInner: HTMLElement = treeRowSelf.createDiv("tree-item-inner");
         const deckIcon = treeRowInner.createDiv("sr-deck-row-icon");
@@ -398,9 +402,12 @@ export default class DeckListComponent {
         }
 
         this._createStatsInRow(treeRowOuter, deckStats);
+        const goIcon = treeRowSelf.createDiv("sr-deck-row-go");
         if (canStartReview) {
-            const goIcon = treeRowSelf.createDiv("sr-deck-row-go");
             setIcon(goIcon, "chevron-right");
+            goIcon.setAttribute("aria-hidden", "true");
+        } else {
+            goIcon.addClass("is-placeholder");
             goIcon.setAttribute("aria-hidden", "true");
         }
         return treeRowChildren;

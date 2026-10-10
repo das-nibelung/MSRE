@@ -149,6 +149,10 @@
     }
 
     & .sr-tree-item-row {
+        display: grid;
+        grid-template-columns: 36px minmax(0, 1fr) auto 24px;
+        align-items: center;
+        column-gap: var(--size-4-2);
         min-height: 60px;
         padding: var(--size-4-2) var(--size-4-3);
         margin: 0;
@@ -183,10 +187,31 @@
 
         & .tree-item-inner {
             display: flex;
+            grid-column: 2;
+            width: 100%;
             min-width: 0;
             align-items: center;
             gap: var(--size-4-3);
+            padding: 0;
         }
+    }
+
+    & .sr-tree-item-row > .collapse-icon {
+        position: static;
+        grid-column: 1;
+        width: 36px;
+        min-width: 36px;
+        height: 36px;
+        min-height: 36px;
+        margin: 0;
+        padding: 0;
+        justify-self: center;
+    }
+
+    & .sr-tree-item-row > .collapse-icon.is-placeholder,
+    & .sr-tree-item-row > .sr-deck-row-go.is-placeholder {
+        visibility: hidden;
+        pointer-events: none;
     }
 
     & .sr-knowledge-area > .sr-tree-item-row {
@@ -245,12 +270,23 @@
 
     & .sr-deck-row-go {
         display: none;
-        flex: 0 0 auto;
+        grid-column: 4;
+        width: 24px;
+        height: 36px;
+        align-items: center;
+        justify-content: center;
         color: var(--text-faint);
+        pointer-events: none;
+
+        & svg {
+            width: 17px;
+            height: 17px;
+        }
     }
 
     & .sr-tree-stats-container {
         display: grid;
+        grid-column: 3;
         grid-template-columns: repeat(4, minmax(34px, 1fr));
         gap: var(--size-4-1);
         flex: 0 0 auto;
@@ -419,8 +455,10 @@
     }
 
     & .sr-tree-item-row {
+        grid-template-columns: 44px minmax(0, 1fr) 28px;
+        column-gap: 6px;
         min-height: 64px;
-        padding: var(--size-4-2);
+        padding: var(--size-4-2) 10px;
     }
 
     & .sr-knowledge-area > .sr-tree-item-row {
@@ -431,22 +469,31 @@
         padding-inline: 0;
     }
 
-    & .sr-deck-row-subtitle,
-    & .sr-deck-row-go {
+    & .sr-deck-row-subtitle {
         display: block;
+    }
+
+    & .sr-deck-row-go {
+        display: flex;
+        grid-column: 3;
+        width: 28px;
+        height: 44px;
     }
 
     & .sr-tree-stats-container {
         display: none;
     }
 
-    & .collapse-icon[role="button"] {
+    & .sr-tree-item-row > .collapse-icon {
+        grid-column: 1;
+        width: 44px;
         min-width: 44px;
+        height: 44px;
         min-height: 44px;
     }
 
     & .tree-item-children {
-        margin-inline-start: var(--size-4-4);
+        margin-inline-start: 10px;
         border-inline-start: 1px solid var(--background-modifier-border);
     }
 }
