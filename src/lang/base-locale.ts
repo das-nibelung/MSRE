@@ -570,6 +570,12 @@ export interface IBaseLocale {
     CARD_VARIANTS_HELP: string;
     CARD_VARIANT_FORWARD: string;
     CARD_VARIANT_REVERSE: string;
+    ANSWER_MODE: string;
+    ANSWER_MODE_HELP: string;
+    ANSWER_MODE_REVEAL: string;
+    ANSWER_MODE_TYPE: string;
+    OPEN_SECTION_MENU: string;
+    MORE_CARD_OPTIONS: string;
     TYPE_YOUR_ANSWER: string;
     CHECK_ANSWER: string;
     YOUR_ANSWER: string;

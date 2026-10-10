@@ -221,6 +221,46 @@ describe("native card storage", () => {
         expect(result.body).not.toContain("sr-typed-answer:  -->");
     });
 
+    it("adds typed-answer mode only when the card explicitly requests it", () => {
+        const reveal = serializeNativeCard(
+            {
+                deckPath: "Law",
+                type: "basic",
+                front: "Question",
+                back: "Answer",
+                answerMode: "reveal",
+            },
+            DEFAULT_SETTINGS,
+        );
+        const typed = serializeNativeCard(
+            {
+                deckPath: "Law",
+                type: "basic",
+                front: "Question",
+                back: "Answer",
+                answerMode: "type",
+            },
+            DEFAULT_SETTINGS,
+        );
+        const typedCloze = serializeNativeCard(
+            {
+                deckPath: "Medicine",
+                type: "cloze",
+                front: "The heart has four chambers.",
+                back: "four",
+                answerMode: "type",
+            },
+            DEFAULT_SETTINGS,
+        );
+
+        expect(reveal).not.toContain("sr-answer-mode");
+        expect(typed).toContain("<!-- sr-answer-mode: type -->");
+        expect(parse(typed, DEFAULT_SETTINGS)[0].cardType).toBe(CardType.MultiLineBasic);
+        expect(typedCloze).toContain("==four==");
+        expect(typedCloze).toContain("<!-- sr-answer-mode: type -->");
+        expect(parse(typedCloze, DEFAULT_SETTINGS)[0].cardType).toBe(CardType.Cloze);
+    });
+
     it("creates and updates grouped image occlusion notes", async () => {
         const harness = createStoreHarness();
         const draft = {

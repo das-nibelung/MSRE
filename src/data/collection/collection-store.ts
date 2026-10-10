@@ -522,6 +522,7 @@ export class CollectionStore {
             id,
             noteTypeId,
             fields,
+            answerMode: input.answerMode ?? "reveal",
             tags: normalizeTags(input.tags ?? []),
             source: { kind: "managed", path: input.sourcePath, questionId: input.questionId },
             createdAt: timestamp,
@@ -750,6 +751,7 @@ export class CollectionStore {
         const timestamp = this.now();
         existing.noteTypeId = noteTypeIdForNativeType(input.type);
         existing.fields = fieldsForNativeInput(input);
+        existing.answerMode = input.answerMode ?? existing.answerMode ?? "reveal";
         existing.tags = normalizeTags(input.tags ?? existing.tags);
         existing.source.questionId = input.questionId;
         existing.updatedAt = timestamp;

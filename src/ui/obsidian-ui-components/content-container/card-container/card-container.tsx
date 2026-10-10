@@ -2,6 +2,10 @@ import "src/ui/obsidian-ui-components/content-container/card-container/card-cont
 import moment from "moment";
 import { App, ButtonComponent, Platform, setIcon } from "obsidian";
 
+import {
+    IMAGE_OCCLUSION_NOTE_TYPE_ID,
+    OCCLUSION_ASSETS_FIELD_ID,
+} from "src/data/collection/builtin-note-types";
 import { CardType } from "src/data/data-structures/card/questions/question";
 import { SRSettings } from "src/data/settings";
 import { t } from "src/lang/helpers";
@@ -44,6 +48,7 @@ export class CardContainer {
     private clozeInputs: NodeListOf<HTMLInputElement> | null = null;
     private clozeAnswers: NodeListOf<Element> | null = null;
     private typedAnswer = "";
+    private typedAnswerExpected: string | null = null;
 
     private processReviewHandler: (response: ReviewResponse) => Promise<void>;
     private skipCardHandler: () => void;
@@ -276,7 +281,14 @@ export class CardContainer {
             // sessionData.cardData.currentCardState
         );
 
-        if (allowTapToReveal && cardFace.querySelector(".cloze-input") === null) {
+        const typedAnswerExpected = this.getTypedAnswerExpected(sessionData);
+        const usesTypedAnswer = typedAnswerExpected !== undefined;
+        this.typedAnswerExpected = typedAnswerExpected ?? null;
+        if (
+            allowTapToReveal &&
+            usesTypedAnswer &&
+            cardFace.querySelector(".cloze-input") === null
+        ) {
             const composer = cardSurface.createDiv("sr-typed-answer-composer");
             const input = composer.createEl("input", {
                 cls: "sr-typed-answer-input",
@@ -321,6 +333,39 @@ export class CardContainer {
         }
         // Set scroll position back to top
         this.content.scrollTop = 0;
+    }
+
+    private getTypedAnswerExpected(sessionData: SessionData): string | null | undefined {
+        const card = sessionData.cardData.currentCard;
+        const note = this.plugin.dataManager.collectionStore.findNoteBySource(
+            sessionData.currentNote.filePath,
+            card.storageInfo?.questionId,
+        );
+        if (note?.answerMode === "type") return null;
+        if (note?.noteTypeId === IMAGE_OCCLUSION_NOTE_TYPE_ID) {
+            try {
+                const assets = JSON.parse(note.fields[OCCLUSION_ASSETS_FIELD_ID] ?? "[]") as Array<{
+                    label?: string;
+                }>;
+                const questionId = card.storageInfo?.questionId;
+                const storedCard = Object.values(
+                    this.plugin.dataManager.collectionStore.getCollectionSnapshot().cards,
+                ).find(
+                    (candidate) =>
+                        !candidate.deletedAt &&
+                        candidate.noteId === note.id &&
+                        Boolean(questionId) &&
+                        candidate.legacyStableId?.startsWith(`${questionId}:`),
+                );
+                const ordinal = storedCard?.ordinal ?? card.cardIdx;
+                const label = assets[ordinal]?.label?.trim();
+                if (label) return label;
+            } catch {
+                return undefined;
+            }
+        }
+        const fallback = card.back.match(/<!--\s*sr-typed-answer:\s*([^]*?)\s*-->/i);
+        return fallback ? decodeURIComponent(fallback[1].trim()) : undefined;
     }
 
     public drawPendingState(nextPendingDueUnix: number): void {
@@ -486,9 +531,9 @@ export class CardContainer {
             const marker = sessionData.cardData.currentCard.back.match(
                 /<!--\s*sr-typed-answer:\s*([^]*?)\s*-->/i,
             );
-            const expected = marker
-                ? decodeURIComponent(marker[1].trim())
-                : answerFace.innerText.trim();
+            const expected =
+                this.typedAnswerExpected ??
+                (marker ? decodeURIComponent(marker[1].trim()) : answerFace.innerText.trim());
             const comparison = cardSurface.createDiv("sr-typed-answer-result");
             comparison.createSpan({ text: t("YOUR_ANSWER") });
             comparison.createEl("strong", { text: this.typedAnswer.trim() });

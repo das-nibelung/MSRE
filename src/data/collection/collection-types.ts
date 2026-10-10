@@ -72,6 +72,7 @@ export interface CollectionNote {
     id: string;
     noteTypeId: string;
     fields: Record<string, string>;
+    answerMode?: "reveal" | "type";
     tags: string[];
     source: NoteSource;
     createdAt: number;
@@ -140,6 +141,7 @@ export interface NativeNoteInput {
     type: "basic" | "reversed" | "cloze";
     front: string;
     back: string;
+    answerMode?: "reveal" | "type";
     deckPath: string;
     sourcePath: string;
     questionId: string;

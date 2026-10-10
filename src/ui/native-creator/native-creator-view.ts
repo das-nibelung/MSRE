@@ -84,6 +84,7 @@ export class NativeCreatorView extends ItemView {
     private selectedDeck = "";
     private cardType: NativeCardType = "basic";
     private cardVariants = new Set<NativeCardType>(["basic"]);
+    private answerMode: "reveal" | "type" = "reveal";
     private front = "";
     private back = "";
     private busy = false;
@@ -204,6 +205,7 @@ export class NativeCreatorView extends ItemView {
                 if (structuredCard) this.selectedDeck = structuredCard.deckPath;
             } else {
                 this.loadCardForEditing(this.editingCard);
+                if (structuredNote?.answerMode) this.answerMode = structuredNote.answerMode;
                 this.front = this.extractMediaEmbeds(this.front, "front");
                 this.back = this.extractMediaEmbeds(this.back, "back");
             }
@@ -211,6 +213,7 @@ export class NativeCreatorView extends ItemView {
             this.front = "";
             this.back = "";
             this.cardType = "basic";
+            this.answerMode = "reveal";
             this.customFieldValues = {};
             this.tagsText = "";
             this.existingMedia = [];
@@ -277,12 +280,17 @@ export class NativeCreatorView extends ItemView {
             this.request.mode !== "deck-options" &&
             this.request.mode !== "image-occlusion"
         ) {
-            const switcher = top.createDiv("sr-native-creator-switcher");
-            this.createModeButton(switcher, "card", "square-pen", t("CARD"));
-            this.createModeButton(switcher, "deck", "layers-3", t("DECK"));
-            this.createModeButton(switcher, "area", "library-big", t("KNOWLEDGE_AREAS"));
-            this.createModeButton(switcher, "note-type", "shapes", t("NOTE_TYPES"));
-            this.createModeButton(switcher, "media", "images", t("MEDIA_LIBRARY"));
+            const section = new ButtonComponent(top)
+                .setButtonText(this.getModeLabel(this.request.mode))
+                .setTooltip(t("OPEN_SECTION_MENU"))
+                .onClick((event) => this.openModeMenu(event));
+            section.buttonEl.addClass("sr-native-section-picker");
+            section.buttonEl.setAttribute("aria-haspopup", "menu");
+            const icon = section.buttonEl.createSpan("sr-native-section-picker-icon");
+            setIcon(icon, this.getModeIcon(this.request.mode));
+            section.buttonEl.prepend(icon);
+            const chevron = section.buttonEl.createSpan("sr-native-section-picker-chevron");
+            setIcon(chevron, "chevron-down");
         }
 
         const surface = page.createDiv("sr-native-creator-surface");
@@ -295,31 +303,48 @@ export class NativeCreatorView extends ItemView {
         else this.renderCardForm(surface);
     }
 
-    private createModeButton(
-        parent: HTMLElement,
-        mode: NativeCreatorMode,
-        iconName: string,
-        label: string,
-    ): void {
-        const button = new ButtonComponent(parent).setTooltip(label);
-        button.buttonEl.addClass("sr-native-switch-button");
-        button.buttonEl.toggleClass("is-active", this.request.mode === mode);
-        button.buttonEl.setAttribute("aria-pressed", String(this.request.mode === mode));
-        const icon = button.buttonEl.createSpan("sr-native-switch-icon");
-        setIcon(icon, iconName);
-        button.buttonEl.createSpan({ text: label });
-        button.onClick(() => {
-            this.request = { mode, deckPath: this.selectedDeck };
-            this.editingAreaId = null;
-            this.areaName = "";
-            this.noteTypeDraft = null;
-            this.error = "";
-            this.render();
-        });
+    private getModeLabel(mode: NativeCreatorMode): string {
+        if (mode === "deck") return t("DECK");
+        if (mode === "area") return t("KNOWLEDGE_AREAS");
+        if (mode === "note-type") return t("NOTE_TYPES");
+        if (mode === "media") return t("MEDIA_LIBRARY");
+        return t("CARD");
+    }
+
+    private getModeIcon(mode: NativeCreatorMode): string {
+        if (mode === "deck") return "layers-3";
+        if (mode === "area") return "library-big";
+        if (mode === "note-type") return "shapes";
+        if (mode === "media") return "images";
+        return "square-pen";
+    }
+
+    private openModeMenu(event: MouseEvent): void {
+        const menu = new Menu();
+        for (const mode of ["card", "deck", "area", "note-type", "media"] as const) {
+            menu.addItem((item) =>
+                item
+                    .setTitle(this.getModeLabel(mode))
+                    .setIcon(this.getModeIcon(mode))
+                    .setChecked(this.request.mode === mode)
+                    .onClick(() => {
+                        this.request = { mode, deckPath: this.selectedDeck };
+                        this.editingAreaId = null;
+                        this.areaName = "";
+                        this.noteTypeDraft = null;
+                        this.error = "";
+                        this.render();
+                    }),
+            );
+        }
+        menu.showAtMouseEvent(event);
     }
 
     private renderCardForm(surface: HTMLElement): void {
-        const deckGroup = this.createFieldGroup(surface, t("DECK"), t("DECK_PICKER_HELP"));
+        surface.addClass("sr-native-card-editor");
+        const meta = surface.createDiv("sr-native-card-meta");
+        const deckGroup = this.createFieldGroup(meta, t("DECK"));
+        deckGroup.addClass("sr-native-compact-field");
         const editingCustomType = this.editingStructuredNote
             ? this.plugin.dataManager.collectionStore.getNoteType(
                   this.editingStructuredNote.noteTypeId,
@@ -340,7 +365,8 @@ export class NativeCreatorView extends ItemView {
             setIcon(chevron, "chevron-down");
         }
 
-        const typeGroup = this.createFieldGroup(surface, t("NOTE_TYPES"));
+        const typeGroup = this.createFieldGroup(meta, t("NOTE_TYPES"));
+        typeGroup.addClass("sr-native-compact-field");
         if (editingCustomType) {
             typeGroup.createDiv({
                 cls: "sr-native-readonly-value",
@@ -369,7 +395,7 @@ export class NativeCreatorView extends ItemView {
         }
 
         if (!this.editingCard) {
-            const occlusion = typeGroup.createEl("button", {
+            const occlusion = surface.createEl("button", {
                 cls: "sr-native-occlusion-entry",
                 attr: { type: "button" },
             });
@@ -462,7 +488,38 @@ export class NativeCreatorView extends ItemView {
         });
         this.renderMediaControls(backGroup, "back");
 
-        this.renderTagsField(surface);
+        const advanced = surface.createEl("details", { cls: "sr-native-card-advanced" });
+        if (this.answerMode === "type" || this.tagsText.trim()) advanced.open = true;
+        const advancedSummary = advanced.createEl("summary");
+        advancedSummary.createSpan({ text: t("MORE_CARD_OPTIONS") });
+        const advancedChevron = advancedSummary.createSpan("sr-native-card-advanced-chevron");
+        setIcon(advancedChevron, "chevron-down");
+        const advancedBody = advanced.createDiv("sr-native-card-advanced-body");
+
+        const answerMode = this.createFieldGroup(
+            advancedBody,
+            t("ANSWER_MODE"),
+            t("ANSWER_MODE_HELP"),
+        );
+        const answerModePicker = answerMode.createDiv("sr-native-answer-mode-picker");
+        for (const [mode, label, iconName] of [
+            ["reveal", t("ANSWER_MODE_REVEAL"), "eye"],
+            ["type", t("ANSWER_MODE_TYPE"), "text-cursor-input"],
+        ] as const) {
+            const button = new ButtonComponent(answerModePicker).setButtonText(label);
+            button.buttonEl.toggleClass("is-active", this.answerMode === mode);
+            button.buttonEl.setAttribute("aria-pressed", String(this.answerMode === mode));
+            const icon = button.buttonEl.createSpan("sr-native-answer-mode-icon");
+            setIcon(icon, iconName);
+            button.buttonEl.prepend(icon);
+            button.onClick(() => {
+                this.answerMode = mode;
+                this.error = "";
+                this.render();
+            });
+        }
+
+        this.renderTagsField(advancedBody);
 
         if (this.error) {
             surface.createDiv({
@@ -2367,6 +2424,7 @@ export class NativeCreatorView extends ItemView {
                 type: this.cardType,
                 front: this.withMediaEmbeds(this.front, "front"),
                 back: this.withMediaEmbeds(this.back, "back"),
+                answerMode: this.answerMode,
                 tags: this.getTags(),
             };
             if (this.editingCard) await this.saveEditedCard(draft);
@@ -2489,7 +2547,11 @@ export class NativeCreatorView extends ItemView {
 
     private loadCardForEditing(card: Card): void {
         const settings = this.plugin.dataManager.data.settings;
-        const source = card.question.questionText.actualQuestion;
+        const rawSource = card.question.questionText.actualQuestion;
+        this.answerMode = /<!--\s*sr-answer-mode:\s*type\s*-->/i.test(rawSource)
+            ? "type"
+            : "reveal";
+        const source = rawSource.replace(/\n?<!--\s*sr-answer-mode:\s*type\s*-->/gi, "").trim();
         const type = card.question.questionType;
         let separator = settings.multilineCardSeparator;
         this.cardType = "basic";
@@ -2542,6 +2604,12 @@ export class NativeCreatorView extends ItemView {
         } else {
             modifiedText = serializeNativeQuestion(draft, settings);
         }
+        if (
+            draft.answerMode === "type" &&
+            !/<!--\s*sr-answer-mode:\s*type\s*-->/i.test(modifiedText)
+        ) {
+            modifiedText += "\n<!-- sr-answer-mode: type -->";
+        }
         const expanded = CardFrontBackUtil.expand(question.questionType, modifiedText, settings);
         if (expanded.length !== question.cards.length) throw new Error("card-count-changed");
 
@@ -2556,6 +2624,7 @@ export class NativeCreatorView extends ItemView {
             type: draft.type,
             front: draft.front.trim(),
             back: draft.back.trim(),
+            answerMode: draft.answerMode,
             deckPath: this.selectedDeck,
             sourcePath: question.note.filePath,
             questionId,

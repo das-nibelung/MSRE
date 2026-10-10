@@ -20,6 +20,7 @@ export interface NativeCardDraft {
     type: NativeCardType;
     front: string;
     back: string;
+    answerMode?: "reveal" | "type";
     tags?: string[];
 }
 
@@ -160,6 +161,7 @@ export function serializeNativeCard(
 export function serializeNativeQuestion(draft: NativeCardDraft, settings: SRSettings): string {
     const front = draft.front.trim();
     const back = draft.back.trim();
+    const answerModeMarker = draft.answerMode === "type" ? "\n<!-- sr-answer-mode: type -->" : "";
 
     if (draft.type === "cloze") {
         const wrapper = getClozeWrapper(settings);
@@ -169,7 +171,7 @@ export function serializeNativeQuestion(draft: NativeCardDraft, settings: SRSett
         const text = `${front.slice(0, matchIndex)}${wrapper[0]}${back}${wrapper[1]}${front.slice(
             matchIndex + back.length,
         )}`;
-        return text;
+        return `${text}${answerModeMarker}`;
     }
 
     const separator =
@@ -177,7 +179,7 @@ export function serializeNativeQuestion(draft: NativeCardDraft, settings: SRSett
             ? settings.multilineReversedCardSeparator
             : settings.multilineCardSeparator;
     const endMarker = settings.multilineCardEndMarker ? `\n${settings.multilineCardEndMarker}` : "";
-    return `${front}\n${separator}\n${back}${endMarker}`;
+    return `${front}\n${separator}\n${back}${answerModeMarker}${endMarker}`;
 }
 
 function stripRootDeckPath(path: string[], rootPath: string[]): string {
@@ -380,6 +382,7 @@ export class NativeCardStore {
             type: draft.type,
             front: draft.front.trim(),
             back: draft.back.trim(),
+            answerMode: draft.answerMode,
             deckPath: normalizedDeck,
             sourcePath: file.path,
             questionId,

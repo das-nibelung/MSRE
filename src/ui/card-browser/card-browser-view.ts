@@ -13,6 +13,7 @@ import {
 import { CardFlag, LegacyCardInput } from "src/data/collection/collection-types";
 import { CARD_BROWSER_VIEW_TYPE } from "src/data/constants";
 import { DataStore } from "src/data/data-store/base/data-store";
+import { NativeCardStore } from "src/data/native-card-store";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
@@ -128,6 +129,7 @@ export class CardBrowserView extends ItemView {
                     stored.buriedUntil <= Date.now();
                 return {
                     ...record,
+                    deckNames: stored?.deckPath ? [stored.deckPath] : record.deckNames,
                     lifecycleState: expired ? "active" : (stored?.state ?? "active"),
                     flag: stored?.flag ?? 0,
                     tags: stored ? (snapshot.notes[stored.noteId]?.tags ?? []) : [],
@@ -199,6 +201,28 @@ export class CardBrowserView extends ItemView {
                 this.visibleLimit = PAGE_SIZE;
                 this.renderResults(records);
             });
+        const deckOptions: Record<string, string> = { all: t("ALL_DECKS") };
+        const knownDecks = new Set([
+            ...new NativeCardStore(this.plugin).getDeckPaths(),
+            ...getCardBrowserDeckNames(records),
+        ]);
+        for (const deckName of [...knownDecks].sort((left, right) => left.localeCompare(right))) {
+            deckOptions[deckName] = deckName;
+        }
+        const deckRow = toolbar.createDiv("sr-card-browser-deck-row");
+        deckRow.createSpan({ cls: "sr-card-browser-deck-label", text: t("DECK") });
+        this.createFilterButton(
+            deckRow,
+            deckOptions,
+            this.deck,
+            (value) => {
+                this.deck = value;
+                this.visibleLimit = PAGE_SIZE;
+                this.render();
+            },
+            this.deck !== "all",
+        );
+
         const filterRow = toolbar.createDiv("sr-card-browser-filter-row");
         this.createFilterButton(
             filterRow,
@@ -217,22 +241,6 @@ export class CardBrowserView extends ItemView {
                 this.render();
             },
             this.filter !== "all",
-        );
-
-        const deckOptions: Record<string, string> = { all: t("ALL_DECKS") };
-        for (const deckName of getCardBrowserDeckNames(records)) {
-            deckOptions[deckName] = deckName;
-        }
-        this.createFilterButton(
-            filterRow,
-            deckOptions,
-            this.deck,
-            (value) => {
-                this.deck = value;
-                this.visibleLimit = PAGE_SIZE;
-                this.render();
-            },
-            this.deck !== "all",
         );
 
         const tagOptions: Record<string, string> = { all: t("ALL_TAGS") };

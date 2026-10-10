@@ -48,6 +48,7 @@ describe("Anki-style collection store", () => {
             type: "reversed",
             front: "bonjour",
             back: "hello",
+            answerMode: "type",
             deckPath: "Languages/French",
             sourcePath: "Spaced Repetition/Cards/Languages/bonjour.md",
             questionId: "^sr-data-id-note-1",
@@ -56,6 +57,7 @@ describe("Anki-style collection store", () => {
         const snapshot = store.getCollectionSnapshot();
         const cards = Object.values(snapshot.cards).filter((card) => card.noteId === note.id);
         expect(note.fields).toEqual({ front: "bonjour", back: "hello" });
+        expect(note.answerMode).toBe("type");
         expect(cards).toHaveLength(2);
         expect(cards.map((card) => card.ordinal)).toEqual([0, 1]);
         expect(cards.map((card) => card.legacyStableId)).toEqual([
