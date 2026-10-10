@@ -1,6 +1,19 @@
 import "src/ui/native-creator/native-creator-view.css";
 import { ButtonComponent, ItemView, Menu, Notice, setIcon, WorkspaceLeaf } from "obsidian";
 
+import {
+    BASIC_NOTE_TYPE_ID,
+    CLOZE_NOTE_TYPE_ID,
+    REVERSED_NOTE_TYPE_ID,
+} from "src/data/collection/builtin-note-types";
+import {
+    CardTemplateDefinition,
+    CollectionNote,
+    FieldKind,
+    NoteFieldDefinition,
+    NoteTypeDefinition,
+    NoteTypeKind,
+} from "src/data/collection/collection-types";
 import { CARD_BROWSER_VIEW_TYPE, CARD_CREATOR_VIEW_TYPE } from "src/data/constants";
 import { Card } from "src/data/data-structures/card/card";
 import { CardType } from "src/data/data-structures/card/questions/question";
@@ -14,8 +27,18 @@ import {
 } from "src/data/native-card-store";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
+import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
 
-export type NativeCreatorMode = "card" | "deck" | "area";
+export type NativeCreatorMode = "card" | "deck" | "area" | "note-type";
+
+interface NoteTypeEditorDraft {
+    id: string;
+    name: string;
+    kind: NoteTypeKind;
+    fields: NoteFieldDefinition[];
+    templates: CardTemplateDefinition[];
+    css: string;
+}
 
 export interface NativeCreatorRequest {
     mode: NativeCreatorMode;
@@ -37,6 +60,10 @@ export class NativeCreatorView extends ItemView {
     private editingCard: Card | null = null;
     private editingAreaId: string | null = null;
     private areaName = "";
+    private noteTypeDraft: NoteTypeEditorDraft | null = null;
+    private selectedNoteTypeId = BASIC_NOTE_TYPE_ID;
+    private customFieldValues: Record<string, string> = {};
+    private editingStructuredNote: CollectionNote | null = null;
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -56,11 +83,13 @@ export class NativeCreatorView extends ItemView {
         if (this.request.mode === "area") {
             return this.editingAreaId ? t("EDIT_KNOWLEDGE_AREA") : t("NEW_KNOWLEDGE_AREA");
         }
+        if (this.request.mode === "note-type") return t("NOTE_TYPES");
         return this.request.mode === "deck" ? t("NEW_DECK") : t("NEW_CARD");
     }
 
     getIcon(): string {
         if (this.request.mode === "area") return "library-big";
+        if (this.request.mode === "note-type") return "shapes";
         return this.request.mode === "deck" ? "layers-3" : "square-pen";
     }
 
@@ -75,16 +104,35 @@ export class NativeCreatorView extends ItemView {
         this.request = request;
         this.selectedDeck = request.deckPath ?? this.selectedDeck;
         this.editingCard = request.card ?? null;
+        this.editingStructuredNote = null;
         this.editingAreaId = request.editAreaId ?? null;
+        if (request.mode !== "note-type") this.noteTypeDraft = null;
         this.areaName = this.editingAreaId
             ? (this.store.getKnowledgeAreas().find((area) => area.id === this.editingAreaId)
                   ?.name ?? "")
             : "";
-        if (this.editingCard) this.loadCardForEditing(this.editingCard);
-        else if (wasEditing) {
+        if (this.editingCard) {
+            const sourcePath = this.editingCard.storageInfo?.notePath ?? "";
+            const structuredNote = this.plugin.dataManager.collectionStore.findNoteBySource(
+                sourcePath,
+                this.editingCard.storageInfo?.questionId,
+            );
+            if (structuredNote && !structuredNote.noteTypeId.startsWith("builtin-")) {
+                this.editingStructuredNote = structuredNote;
+                this.selectedNoteTypeId = structuredNote.noteTypeId;
+                this.customFieldValues = { ...structuredNote.fields };
+                const structuredCard = Object.values(
+                    this.plugin.dataManager.collectionStore.getCollectionSnapshot().cards,
+                ).find((card) => !card.deletedAt && card.noteId === structuredNote.id);
+                if (structuredCard) this.selectedDeck = structuredCard.deckPath;
+            } else {
+                this.loadCardForEditing(this.editingCard);
+            }
+        } else if (wasEditing) {
             this.front = "";
             this.back = "";
             this.cardType = "basic";
+            this.customFieldValues = {};
         }
         this.error = "";
         if (this.contentEl.isShown()) this.render();
@@ -108,18 +156,24 @@ export class NativeCreatorView extends ItemView {
                   ? this.editingAreaId
                       ? t("EDIT_KNOWLEDGE_AREA")
                       : t("NEW_KNOWLEDGE_AREA")
-                  : this.request.mode === "deck"
-                    ? t("NEW_DECK")
-                    : t("NEW_CARD"),
+                  : this.request.mode === "note-type"
+                    ? this.noteTypeDraft
+                        ? t("EDIT_NOTE_TYPE")
+                        : t("NOTE_TYPES")
+                    : this.request.mode === "deck"
+                      ? t("NEW_DECK")
+                      : t("NEW_CARD"),
         });
         heading.createEl("p", {
             text: this.editingCard
                 ? t("EDIT_CARD_DESCRIPTION")
                 : this.request.mode === "area"
                   ? t("KNOWLEDGE_AREA_DESCRIPTION")
-                  : this.request.mode === "deck"
-                    ? t("NEW_DECK_DESCRIPTION")
-                    : t("NEW_CARD_DESCRIPTION"),
+                  : this.request.mode === "note-type"
+                    ? t("NOTE_TYPES_DESCRIPTION")
+                    : this.request.mode === "deck"
+                      ? t("NEW_DECK_DESCRIPTION")
+                      : t("NEW_CARD_DESCRIPTION"),
         });
 
         if (!this.editingCard && !this.editingAreaId) {
@@ -127,11 +181,13 @@ export class NativeCreatorView extends ItemView {
             this.createModeButton(switcher, "card", "square-pen", t("CARD"));
             this.createModeButton(switcher, "deck", "layers-3", t("DECK"));
             this.createModeButton(switcher, "area", "library-big", t("KNOWLEDGE_AREAS"));
+            this.createModeButton(switcher, "note-type", "shapes", t("NOTE_TYPES"));
         }
 
         const surface = page.createDiv("sr-native-creator-surface");
         if (this.request.mode === "deck") this.renderDeckForm(surface);
         else if (this.request.mode === "area") this.renderAreaForm(surface);
+        else if (this.request.mode === "note-type") this.renderNoteTypeManager(surface);
         else this.renderCardForm(surface);
     }
 
@@ -152,6 +208,7 @@ export class NativeCreatorView extends ItemView {
             this.request = { mode, deckPath: this.selectedDeck };
             this.editingAreaId = null;
             this.areaName = "";
+            this.noteTypeDraft = null;
             this.error = "";
             this.render();
         });
@@ -159,6 +216,11 @@ export class NativeCreatorView extends ItemView {
 
     private renderCardForm(surface: HTMLElement): void {
         const deckGroup = this.createFieldGroup(surface, t("DECK"), t("DECK_PICKER_HELP"));
+        const editingCustomType = this.editingStructuredNote
+            ? this.plugin.dataManager.collectionStore.getNoteType(
+                  this.editingStructuredNote.noteTypeId,
+              )
+            : null;
         if (this.editingCard) {
             deckGroup.createDiv({
                 cls: "sr-native-readonly-value",
@@ -174,16 +236,33 @@ export class NativeCreatorView extends ItemView {
             setIcon(chevron, "chevron-down");
         }
 
-        const typeGroup = this.createFieldGroup(surface, t("CARD_TYPE"));
-        const typeSwitcher = typeGroup.createDiv("sr-native-card-type-switcher");
-        this.createCardTypeButton(typeSwitcher, "basic", t("CARD_TYPE_BASIC"), !!this.editingCard);
-        this.createCardTypeButton(
-            typeSwitcher,
-            "reversed",
-            t("CARD_TYPE_REVERSED"),
-            !!this.editingCard,
-        );
-        this.createCardTypeButton(typeSwitcher, "cloze", t("CARD_TYPE_CLOZE"), !!this.editingCard);
+        const typeGroup = this.createFieldGroup(surface, t("NOTE_TYPES"));
+        if (editingCustomType) {
+            typeGroup.createDiv({
+                cls: "sr-native-readonly-value",
+                text: this.getNoteTypeDisplayName(editingCustomType),
+            });
+            this.renderCustomNoteFields(surface, editingCustomType);
+            return;
+        } else if (this.editingCard) {
+            const typeSwitcher = typeGroup.createDiv("sr-native-card-type-switcher");
+            this.createCardTypeButton(typeSwitcher, "basic", t("CARD_TYPE_BASIC"), true);
+            this.createCardTypeButton(typeSwitcher, "reversed", t("CARD_TYPE_REVERSED"), true);
+            this.createCardTypeButton(typeSwitcher, "cloze", t("CARD_TYPE_CLOZE"), true);
+        } else {
+            const noteType = this.getSelectedNoteType();
+            const picker = new ButtonComponent(typeGroup)
+                .setButtonText(this.getNoteTypeDisplayName(noteType))
+                .setClass("sr-native-picker")
+                .onClick((event) => this.openNoteTypeMenu(event));
+            picker.buttonEl.setAttribute("aria-haspopup", "menu");
+            const chevron = picker.buttonEl.createSpan("sr-native-picker-chevron");
+            setIcon(chevron, "chevron-down");
+            if (!noteType.id.startsWith("builtin-")) {
+                this.renderCustomNoteFields(surface, noteType);
+                return;
+            }
+        }
 
         const frontLabel = this.cardType === "cloze" ? t("CLOZE_TEXT") : t("CARD_FRONT");
         const frontHelp = this.cardType === "cloze" ? t("CLOZE_TEXT_HELP") : undefined;
@@ -362,6 +441,439 @@ export class NativeCreatorView extends ItemView {
         window.setTimeout(() => input.focus(), 0);
     }
 
+    private renderNoteTypeManager(surface: HTMLElement): void {
+        surface.addClass("sr-note-type-surface");
+        if (this.noteTypeDraft) {
+            this.renderNoteTypeEditor(surface, this.noteTypeDraft);
+            return;
+        }
+
+        const toolbar = surface.createDiv("sr-note-type-toolbar");
+        const copy = toolbar.createDiv();
+        copy.createEl("h2", { text: t("NOTE_TYPES") });
+        copy.createEl("p", { text: t("NOTE_TYPES_HELP") });
+        const add = new ButtonComponent(toolbar)
+            .setButtonText(t("NEW_NOTE_TYPE"))
+            .setCta()
+            .onClick(() => {
+                this.noteTypeDraft = this.createEmptyNoteTypeDraft();
+                this.render();
+            });
+        const addIcon = add.buttonEl.createSpan("sr-note-type-button-icon");
+        setIcon(addIcon, "plus");
+        add.buttonEl.prepend(addIcon);
+
+        const list = surface.createDiv("sr-note-type-list");
+        for (const noteType of this.plugin.dataManager.collectionStore.getNoteTypes()) {
+            this.renderNoteTypeRow(list, noteType);
+        }
+    }
+
+    private renderNoteTypeRow(parent: HTMLElement, noteType: NoteTypeDefinition): void {
+        const row = parent.createDiv("sr-note-type-row");
+        const icon = row.createDiv("sr-note-type-icon");
+        setIcon(icon, noteType.kind === "cloze" ? "scan-text" : "layout-template");
+        const body = row.createDiv("sr-note-type-row-copy");
+        const title = body.createDiv("sr-note-type-row-title");
+        title.createEl("strong", { text: noteType.name });
+        title.createSpan({
+            cls: noteType.id.startsWith("builtin-") ? "is-builtin" : "is-custom",
+            text: noteType.id.startsWith("builtin-") ? t("BUILT_IN") : t("CUSTOM"),
+        });
+        body.createSpan({
+            text: t("NOTE_TYPE_SUMMARY", {
+                fields: noteType.fields.length,
+                cards: noteType.templates.length,
+                notes: this.plugin.dataManager.collectionStore.countNotesForType(noteType.id),
+            }),
+        });
+
+        const actions = row.createDiv("sr-note-type-row-actions");
+        new ButtonComponent(actions)
+            .setIcon("copy")
+            .setTooltip(t("DUPLICATE_NOTE_TYPE"))
+            .onClick(() => {
+                this.noteTypeDraft = this.cloneNoteTypeDraft(noteType);
+                this.render();
+            });
+        if (!noteType.id.startsWith("builtin-")) {
+            new ButtonComponent(actions)
+                .setIcon("pencil")
+                .setTooltip(t("EDIT_NOTE_TYPE"))
+                .onClick(() => {
+                    this.noteTypeDraft = this.noteTypeToDraft(noteType);
+                    this.render();
+                });
+            new ButtonComponent(actions)
+                .setIcon("trash-2")
+                .setTooltip(t("DELETE_NOTE_TYPE"))
+                .onClick(() => this.confirmDeleteNoteType(noteType));
+        }
+    }
+
+    private renderNoteTypeEditor(parent: HTMLElement, draft: NoteTypeEditorDraft): void {
+        const editorHeader = parent.createDiv("sr-note-type-editor-header");
+        new ButtonComponent(editorHeader)
+            .setIcon("arrow-left")
+            .setTooltip(t("NOTE_TYPES"))
+            .onClick(() => {
+                this.noteTypeDraft = null;
+                this.error = "";
+                this.render();
+            });
+        const editorTitle = editorHeader.createDiv();
+        editorTitle.createEl("h2", { text: t("EDIT_NOTE_TYPE") });
+        editorTitle.createEl("p", { text: t("NOTE_TYPE_EDITOR_HELP") });
+
+        const nameGroup = this.createFieldGroup(parent, t("NOTE_TYPE_NAME"));
+        const nameInput = nameGroup.createEl("input", {
+            cls: "sr-native-input",
+            attr: {
+                type: "text",
+                autocomplete: "off",
+                placeholder: t("NOTE_TYPE_NAME_PLACEHOLDER"),
+            },
+        });
+        nameInput.value = draft.name;
+        nameInput.addEventListener("input", () => {
+            draft.name = nameInput.value;
+            this.clearError();
+        });
+
+        const kindGroup = this.createFieldGroup(parent, t("NOTE_TYPE_KIND"));
+        const kindPicker = kindGroup.createDiv("sr-native-card-type-switcher sr-note-kind-picker");
+        this.createNoteKindButton(kindPicker, draft, "standard", t("NOTE_TYPE_STANDARD"));
+        this.createNoteKindButton(kindPicker, draft, "cloze", t("CARD_TYPE_CLOZE"));
+
+        this.renderFieldDefinitions(parent, draft);
+        this.renderTemplateDefinitions(parent, draft);
+
+        if (this.error) {
+            parent.createDiv({
+                cls: "sr-native-form-error",
+                text: this.error,
+                attr: { role: "alert" },
+            });
+        }
+        const actions = parent.createDiv("sr-native-form-actions sr-note-type-save-actions");
+        new ButtonComponent(actions).setButtonText(t("CANCEL")).onClick(() => {
+            this.noteTypeDraft = null;
+            this.error = "";
+            this.render();
+        });
+        new ButtonComponent(actions)
+            .setButtonText(this.busy ? t("SAVING") : t("SAVE_NOTE_TYPE"))
+            .setCta()
+            .setDisabled(this.busy)
+            .onClick(() => void this.saveNoteType());
+    }
+
+    private renderFieldDefinitions(parent: HTMLElement, draft: NoteTypeEditorDraft): void {
+        const section = parent.createDiv("sr-note-type-section");
+        const heading = section.createDiv("sr-note-type-section-heading");
+        const headingCopy = heading.createDiv();
+        headingCopy.createEl("h3", { text: t("NOTE_FIELDS") });
+        headingCopy.createEl("p", { text: t("NOTE_FIELDS_HELP") });
+        new ButtonComponent(heading)
+            .setIcon("plus")
+            .setTooltip(t("ADD_FIELD"))
+            .onClick(() => {
+                draft.fields.push({
+                    id: this.plugin.dataManager.collectionStore.createId("field"),
+                    name: t("NEW_FIELD"),
+                    ordinal: draft.fields.length,
+                    kind: "rich-text",
+                    required: false,
+                });
+                this.render();
+            });
+
+        const list = section.createDiv("sr-note-type-definition-list");
+        draft.fields.forEach((field, index) => {
+            const row = list.createDiv("sr-note-field-row");
+            row.createSpan({ cls: "sr-note-definition-index", text: String(index + 1) });
+            const name = row.createEl("input", {
+                cls: "sr-native-input",
+                attr: { type: "text", "aria-label": t("FIELD_NAME") },
+            });
+            name.value = field.name;
+            name.addEventListener("input", () => {
+                field.name = name.value;
+                this.clearError();
+            });
+            const kind = row.createEl("select", {
+                cls: "dropdown sr-note-field-kind",
+                attr: { "aria-label": t("FIELD_KIND") },
+            });
+            const kinds: FieldKind[] = ["rich-text", "text", "media", "number", "formula"];
+            const kindLabels: Record<FieldKind, string> = {
+                "rich-text": t("FIELD_KIND_RICH_TEXT"),
+                text: t("FIELD_KIND_TEXT"),
+                media: t("FIELD_KIND_MEDIA"),
+                number: t("FIELD_KIND_NUMBER"),
+                formula: t("FIELD_KIND_FORMULA"),
+            };
+            for (const value of kinds) {
+                kind.createEl("option", { value, text: kindLabels[value] });
+            }
+            kind.value = field.kind;
+            kind.addEventListener("change", () => (field.kind = kind.value as FieldKind));
+            const required = row.createEl("label", { cls: "sr-note-field-required" });
+            const checkbox = required.createEl("input", { attr: { type: "checkbox" } });
+            checkbox.checked = field.required;
+            checkbox.addEventListener("change", () => (field.required = checkbox.checked));
+            required.createSpan({ text: t("REQUIRED_FIELD") });
+            new ButtonComponent(row)
+                .setIcon("trash-2")
+                .setTooltip(t("REMOVE_FIELD"))
+                .setDisabled(draft.fields.length === 1)
+                .onClick(() => {
+                    draft.fields.splice(index, 1);
+                    this.render();
+                });
+        });
+    }
+
+    private renderTemplateDefinitions(parent: HTMLElement, draft: NoteTypeEditorDraft): void {
+        const section = parent.createDiv("sr-note-type-section");
+        const heading = section.createDiv("sr-note-type-section-heading");
+        const headingCopy = heading.createDiv();
+        headingCopy.createEl("h3", { text: t("CARD_TEMPLATES") });
+        headingCopy.createEl("p", { text: t("CARD_TEMPLATES_HELP") });
+        new ButtonComponent(heading)
+            .setIcon("plus")
+            .setTooltip(t("ADD_TEMPLATE"))
+            .setDisabled(draft.kind === "cloze")
+            .onClick(() => {
+                draft.templates.push(this.createEmptyTemplate(draft.templates.length));
+                this.render();
+            });
+
+        const list = section.createDiv("sr-note-template-list");
+        draft.templates.forEach((template, index) => {
+            const card = list.createDiv("sr-note-template-card");
+            const top = card.createDiv("sr-note-template-card-top");
+            top.createSpan({ cls: "sr-note-definition-index", text: String(index + 1) });
+            const name = top.createEl("input", {
+                cls: "sr-native-input",
+                attr: { type: "text", "aria-label": t("TEMPLATE_NAME") },
+            });
+            name.value = template.name;
+            name.addEventListener("input", () => (template.name = name.value));
+            new ButtonComponent(top)
+                .setIcon("trash-2")
+                .setTooltip(t("REMOVE_TEMPLATE"))
+                .setDisabled(draft.templates.length === 1 || draft.kind === "cloze")
+                .onClick(() => {
+                    draft.templates.splice(index, 1);
+                    this.render();
+                });
+
+            this.createTemplateTextarea(
+                card,
+                t("QUESTION_TEMPLATE"),
+                template.questionFormat,
+                (value) => {
+                    template.questionFormat = value;
+                },
+            );
+            this.createTemplateTextarea(
+                card,
+                t("ANSWER_TEMPLATE"),
+                template.answerFormat,
+                (value) => {
+                    template.answerFormat = value;
+                },
+            );
+        });
+    }
+
+    private createTemplateTextarea(
+        parent: HTMLElement,
+        label: string,
+        value: string,
+        onChange: (value: string) => void,
+    ): void {
+        const field = parent.createDiv("sr-note-template-field");
+        field.createEl("label", { text: label });
+        const textarea = field.createEl("textarea", {
+            cls: "sr-native-textarea sr-note-template-textarea",
+            attr: { rows: "3", spellcheck: "false" },
+        });
+        textarea.value = value;
+        textarea.addEventListener("input", () => {
+            onChange(textarea.value);
+            this.clearError();
+        });
+    }
+
+    private createNoteKindButton(
+        parent: HTMLElement,
+        draft: NoteTypeEditorDraft,
+        kind: NoteTypeKind,
+        label: string,
+    ): void {
+        const button = new ButtonComponent(parent).setButtonText(label).onClick(() => {
+            draft.kind = kind;
+            if (kind === "cloze" && draft.templates.length > 1) {
+                draft.templates = [draft.templates[0]];
+            }
+            this.render();
+        });
+        button.buttonEl.toggleClass("is-active", draft.kind === kind);
+        button.buttonEl.setAttribute("aria-pressed", String(draft.kind === kind));
+    }
+
+    private createEmptyNoteTypeDraft(): NoteTypeEditorDraft {
+        const store = this.plugin.dataManager.collectionStore;
+        return {
+            id: store.createId("notetype"),
+            name: "",
+            kind: "standard",
+            fields: [
+                {
+                    id: store.createId("field"),
+                    name: t("CARD_FRONT"),
+                    ordinal: 0,
+                    kind: "rich-text",
+                    required: true,
+                },
+                {
+                    id: store.createId("field"),
+                    name: t("CARD_BACK"),
+                    ordinal: 1,
+                    kind: "rich-text",
+                    required: true,
+                },
+            ],
+            templates: [this.createEmptyTemplate(0)],
+            css: "",
+        };
+    }
+
+    private createEmptyTemplate(ordinal: number): CardTemplateDefinition {
+        const fields = this.noteTypeDraft?.fields ?? [];
+        const front = fields[0]?.name ?? t("CARD_FRONT");
+        const back = fields[1]?.name ?? fields[0]?.name ?? t("CARD_BACK");
+        return {
+            id: this.plugin.dataManager.collectionStore.createId("template"),
+            name: `${t("CARD")} ${ordinal + 1}`,
+            ordinal,
+            questionFormat: `{{${front}}}`,
+            answerFormat: `{{${back}}}`,
+            deckOverride: null,
+            enabled: true,
+        };
+    }
+
+    private noteTypeToDraft(noteType: NoteTypeDefinition): NoteTypeEditorDraft {
+        return {
+            id: noteType.id,
+            name: noteType.name,
+            kind: noteType.kind,
+            fields: noteType.fields.map((field) => ({ ...field })),
+            templates: noteType.templates.map((template) => ({ ...template })),
+            css: noteType.css,
+        };
+    }
+
+    private cloneNoteTypeDraft(noteType: NoteTypeDefinition): NoteTypeEditorDraft {
+        const store = this.plugin.dataManager.collectionStore;
+        return {
+            id: store.createId("notetype"),
+            name: `${noteType.name} — ${t("COPY")}`,
+            kind: noteType.kind,
+            fields: noteType.fields.map((field, ordinal) => ({
+                ...field,
+                id: store.createId("field"),
+                ordinal,
+            })),
+            templates: noteType.templates.map((template, ordinal) => ({
+                ...template,
+                id: store.createId("template"),
+                ordinal,
+            })),
+            css: noteType.css,
+        };
+    }
+
+    private async saveNoteType(): Promise<void> {
+        const draft = this.noteTypeDraft;
+        if (!draft) return;
+        if (!draft.name.trim()) {
+            this.error = t("NOTE_TYPE_NAME_REQUIRED");
+            this.render();
+            return;
+        }
+        const fieldNames = draft.fields.map((field) => field.name.trim().toLocaleLowerCase());
+        if (fieldNames.some((name) => !name) || new Set(fieldNames).size !== fieldNames.length) {
+            this.error = t("NOTE_TYPE_FIELDS_INVALID");
+            this.render();
+            return;
+        }
+        if (
+            draft.templates.some(
+                (template) =>
+                    !template.name.trim() ||
+                    !template.questionFormat.trim() ||
+                    !template.answerFormat.trim(),
+            )
+        ) {
+            this.error = t("NOTE_TYPE_TEMPLATES_INVALID");
+            this.render();
+            return;
+        }
+        this.busy = true;
+        this.error = "";
+        this.render();
+        try {
+            await this.plugin.dataManager.collectionStore.saveNoteType({
+                ...draft,
+                name: draft.name.trim(),
+                fields: draft.fields.map((field, ordinal) => ({
+                    ...field,
+                    name: field.name.trim(),
+                    ordinal,
+                })),
+                templates: draft.templates.map((template, ordinal) => ({
+                    ...template,
+                    name: template.name.trim(),
+                    ordinal,
+                })),
+            });
+            this.busy = false;
+            this.noteTypeDraft = null;
+            new Notice(t("NOTE_TYPE_SAVED"));
+            this.render();
+        } catch {
+            this.busy = false;
+            this.error = t("NOTE_TYPE_SAVE_FAILED");
+            this.render();
+        }
+    }
+
+    private confirmDeleteNoteType(noteType: NoteTypeDefinition): void {
+        new ConfirmationModal(
+            this.plugin.app,
+            t("DELETE_NOTE_TYPE"),
+            t("DELETE_NOTE_TYPE_CONFIRMATION", { name: noteType.name }),
+            t("CANCEL"),
+            async () => {
+                try {
+                    await this.plugin.dataManager.collectionStore.deleteNoteType(noteType.id);
+                    new Notice(t("NOTE_TYPE_DELETED"));
+                    this.render();
+                } catch (error) {
+                    new Notice(
+                        error instanceof Error && error.message === "note-type-in-use"
+                            ? t("NOTE_TYPE_IN_USE")
+                            : t("NOTE_TYPE_DELETE_FAILED"),
+                    );
+                }
+            },
+        ).open();
+    }
+
     private createFieldGroup(parent: HTMLElement, label: string, help?: string): HTMLDivElement {
         const group = parent.createDiv("sr-native-field");
         group.createEl("label", { text: label });
@@ -426,6 +938,162 @@ export class NativeCreatorView extends ItemView {
                 }),
         );
         menu.showAtMouseEvent(event);
+    }
+
+    private getSelectedNoteType(): NoteTypeDefinition {
+        const store = this.plugin.dataManager.collectionStore;
+        return (
+            store.getNoteType(this.selectedNoteTypeId) ??
+            store.getNoteType(BASIC_NOTE_TYPE_ID) ??
+            store.getNoteTypes()[0]
+        );
+    }
+
+    private getNoteTypeDisplayName(noteType: NoteTypeDefinition): string {
+        if (noteType.id === BASIC_NOTE_TYPE_ID) return t("CARD_TYPE_BASIC");
+        if (noteType.id === REVERSED_NOTE_TYPE_ID) return t("CARD_TYPE_REVERSED");
+        if (noteType.id === CLOZE_NOTE_TYPE_ID) return t("CARD_TYPE_CLOZE");
+        return noteType.name;
+    }
+
+    private openNoteTypeMenu(event: MouseEvent): void {
+        const menu = new Menu();
+        for (const noteType of this.plugin.dataManager.collectionStore.getNoteTypes()) {
+            menu.addItem((item) =>
+                item
+                    .setTitle(this.getNoteTypeDisplayName(noteType))
+                    .setIcon(noteType.kind === "cloze" ? "scan-text" : "layout-template")
+                    .setChecked(noteType.id === this.selectedNoteTypeId)
+                    .onClick(() => {
+                        this.selectedNoteTypeId = noteType.id;
+                        if (noteType.id === BASIC_NOTE_TYPE_ID) this.cardType = "basic";
+                        else if (noteType.id === REVERSED_NOTE_TYPE_ID) this.cardType = "reversed";
+                        else if (noteType.id === CLOZE_NOTE_TYPE_ID) this.cardType = "cloze";
+                        this.error = "";
+                        this.render();
+                    }),
+            );
+        }
+        menu.addSeparator();
+        menu.addItem((item) =>
+            item
+                .setTitle(t("MANAGE_NOTE_TYPES"))
+                .setIcon("settings-2")
+                .onClick(() => {
+                    this.request = { mode: "note-type" };
+                    this.noteTypeDraft = null;
+                    this.render();
+                }),
+        );
+        menu.showAtMouseEvent(event);
+    }
+
+    private renderCustomNoteFields(surface: HTMLElement, noteType: NoteTypeDefinition): void {
+        if (noteType.kind === "cloze") {
+            surface.createDiv({ cls: "sr-native-form-tip", text: t("CUSTOM_CLOZE_HELP") });
+        }
+        let firstInput: HTMLInputElement | HTMLTextAreaElement | null = null;
+        for (const field of [...noteType.fields].sort(
+            (left, right) => left.ordinal - right.ordinal,
+        )) {
+            const group = this.createFieldGroup(
+                surface,
+                field.required ? `${field.name} · ${t("REQUIRED_FIELD")}` : field.name,
+            );
+            let input: HTMLInputElement | HTMLTextAreaElement;
+            if (field.kind === "number") {
+                input = group.createEl("input", {
+                    cls: "sr-native-input",
+                    attr: { type: "number", inputmode: "decimal", "aria-label": field.name },
+                });
+            } else {
+                input = group.createEl("textarea", {
+                    cls: "sr-native-textarea",
+                    attr: {
+                        rows: field.kind === "rich-text" || field.kind === "formula" ? "5" : "3",
+                        "aria-label": field.name,
+                    },
+                });
+            }
+            input.value = this.customFieldValues[field.id] ?? "";
+            input.addEventListener("input", () => {
+                this.customFieldValues[field.id] = input.value;
+                this.clearError();
+            });
+            firstInput ??= input;
+        }
+
+        if (this.error) {
+            surface.createDiv({
+                cls: "sr-native-form-error",
+                text: this.error,
+                attr: { role: "alert" },
+            });
+        }
+        const actions = surface.createDiv("sr-native-form-actions");
+        if (!this.editingStructuredNote) {
+            const saveAnother = new ButtonComponent(actions)
+                .setButtonText(t("SAVE_AND_ADD_ANOTHER"))
+                .setDisabled(this.busy)
+                .onClick(() => void this.saveStructuredNote(noteType, true));
+            saveAnother.buttonEl.addClass("sr-native-secondary-action");
+        }
+        new ButtonComponent(actions)
+            .setButtonText(
+                this.busy
+                    ? t("SAVING")
+                    : this.editingStructuredNote
+                      ? t("SAVE_CHANGES")
+                      : t("SAVE_CARD"),
+            )
+            .setCta()
+            .setDisabled(this.busy)
+            .onClick(() => void this.saveStructuredNote(noteType, false));
+        if (firstInput) window.setTimeout(() => firstInput?.focus(), 0);
+    }
+
+    private async saveStructuredNote(
+        noteType: NoteTypeDefinition,
+        addAnother: boolean,
+    ): Promise<void> {
+        const missingRequired = noteType.fields.some(
+            (field) => field.required && !this.customFieldValues[field.id]?.trim(),
+        );
+        if (missingRequired) {
+            this.error = t("REQUIRED_FIELDS_MISSING");
+            this.render();
+            return;
+        }
+        this.busy = true;
+        this.error = "";
+        this.render();
+        try {
+            const draft = {
+                deckPath: this.selectedDeck,
+                noteTypeId: noteType.id,
+                fields: { ...this.customFieldValues },
+            };
+            if (this.editingStructuredNote) {
+                await this.store.updateStructuredNote(this.editingStructuredNote, draft);
+            } else {
+                await this.store.createStructuredNote(draft);
+            }
+            new Notice(this.editingStructuredNote ? t("CARD_UPDATED") : t("CARD_SAVED"));
+            if (addAnother) {
+                this.customFieldValues = {};
+                this.busy = false;
+                this.render();
+            } else {
+                await this.returnToCards();
+            }
+        } catch (error) {
+            this.busy = false;
+            this.error =
+                error instanceof Error && error.message === "cloze-pattern-required"
+                    ? t("CUSTOM_CLOZE_REQUIRED")
+                    : t("CARD_SAVE_FAILED");
+            this.render();
+        }
     }
 
     private async saveCard(addAnother: boolean): Promise<void> {

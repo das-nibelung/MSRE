@@ -199,6 +199,63 @@ describe("Anki-style collection store", () => {
         ).toBe(true);
     });
 
+    it("uses independent scheduling ids for custom standard templates", async () => {
+        const store = new CollectionStore(new MemoryStorage(), () => 375, idFactory);
+        await store.saveNoteType({
+            id: "custom-two-card",
+            name: "Two card",
+            kind: "standard",
+            fields: [
+                { id: "term", name: "Term", ordinal: 0, kind: "text", required: true },
+                { id: "meaning", name: "Meaning", ordinal: 1, kind: "text", required: true },
+            ],
+            templates: [
+                {
+                    id: "forward",
+                    name: "Forward",
+                    ordinal: 0,
+                    questionFormat: "{{Term}}",
+                    answerFormat: "{{Meaning}}",
+                    deckOverride: null,
+                    enabled: true,
+                },
+                {
+                    id: "backward",
+                    name: "Backward",
+                    ordinal: 1,
+                    questionFormat: "{{Meaning}}",
+                    answerFormat: "{{Term}}",
+                    deckOverride: null,
+                    enabled: true,
+                },
+            ],
+            css: "",
+        });
+        const note = await store.createNote({
+            noteTypeId: "custom-two-card",
+            fields: { term: "ratio", meaning: "отношение" },
+            deckPath: "Math",
+            source: { kind: "managed", path: "ratio.md", questionId: "^note" },
+            legacyQuestionIds: { 0: "^question-1", 1: "^question-2" },
+        });
+
+        const cards = Object.values(store.getCollectionSnapshot().cards).filter(
+            (card) => card.noteId === note.id,
+        );
+        expect(cards.map((card) => card.legacyStableId)).toEqual([
+            "^question-1:0",
+            "^question-2:0",
+        ]);
+        await store.updateNote(note.id, {
+            fields: { term: "proportion", meaning: "пропорция" },
+            deckPath: "Math",
+            source: { kind: "managed", path: "ratio.md", questionId: "^note" },
+            legacyQuestionIds: { 0: "^question-1", 1: "^question-2" },
+        });
+        expect(store.getCollectionSnapshot().notes[note.id].fields.term).toBe("proportion");
+        await expect(store.deleteNoteType("custom-two-card")).rejects.toThrow("note-type-in-use");
+    });
+
     it("migrates preview data and resolves sync conflicts per entity", () => {
         const older = migrateCollection({
             version: 0,

@@ -361,6 +361,24 @@ export class CollectionStore {
         return cloneJson(this.reviewLog);
     }
 
+    getNoteTypes(): NoteTypeDefinition[] {
+        return Object.values(this.collection.noteTypes)
+            .filter((noteType) => !noteType.deletedAt)
+            .map((noteType) => cloneJson(noteType))
+            .sort((left, right) => left.name.localeCompare(right.name));
+    }
+
+    getNoteType(noteTypeId: string): NoteTypeDefinition | null {
+        const noteType = this.collection.noteTypes[noteTypeId];
+        return noteType && !noteType.deletedAt ? cloneJson(noteType) : null;
+    }
+
+    countNotesForType(noteTypeId: string): number {
+        return Object.values(this.collection.notes).filter(
+            (note) => !note.deletedAt && note.noteTypeId === noteTypeId,
+        ).length;
+    }
+
     findNoteBySource(sourcePath: string, questionId?: string | null): CollectionNote | null {
         const notes = Object.values(this.collection.notes).filter((note) => !note.deletedAt);
         if (questionId) {
@@ -412,6 +430,18 @@ export class CollectionStore {
         return noteType;
     }
 
+    async deleteNoteType(noteTypeId: string): Promise<void> {
+        await this.initialize();
+        if (noteTypeId.startsWith("builtin-")) throw new Error("builtin-note-type");
+        const noteType = this.collection.noteTypes[noteTypeId];
+        if (!noteType || noteType.deletedAt) return;
+        if (this.countNotesForType(noteTypeId) > 0) throw new Error("note-type-in-use");
+        const timestamp = this.now();
+        noteType.deletedAt = timestamp;
+        noteType.updatedAt = timestamp;
+        await this.persistCollection();
+    }
+
     async createNote(input: CollectionNoteInput): Promise<CollectionNote> {
         await this.initialize();
         const noteType = this.collection.noteTypes[input.noteTypeId];
@@ -440,6 +470,39 @@ export class CollectionStore {
             deck,
             input.source.questionId ?? `^sr-data-id-${id}`,
             timestamp,
+            input.legacyQuestionIds,
+        );
+        await this.persistCollection();
+        return note;
+    }
+
+    async updateNote(
+        noteId: string,
+        input: Omit<CollectionNoteInput, "id" | "noteTypeId">,
+    ): Promise<CollectionNote> {
+        await this.initialize();
+        const note = this.collection.notes[noteId];
+        if (!note || note.deletedAt) throw new Error("note-not-found");
+        const noteType = this.collection.noteTypes[note.noteTypeId];
+        if (!noteType || noteType.deletedAt) throw new Error("note-type-not-found");
+        for (const field of noteType.fields) {
+            if (field.required && !input.fields[field.id]?.trim()) {
+                throw new Error(`required-field-empty:${field.id}`);
+            }
+        }
+        const timestamp = this.now();
+        note.fields = { ...input.fields };
+        note.tags = [...new Set(input.tags ?? note.tags)];
+        note.source = { ...input.source };
+        note.updatedAt = timestamp;
+        const deck = this.ensureDeckPathInMemory(input.deckPath, timestamp);
+        this.replaceGeneratedCards(
+            note,
+            noteType,
+            deck,
+            input.source.questionId ?? `^sr-data-id-${note.id}`,
+            timestamp,
+            input.legacyQuestionIds,
         );
         await this.persistCollection();
         return note;
@@ -630,6 +693,7 @@ export class CollectionStore {
         deck: CollectionDeck,
         questionId: string,
         timestamp: number,
+        legacyQuestionIds?: Record<number, string>,
     ): void {
         const existing = Object.values(this.collection.cards).filter(
             (card) => card.noteId === note.id && !card.deletedAt,
@@ -663,7 +727,9 @@ export class CollectionStore {
                 current.deckId = targetDeck.id;
                 current.deckPath = targetDeck.name;
                 current.ordinal = ordinal;
-                current.legacyStableId = `${questionId}:${ordinal}`;
+                current.legacyStableId = legacyQuestionIds?.[ordinal]
+                    ? `${legacyQuestionIds[ordinal]}:0`
+                    : `${questionId}:${ordinal}`;
                 current.updatedAt = timestamp;
                 continue;
             }
@@ -680,7 +746,9 @@ export class CollectionStore {
                 reps: 0,
                 lapses: 0,
                 lastReviewAt: null,
-                legacyStableId: `${questionId}:${ordinal}`,
+                legacyStableId: legacyQuestionIds?.[ordinal]
+                    ? `${legacyQuestionIds[ordinal]}:0`
+                    : `${questionId}:${ordinal}`,
                 createdAt: timestamp,
                 updatedAt: timestamp,
             };

@@ -148,6 +148,8 @@ export interface CollectionNoteInput {
     tags?: string[];
     deckPath: string;
     source: NoteSource;
+    /** Per-card block IDs used by the temporary Markdown scheduling bridge. */
+    legacyQuestionIds?: Record<number, string>;
 }
 
 export interface LegacyCardInput {

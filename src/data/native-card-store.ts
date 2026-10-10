@@ -1,5 +1,6 @@
 import { App, normalizePath, TFile } from "obsidian";
 
+import { CollectionNote, NoteTypeDefinition } from "src/data/collection/collection-types";
 import { Deck } from "src/data/data-structures/deck/deck";
 import { KnowledgeArea } from "src/data/plugin-data";
 import { SRSettings } from "src/data/settings";
@@ -12,6 +13,12 @@ export interface NativeCardDraft {
     type: NativeCardType;
     front: string;
     back: string;
+}
+
+export interface StructuredNoteDraft {
+    deckPath: string;
+    noteTypeId: string;
+    fields: Record<string, string>;
 }
 
 const FALLBACK_ROOT_TAG = "#flashcards";
@@ -38,6 +45,59 @@ function getClozeWrapper(settings: SRSettings): [string, string] | null {
     if (settings.clozePatterns.some((pattern) => pattern.startsWith("**"))) return ["**", "**"];
     if (settings.clozePatterns.some((pattern) => pattern.startsWith("{{"))) return ["{{", "}}"];
     return null;
+}
+
+export function renderNoteTypeTemplate(
+    template: string,
+    noteType: NoteTypeDefinition,
+    fields: Record<string, string>,
+): string {
+    let result = template;
+    for (const field of noteType.fields) {
+        const value = fields[field.id] ?? "";
+        result = result.split(`{{${field.name}}}`).join(value);
+        result = result.split(`{{${field.id}}}`).join(value);
+    }
+    return result.trim();
+}
+
+export function convertAnkiClozesToLegacy(text: string): string {
+    return text.replace(/{{c\d+::(.*?)(?:::(.*?))?}}/gi, "==$1==");
+}
+
+export function serializeStructuredNoteBody(
+    noteType: NoteTypeDefinition,
+    fields: Record<string, string>,
+    settings: SRSettings,
+    baseQuestionId: string,
+): { body: string; legacyQuestionIds: Record<number, string> } {
+    const legacyQuestionIds: Record<number, string> = {};
+    if (noteType.kind === "cloze") {
+        const clozeText = Object.values(fields).find((value) => /{{c\d+::/i.test(value));
+        if (!clozeText) throw new Error("cloze-pattern-required");
+        const extras = noteType.fields
+            .map((field) => fields[field.id]?.trim() ?? "")
+            .filter((value) => value && value !== clozeText);
+        const extraHtml = extras.map((value) => value.replace(/\r?\n/g, "<br>")).join("<br>");
+        return {
+            body: `${convertAnkiClozesToLegacy(clozeText)}${extraHtml ? `<br>${extraHtml}` : ""} ${baseQuestionId}`,
+            legacyQuestionIds,
+        };
+    }
+
+    const cards = noteType.templates
+        .filter((template) => template.enabled)
+        .sort((left, right) => left.ordinal - right.ordinal)
+        .map((template) => {
+            const questionId = `${baseQuestionId}-${template.ordinal + 1}`;
+            legacyQuestionIds[template.ordinal] = questionId;
+            const question = renderNoteTypeTemplate(template.questionFormat, noteType, fields);
+            const answer = renderNoteTypeTemplate(template.answerFormat, noteType, fields);
+            if (!question || !answer) throw new Error("empty-generated-card");
+            return `${question}\n${settings.multilineCardSeparator}\n${answer} ${questionId}`;
+        });
+    if (cards.length === 0) throw new Error("empty-generated-card");
+    return { body: cards.join("\n\n"), legacyQuestionIds };
 }
 
 export function serializeNativeCard(
@@ -238,6 +298,95 @@ export class NativeCardStore {
             deckPath: normalizedDeck,
             sourcePath: file.path,
             questionId,
+        });
+        await this.waitForMetadata(this.plugin.app, file);
+        await this.plugin.dataManager.sync();
+        this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+        return file;
+    }
+
+    async createStructuredNote(draft: StructuredNoteDraft): Promise<TFile> {
+        const collection = this.plugin.dataManager.collectionStore;
+        const noteType = collection.getNoteType(draft.noteTypeId);
+        if (!noteType) throw new Error("note-type-not-found");
+        for (const field of noteType.fields) {
+            if (field.required && !draft.fields[field.id]?.trim()) {
+                throw new Error(`required-field-empty:${field.id}`);
+            }
+        }
+
+        const normalizedDeck = normalizeManagedDeckPath(draft.deckPath);
+        if (normalizedDeck) await this.createDeck(normalizedDeck);
+        const settings = this.plugin.dataManager.data.settings;
+        const rootTag = (settings.flashcardTags[0] ?? FALLBACK_ROOT_TAG).replace(/\/+$/g, "");
+        const tag = normalizedDeck ? `${rootTag}/${normalizedDeck}` : rootTag;
+        const noteId = collection.createId("note");
+        const baseQuestionId = `^sr-data-id-${noteId}`;
+        const { body, legacyQuestionIds } = serializeStructuredNoteBody(
+            noteType,
+            draft.fields,
+            settings,
+            baseQuestionId,
+        );
+
+        const rootFolder = normalizePath(`${settings.scheduleDataVaultLocation}/Cards`);
+        const deckFolder = normalizedDeck
+            ? `${rootFolder}/${normalizedDeck}`
+            : `${rootFolder}/Inbox`;
+        await this.ensureFolder(deckFolder);
+        const title = noteType.fields.map((field) => draft.fields[field.id]?.trim()).find(Boolean);
+        const slug =
+            (title ?? "note")
+                .normalize("NFKD")
+                .replace(/[^\p{L}\p{N}]+/gu, "-")
+                .replace(/^-|-$/g, "")
+                .slice(0, 54) || "note";
+        let path = normalizePath(`${deckFolder}/${slug}.md`);
+        let suffix = 2;
+        while (this.plugin.app.vault.getAbstractFileByPath(path)) {
+            path = normalizePath(`${deckFolder}/${slug}-${suffix}.md`);
+            suffix++;
+        }
+
+        const file = await this.plugin.app.vault.create(path, `${tag}\n\n${body}\n`);
+        await collection.createNote({
+            id: noteId,
+            noteTypeId: noteType.id,
+            fields: draft.fields,
+            deckPath: normalizedDeck,
+            source: { kind: "managed", path: file.path, questionId: baseQuestionId },
+            legacyQuestionIds: noteType.kind === "standard" ? legacyQuestionIds : undefined,
+        });
+        await this.waitForMetadata(this.plugin.app, file);
+        await this.plugin.dataManager.sync();
+        this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+        return file;
+    }
+
+    async updateStructuredNote(note: CollectionNote, draft: StructuredNoteDraft): Promise<TFile> {
+        const collection = this.plugin.dataManager.collectionStore;
+        const noteType = collection.getNoteType(note.noteTypeId);
+        if (!noteType) throw new Error("note-type-not-found");
+        const file = this.plugin.app.vault.getAbstractFileByPath(note.source.path);
+        if (!(file instanceof TFile)) throw new Error("note-source-not-found");
+        const normalizedDeck = normalizeManagedDeckPath(draft.deckPath);
+        if (normalizedDeck) await this.createDeck(normalizedDeck);
+        const settings = this.plugin.dataManager.data.settings;
+        const rootTag = (settings.flashcardTags[0] ?? FALLBACK_ROOT_TAG).replace(/\/+$/g, "");
+        const tag = normalizedDeck ? `${rootTag}/${normalizedDeck}` : rootTag;
+        const baseQuestionId = note.source.questionId ?? `^sr-data-id-${note.id}`;
+        const { body, legacyQuestionIds } = serializeStructuredNoteBody(
+            noteType,
+            draft.fields,
+            settings,
+            baseQuestionId,
+        );
+        await this.plugin.app.vault.modify(file, `${tag}\n\n${body}\n`);
+        await collection.updateNote(note.id, {
+            fields: draft.fields,
+            deckPath: normalizedDeck,
+            source: { ...note.source, questionId: baseQuestionId },
+            legacyQuestionIds: noteType.kind === "standard" ? legacyQuestionIds : undefined,
         });
         await this.waitForMetadata(this.plugin.app, file);
         await this.plugin.dataManager.sync();
