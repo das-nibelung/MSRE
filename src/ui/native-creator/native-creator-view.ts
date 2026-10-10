@@ -74,6 +74,7 @@ interface ExistingMediaAttachment {
 
 interface NoteTypeEditorDraft {
     id: string;
+    version: number;
     name: string;
     kind: NoteTypeKind;
     fields: NoteFieldDefinition[];
@@ -2181,6 +2182,7 @@ export class NativeCreatorView extends ItemView {
         const store = this.plugin.dataManager.collectionStore;
         return {
             id: store.createId("notetype"),
+            version: 1,
             name: "",
             kind: "standard",
             fields: [
@@ -2210,6 +2212,7 @@ export class NativeCreatorView extends ItemView {
         const back = fields[1]?.name ?? fields[0]?.name ?? t("CARD_BACK");
         return {
             id: this.plugin.dataManager.collectionStore.createId("template"),
+            version: 1,
             name: `${t("CARD")} ${ordinal + 1}`,
             ordinal,
             questionFormat: `{{${front}}}`,
@@ -2222,6 +2225,7 @@ export class NativeCreatorView extends ItemView {
     private noteTypeToDraft(noteType: NoteTypeDefinition): NoteTypeEditorDraft {
         return {
             id: noteType.id,
+            version: noteType.version,
             name: noteType.name,
             kind: noteType.kind,
             fields: noteType.fields.map((field) => ({ ...field })),
@@ -2234,6 +2238,7 @@ export class NativeCreatorView extends ItemView {
         const store = this.plugin.dataManager.collectionStore;
         return {
             id: store.createId("notetype"),
+            version: 1,
             name: `${noteType.name} — ${t("COPY")}`,
             kind: noteType.kind,
             fields: noteType.fields.map((field, ordinal) => ({
@@ -2244,6 +2249,7 @@ export class NativeCreatorView extends ItemView {
             templates: noteType.templates.map((template, ordinal) => ({
                 ...template,
                 id: store.createId("template"),
+                version: 1,
                 ordinal,
             })),
             css: noteType.css,
@@ -2276,25 +2282,49 @@ export class NativeCreatorView extends ItemView {
             this.render();
             return;
         }
+        const definition: NoteTypeEditorDraft = {
+            ...draft,
+            name: draft.name.trim(),
+            fields: draft.fields.map((field, ordinal) => ({
+                ...field,
+                name: field.name.trim(),
+                ordinal,
+            })),
+            templates: draft.templates.map((template, ordinal) => ({
+                ...template,
+                name: template.name.trim(),
+                ordinal,
+            })),
+        };
+        const preview = this.plugin.dataManager.collectionStore.previewNoteTypeChange(definition);
+        if (
+            preview.affectedNotes > 0 &&
+            (preview.createdCards > 0 || preview.retiredCards > 0 || preview.changedTemplates > 0)
+        ) {
+            new ConfirmationModal(
+                this.app,
+                t("NOTE_TYPE_CHANGE_PREVIEW"),
+                t("NOTE_TYPE_CHANGE_PREVIEW_DESC", {
+                    notes: preview.affectedNotes,
+                    preserved: preview.preservedCards,
+                    created: preview.createdCards,
+                    retired: preview.retiredCards,
+                }),
+                t("NOTE_TYPE_CHANGE_CONFIRMED"),
+                () => this.commitNoteType(definition),
+            ).open();
+            return;
+        }
+        await this.commitNoteType(definition);
+    }
+
+    private async commitNoteType(definition: NoteTypeEditorDraft): Promise<void> {
         this.busy = true;
         this.error = "";
         this.render();
         try {
-            await this.plugin.dataManager.collectionStore.saveNoteType({
-                ...draft,
-                name: draft.name.trim(),
-                fields: draft.fields.map((field, ordinal) => ({
-                    ...field,
-                    name: field.name.trim(),
-                    ordinal,
-                })),
-                templates: draft.templates.map((template, ordinal) => ({
-                    ...template,
-                    name: template.name.trim(),
-                    ordinal,
-                })),
-            });
-            await this.store.refreshStructuredNotesForType(draft.id);
+            await this.plugin.dataManager.collectionStore.saveNoteType(definition);
+            await this.store.refreshStructuredNotesForType(definition.id);
             this.busy = false;
             this.noteTypeDraft = null;
             new Notice(t("NOTE_TYPE_SAVED"));

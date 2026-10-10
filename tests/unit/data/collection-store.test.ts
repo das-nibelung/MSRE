@@ -12,6 +12,8 @@ import {
 class MemoryStorage implements CollectionStorage {
     collection: string | null = null;
     reviews: string | null = null;
+    backups = new Map<string, string>();
+    existingPaths = new Set<string>();
 
     readCollection(): Promise<string | null> {
         return Promise.resolve(this.collection);
@@ -29,6 +31,23 @@ class MemoryStorage implements CollectionStorage {
     writeReviewLog(content: string): Promise<void> {
         this.reviews = content;
         return Promise.resolve();
+    }
+
+    writeBackup(path: string, content: string): Promise<void> {
+        this.backups.set(path, content);
+        return Promise.resolve();
+    }
+
+    readBackup(path: string): Promise<string | null> {
+        return Promise.resolve(this.backups.get(path) ?? null);
+    }
+
+    listBackups(): Promise<string[]> {
+        return Promise.resolve([...this.backups.keys()]);
+    }
+
+    pathExists(path: string): Promise<boolean> {
+        return Promise.resolve(this.existingPaths.has(path));
     }
 }
 
@@ -98,6 +117,7 @@ describe("Anki-style collection store", () => {
         const store = new CollectionStore(storage, () => 150, idFactory);
         await store.saveNoteType({
             id: "medical-cloze",
+            version: 1,
             name: "Medical cloze",
             kind: "cloze",
             fields: [
@@ -113,6 +133,7 @@ describe("Anki-style collection store", () => {
             templates: [
                 {
                     id: "medical-cloze-card",
+                    version: 1,
                     name: "Recall",
                     ordinal: 0,
                     questionFormat: "{{cloze:statement}}",
@@ -288,6 +309,7 @@ describe("Anki-style collection store", () => {
         const store = new CollectionStore(new MemoryStorage(), () => 375, idFactory);
         await store.saveNoteType({
             id: "custom-two-card",
+            version: 1,
             name: "Two card",
             kind: "standard",
             fields: [
@@ -297,6 +319,7 @@ describe("Anki-style collection store", () => {
             templates: [
                 {
                     id: "forward",
+                    version: 1,
                     name: "Forward",
                     ordinal: 0,
                     questionFormat: "{{Term}}",
@@ -306,6 +329,7 @@ describe("Anki-style collection store", () => {
                 },
                 {
                     id: "backward",
+                    version: 1,
                     name: "Backward",
                     ordinal: 1,
                     questionFormat: "{{Meaning}}",
@@ -503,7 +527,7 @@ describe("Anki-style collection store", () => {
         newer.notes.n1.updatedAt = 2;
 
         const merged = mergeCollections(older, newer);
-        expect(merged.schemaVersion).toBe(4);
+        expect(merged.schemaVersion).toBe(5);
         expect(merged.notes.n1.fields.front).toBe("new");
         expect(merged.cards.c1.buriedUntil).toBeNull();
         expect(merged.cards.c1.flag).toBe(0);
@@ -514,5 +538,400 @@ describe("Anki-style collection store", () => {
                 "builtin-cloze",
             ]),
         );
+    });
+
+    it("migrates schema v4 cards to stable template variants", () => {
+        expect(parseCollection("plain Markdown without managed JSON").schemaVersion).toBe(5);
+        const migrated = migrateCollection({
+            schemaVersion: 4,
+            revision: 1,
+            updatedAt: 10,
+            noteTypes: {
+                custom: {
+                    id: "custom",
+                    name: "Custom",
+                    kind: "standard",
+                    fields: [],
+                    templates: [
+                        {
+                            id: "template-a",
+                            name: "Card",
+                            ordinal: 0,
+                            questionFormat: "Q",
+                            answerFormat: "A",
+                            deckOverride: null,
+                            enabled: true,
+                        },
+                    ],
+                    css: "",
+                    createdAt: 1,
+                    updatedAt: 1,
+                },
+            },
+            notes: {},
+            cards: {
+                card: {
+                    id: "card",
+                    noteId: "note",
+                    templateId: "template-a",
+                    ordinal: 0,
+                    deckId: "builtin-default-deck",
+                    deckPath: "",
+                    state: "active",
+                    buriedUntil: null,
+                    flag: 0,
+                    queue: "new",
+                    schedule: null,
+                    reps: 0,
+                    lapses: 0,
+                    lastReviewAt: null,
+                    legacyStableId: null,
+                    createdAt: 1,
+                    updatedAt: 1,
+                },
+            },
+        });
+
+        expect(migrated.schemaVersion).toBe(5);
+        expect(migrated.noteTypes.custom.version).toBe(1);
+        expect(migrated.noteTypes.custom.templates[0].version).toBe(1);
+        expect(migrated.cards.card.variantId).toBe("base");
+        expect(migrated.cards.card.stableKey).toBe("note::template-a::base");
+        expect(migrated.conflicts).toEqual({});
+    });
+
+    it("preserves card identity and scheduling when templates are reordered", async () => {
+        let timestamp = 500;
+        const store = new CollectionStore(new MemoryStorage(), () => timestamp, idFactory);
+        const original = await store.saveNoteType({
+            id: "language-pair",
+            version: 1,
+            name: "Language pair",
+            kind: "standard",
+            fields: [
+                { id: "front", name: "Front", ordinal: 0, kind: "text", required: true },
+                { id: "back", name: "Back", ordinal: 1, kind: "text", required: true },
+            ],
+            templates: [
+                {
+                    id: "forward",
+                    version: 1,
+                    name: "Forward",
+                    ordinal: 0,
+                    questionFormat: "{{front}}",
+                    answerFormat: "{{back}}",
+                    deckOverride: null,
+                    enabled: true,
+                },
+                {
+                    id: "reverse",
+                    version: 1,
+                    name: "Reverse",
+                    ordinal: 1,
+                    questionFormat: "{{back}}",
+                    answerFormat: "{{front}}",
+                    deckOverride: null,
+                    enabled: true,
+                },
+            ],
+            css: "",
+        });
+        const note = await store.createNote({
+            noteTypeId: original.id,
+            fields: { front: "bonjour", back: "hello" },
+            deckPath: "Languages",
+            source: { kind: "managed", path: "Cards/bonjour.md", questionId: "^bonjour" },
+        });
+        const before = Object.values(store.getCollectionSnapshot().cards).filter(
+            (card) => card.noteId === note.id && !card.deletedAt,
+        );
+        const beforeIds = Object.fromEntries(before.map((card) => [card.templateId, card.id]));
+
+        timestamp = 510;
+        const preview = store.previewNoteTypeChange({
+            ...original,
+            templates: [
+                { ...original.templates[1], ordinal: 0 },
+                { ...original.templates[0], ordinal: 1 },
+            ],
+        });
+        expect(preview).toEqual(
+            expect.objectContaining({ preservedCards: 2, createdCards: 0, retiredCards: 0 }),
+        );
+        await store.saveNoteType({
+            ...original,
+            templates: [
+                { ...original.templates[1], ordinal: 0 },
+                { ...original.templates[0], ordinal: 1 },
+            ],
+        });
+
+        const after = Object.values(store.getCollectionSnapshot().cards).filter(
+            (card) => card.noteId === note.id && !card.deletedAt,
+        );
+        expect(after).toHaveLength(2);
+        expect(Object.fromEntries(after.map((card) => [card.templateId, card.id]))).toEqual(
+            beforeIds,
+        );
+        expect(after.find((card) => card.templateId === "reverse")?.ordinal).toBe(0);
+    });
+
+    it("preserves both values when sync entities collide at the same timestamp", () => {
+        const left = migrateCollection({ version: 0 });
+        const right = migrateCollection({ version: 0 });
+        left.notes.note = {
+            id: "note",
+            noteTypeId: "builtin-basic",
+            fields: { front: "left", back: "answer" },
+            tags: [],
+            source: { kind: "managed", path: "left.md", questionId: null },
+            createdAt: 1,
+            updatedAt: 20,
+        };
+        right.notes.note = {
+            ...left.notes.note,
+            fields: { front: "right", back: "answer" },
+            source: { kind: "managed", path: "right.md", questionId: null },
+        };
+
+        const merged = mergeCollections(left, right);
+        const conflict = Object.values(merged.conflicts).find(
+            (candidate) => candidate.entityKind === "note" && candidate.entityId === "note",
+        );
+        expect(conflict).toBeDefined();
+        expect([conflict?.winningValue, conflict?.losingValue]).toEqual(
+            expect.arrayContaining([left.notes.note, right.notes.note]),
+        );
+    });
+
+    it("creates recovery points, restores them, and reports broken references", async () => {
+        let timestamp = 600;
+        const storage = new MemoryStorage();
+        storage.existingPaths.add("Cards/original.md");
+        const store = new CollectionStore(storage, () => timestamp, idFactory);
+        const note = await store.createNativeNote({
+            type: "basic",
+            front: "Original",
+            back: "Answer",
+            deckPath: "Recovery",
+            sourcePath: "Cards/original.md",
+            questionId: "^original",
+        });
+        const backup = await store.createBackup("manual test");
+        expect(backup).not.toBeNull();
+        if (!backup) throw new Error("backup was not created");
+
+        timestamp = 610;
+        await store.updateNativeNote({
+            id: note.id,
+            type: "basic",
+            front: "Changed",
+            back: "Answer",
+            deckPath: "Recovery",
+            sourcePath: "Cards/original.md",
+            questionId: "^original",
+        });
+        timestamp = 620;
+        await store.restoreBackup(backup.path);
+        expect(store.getCollectionSnapshot().notes[note.id].fields.front).toBe("Original");
+        expect((await store.listBackups()).map((item) => item.reason)).toEqual(
+            expect.arrayContaining(["manual test", "before-restore"]),
+        );
+
+        storage.existingPaths.clear();
+        const report = await store.checkIntegrity();
+        expect(report.issues).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ code: "missing-source", entityId: note.id }),
+            ]),
+        );
+    });
+
+    it("backs up automatic schema upgrades and rejects unusable recovery points", async () => {
+        const storage = new MemoryStorage();
+        storage.collection = `\`\`\`json\n${JSON.stringify({
+            schemaVersion: 4,
+            revision: 2,
+            updatedAt: 10,
+            notes: {},
+            cards: {},
+        })}\n\`\`\``;
+        storage.reviews = `\`\`\`json\n${JSON.stringify({
+            schemaVersion: 1,
+            revision: 0,
+            updatedAt: 0,
+            entries: {},
+        })}\n\`\`\``;
+        const store = new CollectionStore(storage, () => 700, idFactory);
+
+        await store.initialize();
+        expect(store.getCollectionSnapshot().schemaVersion).toBe(5);
+        expect((await store.listBackups())[0].reason).toBe("before-schema-4-to-5");
+        expect((await store.listBackups())[0].schemaVersion).toBe(4);
+
+        storage.backups.set("empty.json", "");
+        storage.backups.set("broken.json", "not json");
+        storage.backups.set("invalid.json", JSON.stringify({ formatVersion: 2 }));
+        expect(await store.listBackups()).toHaveLength(1);
+        await expect(store.restoreBackup("missing.json")).rejects.toThrow("backup-not-found");
+        await expect(store.restoreBackup("invalid.json")).rejects.toThrow("invalid-backup");
+
+        const minimalStorage: CollectionStorage = {
+            readCollection: () => Promise.resolve(null),
+            writeCollection: () => Promise.resolve(),
+            readReviewLog: () => Promise.resolve(null),
+            writeReviewLog: () => Promise.resolve(),
+        };
+        const minimalStore = new CollectionStore(minimalStorage, () => 701, idFactory);
+        expect(await minimalStore.createBackup()).toBeNull();
+        expect(await minimalStore.listBackups()).toEqual([]);
+        await expect(minimalStore.restoreBackup("any.json")).rejects.toThrow(
+            "backup-storage-unavailable",
+        );
+    });
+
+    it("reports structural, scheduling, media, review, and sync integrity problems", async () => {
+        const storage = new MemoryStorage();
+        const seed = new CollectionStore(storage, () => 800, idFactory);
+        const note = await seed.createNativeNote({
+            type: "basic",
+            front: "Question",
+            back: "Answer",
+            deckPath: "Medicine",
+            sourcePath: "Cards/missing.md",
+            questionId: "^integrity",
+        });
+        const snapshot = seed.getCollectionSnapshot();
+        const card = Object.values(snapshot.cards).find(
+            (candidate) => candidate.noteId === note.id,
+        );
+        snapshot.notes[note.id].fields.front = "";
+        snapshot.notes[note.id].fields.back =
+            '![[Media/missing.png]] <img src="Media/local.jpg"><img src="https://example.com/a.jpg">';
+        snapshot.decks[card.deckId].optionsId = "missing-options";
+        card.templateId = "missing-template";
+        card.deckId = "missing-deck";
+        card.stableKey = "wrong";
+        card.schedule = {} as never;
+        snapshot.cards.duplicate = { ...card, id: "duplicate" };
+        snapshot.cards.orphan = {
+            ...card,
+            id: "orphan",
+            noteId: "missing-note",
+            stableKey: "orphan::missing-template::base",
+        };
+        snapshot.notes.missingType = {
+            ...snapshot.notes[note.id],
+            id: "missingType",
+            noteTypeId: "missing-note-type",
+        };
+        snapshot.conflicts.collision = {
+            id: "collision",
+            entityKind: "note",
+            entityId: note.id,
+            detectedAt: 800,
+            winner: "left",
+            winningValue: {},
+            losingValue: {},
+        };
+        snapshot.conflicts.resolved = {
+            ...snapshot.conflicts.collision,
+            id: "resolved",
+            resolvedAt: 801,
+        };
+        storage.collection = formatCollection(snapshot);
+        storage.reviews = `\`\`\`json\n${JSON.stringify({
+            schemaVersion: 1,
+            revision: 1,
+            updatedAt: 800,
+            entries: {
+                orphanReview: {
+                    id: "orphanReview",
+                    cardId: "missing-card",
+                    noteId: "missing-note",
+                    rating: 1,
+                    reviewedAt: 800,
+                    durationMs: null,
+                    mode: "review",
+                    previousSchedule: null,
+                    nextSchedule: null,
+                },
+                deletedReview: {
+                    id: "deletedReview",
+                    cardId: "missing-card",
+                    noteId: "missing-note",
+                    rating: 1,
+                    reviewedAt: 800,
+                    durationMs: null,
+                    mode: "review",
+                    previousSchedule: null,
+                    nextSchedule: null,
+                    deletedAt: 801,
+                },
+            },
+        })}\n\`\`\``;
+
+        const store = new CollectionStore(storage, () => 802, idFactory);
+        const report = await store.checkIntegrity();
+        const codes = report.issues.map((issue) => issue.code);
+        expect(codes).toEqual(
+            expect.arrayContaining([
+                "missing-deck-options",
+                "missing-note-type",
+                "missing-required-field",
+                "missing-source",
+                "missing-media",
+                "orphan-card",
+                "missing-template",
+                "missing-deck",
+                "invalid-stable-key",
+                "invalid-schedule",
+                "duplicate-stable-key",
+                "orphan-review",
+                "sync-conflict",
+            ]),
+        );
+        expect(report.counts.mediaReferences).toBe(2);
+        expect(codes.filter((code) => code === "sync-conflict")).toHaveLength(1);
+    });
+
+    it("validates supported schedule shapes during an integrity scan", async () => {
+        const storage = new MemoryStorage();
+        const seed = new CollectionStore(storage, () => 900, idFactory);
+        const note = await seed.createNativeNote({
+            type: "basic",
+            front: "Q",
+            back: "A",
+            deckPath: "Schedules",
+            sourcePath: "Cards/schedule.md",
+            questionId: "^schedule",
+        });
+        storage.existingPaths.add("Cards/schedule.md");
+        const snapshot = seed.getCollectionSnapshot();
+        const original = Object.values(snapshot.cards).find(
+            (candidate) => candidate.noteId === note.id,
+        );
+        const schedules: unknown[] = [
+            [],
+            { algorithm: "fsrs", scheduleData: [] },
+            { algorithm: "fsrs", scheduleData: { interval: "1", dueDate: "2026-10-12" } },
+            { algorithm: "fsrs", scheduleData: { interval: -1, dueDate: "2026-10-12" } },
+            { algorithm: "fsrs", scheduleData: { interval: 1, dueDate: "not-a-date" } },
+            { algorithm: "fsrs", scheduleData: { interval: 1, dueDate: "2026-10-12" } },
+        ];
+        schedules.forEach((schedule, index) => {
+            const id = `schedule-${index}`;
+            snapshot.cards[id] = {
+                ...original,
+                id,
+                variantId: id,
+                stableKey: `${note.id}::builtin-basic-card::${id}`,
+                schedule: schedule as never,
+            };
+        });
+        storage.collection = formatCollection(snapshot);
+
+        const report = await new CollectionStore(storage, () => 901, idFactory).checkIntegrity();
+        expect(report.issues.filter((issue) => issue.code === "invalid-schedule")).toHaveLength(5);
     });
 });

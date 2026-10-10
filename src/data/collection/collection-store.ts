@@ -13,14 +13,21 @@ import {
     CardFlag,
     CardLifecycleState,
     COLLECTION_SCHEMA_VERSION,
+    CollectionBackupData,
+    CollectionBackupDescriptor,
     CollectionCard,
+    CollectionConflict,
     CollectionData,
     CollectionDeck,
+    CollectionEntityKind,
+    CollectionIntegrityIssue,
+    CollectionIntegrityReport,
     CollectionNote,
     CollectionNoteInput,
     DeckOptionsDefinition,
     LegacyCardInput,
     NativeNoteInput,
+    NoteTypeChangePreview,
     NoteTypeDefinition,
     RecordReviewInput,
     REVIEW_LOG_SCHEMA_VERSION,
@@ -31,6 +38,7 @@ import {
 export const COLLECTION_FOLDER = "Spaced Repetition";
 export const COLLECTION_PATH = `${COLLECTION_FOLDER}/collection-data.sr.md`;
 export const REVIEW_LOG_PATH = `${COLLECTION_FOLDER}/review-history.sr.md`;
+export const COLLECTION_BACKUP_FOLDER = `${COLLECTION_FOLDER}/Backups`;
 
 const JSON_BLOCK = /```json\s*([\s\S]*?)\s*```/i;
 export const DEFAULT_DECK_ID = "builtin-default-deck";
@@ -41,6 +49,10 @@ export interface CollectionStorage {
     writeCollection(content: string): Promise<void>;
     readReviewLog(): Promise<string | null>;
     writeReviewLog(content: string): Promise<void>;
+    writeBackup?(path: string, content: string): Promise<void>;
+    readBackup?(path: string): Promise<string | null>;
+    listBackups?(): Promise<string[]>;
+    pathExists?(path: string): Promise<boolean>;
 }
 
 export class VaultCollectionStorage implements CollectionStorage {
@@ -62,6 +74,33 @@ export class VaultCollectionStorage implements CollectionStorage {
         return this.write(REVIEW_LOG_PATH, content);
     }
 
+    writeBackup(path: string, content: string): Promise<void> {
+        return this.write(path, content);
+    }
+
+    readBackup(path: string): Promise<string | null> {
+        return this.read(path);
+    }
+
+    listBackups(): Promise<string[]> {
+        return Promise.resolve(
+            this.vault
+                .getFiles()
+                .filter((file) => file.path.startsWith(`${COLLECTION_BACKUP_FOLDER}/`))
+                .map((file) => file.path)
+                .sort((left, right) => right.localeCompare(left)),
+        );
+    }
+
+    pathExists(path: string): Promise<boolean> {
+        const normalized = path.replace(/^\/+/, "");
+        return Promise.resolve(
+            this.vault
+                .getFiles()
+                .some((file) => file.path === normalized || file.name === normalized),
+        );
+    }
+
     private async read(path: string): Promise<string | null> {
         const file = this.vault.getAbstractFileByPath(path);
         return file instanceof TFile ? await this.vault.read(file) : null;
@@ -75,6 +114,12 @@ export class VaultCollectionStorage implements CollectionStorage {
         }
         if (!this.vault.getAbstractFileByPath(COLLECTION_FOLDER)) {
             await this.vault.createFolder(COLLECTION_FOLDER);
+        }
+        if (
+            path.startsWith(`${COLLECTION_BACKUP_FOLDER}/`) &&
+            !this.vault.getAbstractFileByPath(COLLECTION_BACKUP_FOLDER)
+        ) {
+            await this.vault.createFolder(COLLECTION_BACKUP_FOLDER);
         }
         await this.vault.create(path, content);
     }
@@ -109,6 +154,7 @@ function emptyCollection(): CollectionData {
         decks: { [defaultDeck.id]: defaultDeck },
         notes: {},
         cards: {},
+        conflicts: {},
     };
 }
 
@@ -133,6 +179,32 @@ function asRecord<T>(value: unknown): Record<string, T> {
     return value as Record<string, T>;
 }
 
+export function createCardStableKey(noteId: string, templateId: string, variantId: string): string {
+    return `${noteId}::${templateId}::${variantId}`;
+}
+
+function getImageOcclusionVariantIds(note: CollectionNote): string[] {
+    try {
+        const masks = JSON.parse(note.fields.masks ?? "[]") as Array<{ id?: string }>;
+        return masks.map((mask, index) => mask.id?.trim() || `mask-${index + 1}`);
+    } catch {
+        return [];
+    }
+}
+
+function deriveLegacyVariantId(
+    card: CollectionCard,
+    note: CollectionNote | undefined,
+    noteType: NoteTypeDefinition | undefined,
+): string {
+    if (note?.source.kind === "markdown") return `legacy-${card.ordinal}`;
+    if (noteType?.kind === "cloze") return `cloze-${card.ordinal + 1}`;
+    if (noteType?.kind === "image-occlusion") {
+        return getImageOcclusionVariantIds(note)[card.ordinal] ?? `mask-${card.ordinal + 1}`;
+    }
+    return "base";
+}
+
 /** Sequential migrations keep vault data readable when the collection schema evolves. */
 export function migrateCollection(value: unknown): CollectionData {
     const base = emptyCollection();
@@ -144,26 +216,56 @@ export function migrateCollection(value: unknown): CollectionData {
     }
 
     // Version 0 was the development preview. It used the same entities without revision metadata.
+    const noteTypes = Object.fromEntries(
+        Object.entries({
+            ...base.noteTypes,
+            ...asRecord<NoteTypeDefinition>(raw.noteTypes),
+        }).map(([id, noteType]) => [
+            id,
+            {
+                ...noteType,
+                version: Math.max(1, Number(noteType.version) || 1),
+                fields: (noteType.fields ?? []).map((field) => ({ ...field })),
+                templates: (noteType.templates ?? []).map((template) => ({
+                    ...template,
+                    version: Math.max(1, Number(template.version) || 1),
+                })),
+            },
+        ]),
+    );
+    const notes = asRecord<CollectionNote>(raw.notes);
     const migrated: CollectionData = {
         schemaVersion: COLLECTION_SCHEMA_VERSION,
         revision: typeof raw.revision === "number" ? raw.revision : 0,
         updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : 0,
-        noteTypes: {
-            ...base.noteTypes,
-            ...asRecord<NoteTypeDefinition>(raw.noteTypes),
-        },
+        noteTypes,
         deckOptions: {
             ...base.deckOptions,
             ...asRecord<DeckOptionsDefinition>(raw.deckOptions),
         },
         decks: { ...base.decks, ...asRecord<CollectionDeck>(raw.decks) },
-        notes: asRecord<CollectionNote>(raw.notes),
+        notes,
         cards: Object.fromEntries(
-            Object.entries(asRecord<CollectionCard>(raw.cards)).map(([id, card]) => [
-                id,
-                { ...card, buriedUntil: card.buriedUntil ?? null, flag: card.flag ?? 0 },
-            ]),
+            Object.entries(asRecord<CollectionCard>(raw.cards)).map(([id, card]) => {
+                const note = notes[card.noteId];
+                const variantId =
+                    card.variantId ||
+                    deriveLegacyVariantId(card, note, noteTypes[note?.noteTypeId]);
+                return [
+                    id,
+                    {
+                        ...card,
+                        variantId,
+                        stableKey:
+                            card.stableKey ||
+                            createCardStableKey(card.noteId, card.templateId, variantId),
+                        buriedUntil: card.buriedUntil ?? null,
+                        flag: card.flag ?? 0,
+                    },
+                ];
+            }),
         ),
+        conflicts: asRecord<CollectionConflict>(raw.conflicts),
     };
     return migrated;
 }
@@ -179,21 +281,35 @@ export function parseCollection(content: string | null): CollectionData {
 
 export function parseReviewLog(content: string | null): ReviewLogData {
     try {
-        const raw = parseJsonBlock(content) as Partial<ReviewLogData> | null;
-        if (!raw) return emptyReviewLog();
-        const version = raw.schemaVersion ?? 0;
-        if (version > REVIEW_LOG_SCHEMA_VERSION) {
-            throw new Error(`Unsupported review log schema ${version}`);
-        }
-        return {
-            schemaVersion: REVIEW_LOG_SCHEMA_VERSION,
-            revision: typeof raw.revision === "number" ? raw.revision : 0,
-            updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : 0,
-            entries: asRecord<ReviewLogEntry>(raw.entries),
-        };
+        return migrateReviewLog(parseJsonBlock(content));
     } catch (error) {
         console.warn("MSRE: Unable to parse review history", error);
         return emptyReviewLog();
+    }
+}
+
+function migrateReviewLog(value: unknown): ReviewLogData {
+    const raw = value as Partial<ReviewLogData> | null;
+    if (!raw || typeof raw !== "object") return emptyReviewLog();
+    const version = raw.schemaVersion ?? 0;
+    if (version > REVIEW_LOG_SCHEMA_VERSION) {
+        throw new Error(`Unsupported review log schema ${version}`);
+    }
+    return {
+        schemaVersion: REVIEW_LOG_SCHEMA_VERSION,
+        revision: typeof raw.revision === "number" ? raw.revision : 0,
+        updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : 0,
+        entries: asRecord<ReviewLogEntry>(raw.entries),
+    };
+}
+
+function storedCollectionVersion(content: string | null): number | null {
+    try {
+        const raw = parseJsonBlock(content) as { schemaVersion?: number; version?: number } | null;
+        if (!raw) return null;
+        return raw.schemaVersion ?? raw.version ?? 0;
+    } catch {
+        return null;
     }
 }
 
@@ -201,35 +317,116 @@ function entityTimestamp(entity: { updatedAt: number; deletedAt?: number }): num
     return Math.max(entity.updatedAt, entity.deletedAt ?? 0);
 }
 
+function canonicalJson(value: unknown): string {
+    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+    if (value && typeof value === "object") {
+        return `{${Object.entries(value as Record<string, unknown>)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, child]) => `${JSON.stringify(key)}:${canonicalJson(child)}`)
+            .join(",")}}`;
+    }
+    return JSON.stringify(value);
+}
+
+function shortHash(value: string): string {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index++) {
+        hash ^= value.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+}
+
 function mergeEntityRecords<T extends { updatedAt: number; deletedAt?: number }>(
+    entityKind: CollectionEntityKind,
     left: Record<string, T>,
     right: Record<string, T>,
-): Record<string, T> {
+    equalTimestampWinner: "deterministic" | "left" | "right" = "deterministic",
+): { records: Record<string, T>; conflicts: Record<string, CollectionConflict> } {
     const merged: Record<string, T> = {};
+    const conflicts: Record<string, CollectionConflict> = {};
     for (const id of new Set([...Object.keys(left), ...Object.keys(right)])) {
         const leftEntity = left[id];
         const rightEntity = right[id];
         if (!leftEntity) merged[id] = rightEntity;
         else if (!rightEntity) merged[id] = leftEntity;
-        else
-            merged[id] =
-                entityTimestamp(leftEntity) >= entityTimestamp(rightEntity)
-                    ? leftEntity
-                    : rightEntity;
+        else {
+            const leftTimestamp = entityTimestamp(leftEntity);
+            const rightTimestamp = entityTimestamp(rightEntity);
+            if (leftTimestamp !== rightTimestamp) {
+                merged[id] = leftTimestamp > rightTimestamp ? leftEntity : rightEntity;
+                continue;
+            }
+            const leftJson = canonicalJson(leftEntity);
+            const rightJson = canonicalJson(rightEntity);
+            if (leftJson === rightJson) {
+                merged[id] = leftEntity;
+                continue;
+            }
+            const winner =
+                equalTimestampWinner === "deterministic"
+                    ? leftJson >= rightJson
+                        ? "left"
+                        : "right"
+                    : equalTimestampWinner;
+            const winningValue = winner === "left" ? leftEntity : rightEntity;
+            const losingValue = winner === "left" ? rightEntity : leftEntity;
+            merged[id] = winningValue;
+            const conflictId = `${entityKind}:${id}:${leftTimestamp}:${shortHash(
+                `${leftJson}|${rightJson}`,
+            )}`;
+            conflicts[conflictId] = {
+                id: conflictId,
+                entityKind,
+                entityId: id,
+                detectedAt: leftTimestamp,
+                winner,
+                winningValue: cloneJson(winningValue),
+                losingValue: cloneJson(losingValue),
+            };
+        }
     }
-    return merged;
+    return { records: merged, conflicts };
 }
 
-export function mergeCollections(left: CollectionData, right: CollectionData): CollectionData {
+export function mergeCollections(
+    left: CollectionData,
+    right: CollectionData,
+    equalTimestampWinner: "deterministic" | "left" | "right" = "deterministic",
+): CollectionData {
+    const noteTypes = mergeEntityRecords(
+        "noteType",
+        left.noteTypes,
+        right.noteTypes,
+        equalTimestampWinner,
+    );
+    const deckOptions = mergeEntityRecords(
+        "deckOptions",
+        left.deckOptions,
+        right.deckOptions,
+        equalTimestampWinner,
+    );
+    const decks = mergeEntityRecords("deck", left.decks, right.decks, equalTimestampWinner);
+    const notes = mergeEntityRecords("note", left.notes, right.notes, equalTimestampWinner);
+    const cards = mergeEntityRecords("card", left.cards, right.cards, equalTimestampWinner);
     return {
         schemaVersion: COLLECTION_SCHEMA_VERSION,
         revision: Math.max(left.revision, right.revision),
         updatedAt: Math.max(left.updatedAt, right.updatedAt),
-        noteTypes: mergeEntityRecords(left.noteTypes, right.noteTypes),
-        deckOptions: mergeEntityRecords(left.deckOptions, right.deckOptions),
-        decks: mergeEntityRecords(left.decks, right.decks),
-        notes: mergeEntityRecords(left.notes, right.notes),
-        cards: mergeEntityRecords(left.cards, right.cards),
+        noteTypes: noteTypes.records,
+        deckOptions: deckOptions.records,
+        decks: decks.records,
+        notes: notes.records,
+        cards: cards.records,
+        conflicts: {
+            ...left.conflicts,
+            ...right.conflicts,
+            ...noteTypes.conflicts,
+            ...deckOptions.conflicts,
+            ...decks.conflicts,
+            ...notes.conflicts,
+            ...cards.conflicts,
+        },
     };
 }
 
@@ -280,6 +477,7 @@ export function formatCollection(data: CollectionData): string {
         decks: sortRecord(data.decks),
         notes: sortRecord(data.notes),
         cards: sortRecord(data.cards),
+        conflicts: sortRecord(data.conflicts),
     };
     return `# MSRE collection data
 
@@ -345,9 +543,25 @@ export class CollectionStore {
             this.storage.readCollection(),
             this.storage.readReviewLog(),
         ]);
+        const previousSchemaVersion = storedCollectionVersion(collectionText);
         this.collection = parseCollection(collectionText);
         this.reviewLog = parseReviewLog(reviewText);
         this.initialized = true;
+        if (
+            collectionText &&
+            previousSchemaVersion !== null &&
+            previousSchemaVersion < COLLECTION_SCHEMA_VERSION
+        ) {
+            await this.writeBackupSnapshot(
+                `before-schema-${previousSchemaVersion}-to-${COLLECTION_SCHEMA_VERSION}`,
+                parseJsonBlock(collectionText),
+                parseJsonBlock(reviewText) ?? this.reviewLog,
+                previousSchemaVersion,
+            );
+            this.collection.revision++;
+            this.collection.updatedAt = this.now();
+            await this.storage.writeCollection(formatCollection(this.collection));
+        }
     }
 
     async reload(): Promise<void> {
@@ -374,6 +588,77 @@ export class CollectionStore {
         return cloneJson(this.reviewLog);
     }
 
+    async createBackup(reason = "manual"): Promise<CollectionBackupDescriptor | null> {
+        await this.initialize();
+        return await this.writeBackupSnapshot(reason, this.collection, this.reviewLog);
+    }
+
+    async listBackups(): Promise<CollectionBackupDescriptor[]> {
+        await this.initialize();
+        if (!this.storage.listBackups || !this.storage.readBackup) return [];
+        const result: CollectionBackupDescriptor[] = [];
+        for (const path of await this.storage.listBackups()) {
+            const content = await this.storage.readBackup(path);
+            if (!content) continue;
+            try {
+                const backup = JSON.parse(content) as CollectionBackupData;
+                if (
+                    backup.formatVersion !== 1 ||
+                    typeof backup.createdAt !== "number" ||
+                    typeof backup.reason !== "string" ||
+                    typeof backup.schemaVersion !== "number" ||
+                    !backup.collection ||
+                    !backup.reviewLog
+                ) {
+                    continue;
+                }
+                result.push({
+                    path,
+                    createdAt: backup.createdAt,
+                    reason: backup.reason,
+                    schemaVersion: backup.schemaVersion,
+                });
+            } catch {
+                // A malformed backup is ignored here and reported by the integrity screen.
+            }
+        }
+        return result.sort((left, right) => right.createdAt - left.createdAt);
+    }
+
+    async restoreBackup(path: string): Promise<void> {
+        await this.initialize();
+        if (!this.storage.readBackup) throw new Error("backup-storage-unavailable");
+        const content = await this.storage.readBackup(path);
+        if (!content) throw new Error("backup-not-found");
+        const backup = JSON.parse(content) as CollectionBackupData;
+        if (backup.formatVersion !== 1 || !backup.collection || !backup.reviewLog) {
+            throw new Error("invalid-backup");
+        }
+        await this.writeBackupSnapshot("before-restore", this.collection, this.reviewLog);
+        const timestamp = this.now();
+        const restored = migrateCollection(backup.collection);
+        const touchRecord = (record: Record<string, { updatedAt: number }>): void => {
+            for (const entity of Object.values(record)) entity.updatedAt = timestamp;
+        };
+        for (const record of [
+            restored.noteTypes,
+            restored.deckOptions,
+            restored.decks,
+            restored.notes,
+            restored.cards,
+        ]) {
+            touchRecord(record);
+        }
+        restored.revision = Math.max(this.collection.revision, restored.revision) + 1;
+        restored.updatedAt = timestamp;
+        this.collection = restored;
+        this.reviewLog = mergeReviewLogs(this.reviewLog, migrateReviewLog(backup.reviewLog));
+        this.reviewLog.revision++;
+        this.reviewLog.updatedAt = timestamp;
+        await this.storage.writeCollection(formatCollection(this.collection));
+        await this.storage.writeReviewLog(formatReviewLog(this.reviewLog));
+    }
+
     getNoteTypes(): NoteTypeDefinition[] {
         return Object.values(this.collection.noteTypes)
             .filter((noteType) => !noteType.deletedAt)
@@ -390,6 +675,205 @@ export class CollectionStore {
         return Object.values(this.collection.notes).filter(
             (note) => !note.deletedAt && note.noteTypeId === noteTypeId,
         ).length;
+    }
+
+    previewNoteTypeChange(
+        definition: Omit<NoteTypeDefinition, "createdAt" | "updatedAt">,
+    ): NoteTypeChangePreview {
+        const notes = Object.values(this.collection.notes).filter(
+            (note) => !note.deletedAt && note.noteTypeId === definition.id,
+        );
+        const existing = this.collection.noteTypes[definition.id];
+        let currentCards = 0;
+        let resultingCards = 0;
+        let preservedCards = 0;
+        for (const note of notes) {
+            const cards = Object.values(this.collection.cards).filter(
+                (card) => !card.deletedAt && card.noteId === note.id,
+            );
+            const nextKeys = new Set(
+                this.getGeneratedCardSpecs(note, definition).map(({ template, variantId }) =>
+                    createCardStableKey(note.id, template.id, variantId),
+                ),
+            );
+            currentCards += cards.length;
+            resultingCards += nextKeys.size;
+            preservedCards += cards.filter((card) => nextKeys.has(card.stableKey)).length;
+        }
+        const previousTemplates = new Map(
+            (existing?.templates ?? []).map((template) => [template.id, template]),
+        );
+        const changedTemplates = definition.templates.filter((template) => {
+            const previous = previousTemplates.get(template.id);
+            return (
+                !previous ||
+                canonicalJson(this.templateContent(previous)) !==
+                    canonicalJson(this.templateContent(template))
+            );
+        }).length;
+        return {
+            affectedNotes: notes.length,
+            currentCards,
+            resultingCards,
+            preservedCards,
+            createdCards: Math.max(0, resultingCards - preservedCards),
+            retiredCards: Math.max(0, currentCards - preservedCards),
+            changedTemplates,
+        };
+    }
+
+    async checkIntegrity(): Promise<CollectionIntegrityReport> {
+        await this.initialize();
+        const issues: CollectionIntegrityIssue[] = [];
+        const activeNoteTypes = this.collection.noteTypes;
+        const activeNotes = Object.values(this.collection.notes).filter((note) => !note.deletedAt);
+        const activeCards = Object.values(this.collection.cards).filter((card) => !card.deletedAt);
+        const stableKeys = new Map<string, string[]>();
+        let mediaReferences = 0;
+        const checkPath = async (
+            code: "missing-source" | "missing-media",
+            entityId: string,
+            path: string,
+        ): Promise<void> => {
+            if (!path || !this.storage.pathExists) return;
+            if (!(await this.storage.pathExists(path))) {
+                issues.push({ code, severity: "warning", entityId, details: path });
+            }
+        };
+
+        for (const deck of Object.values(this.collection.decks)) {
+            if (deck.deletedAt) continue;
+            const options = this.collection.deckOptions[deck.optionsId];
+            if (!options || options.deletedAt) {
+                issues.push({
+                    code: "missing-deck-options",
+                    severity: "error",
+                    entityId: deck.id,
+                    details: deck.optionsId,
+                });
+            }
+        }
+
+        for (const note of activeNotes) {
+            const noteType = activeNoteTypes[note.noteTypeId];
+            if (!noteType || noteType.deletedAt) {
+                issues.push({
+                    code: "missing-note-type",
+                    severity: "error",
+                    entityId: note.id,
+                    details: note.noteTypeId,
+                });
+            } else {
+                for (const field of noteType.fields) {
+                    const value = note.fields[field.id] ?? "";
+                    if (field.required && !value.trim()) {
+                        issues.push({
+                            code: "missing-required-field",
+                            severity: "warning",
+                            entityId: note.id,
+                            details: field.name,
+                        });
+                    }
+                    const paths = this.extractMediaPaths(value, field.kind === "media");
+                    mediaReferences += paths.length;
+                    for (const path of paths) await checkPath("missing-media", note.id, path);
+                }
+            }
+            await checkPath("missing-source", note.id, note.source.path);
+        }
+
+        for (const card of activeCards) {
+            const note = this.collection.notes[card.noteId];
+            if (!note || note.deletedAt) {
+                issues.push({
+                    code: "orphan-card",
+                    severity: "error",
+                    entityId: card.id,
+                    details: card.noteId,
+                });
+                continue;
+            }
+            const noteType = activeNoteTypes[note.noteTypeId];
+            if (!noteType?.templates.some((template) => template.id === card.templateId)) {
+                issues.push({
+                    code: "missing-template",
+                    severity: "error",
+                    entityId: card.id,
+                    details: card.templateId,
+                });
+            }
+            const deck = this.collection.decks[card.deckId];
+            if (!deck || deck.deletedAt) {
+                issues.push({
+                    code: "missing-deck",
+                    severity: "error",
+                    entityId: card.id,
+                    details: card.deckId,
+                });
+            }
+            const expectedKey = createCardStableKey(card.noteId, card.templateId, card.variantId);
+            if (card.stableKey !== expectedKey) {
+                issues.push({
+                    code: "invalid-stable-key",
+                    severity: "error",
+                    entityId: card.id,
+                    details: expectedKey,
+                });
+            }
+            const matches = stableKeys.get(card.stableKey) ?? [];
+            matches.push(card.id);
+            stableKeys.set(card.stableKey, matches);
+            if (card.schedule && !this.isScheduleValid(card.schedule)) {
+                issues.push({
+                    code: "invalid-schedule",
+                    severity: "error",
+                    entityId: card.id,
+                });
+            }
+        }
+        for (const [stableKey, ids] of stableKeys) {
+            if (ids.length > 1) {
+                issues.push({
+                    code: "duplicate-stable-key",
+                    severity: "error",
+                    entityId: ids.join(", "),
+                    details: stableKey,
+                });
+            }
+        }
+        for (const review of Object.values(this.reviewLog.entries)) {
+            if (review.deletedAt) continue;
+            if (!this.collection.cards[review.cardId] || !this.collection.notes[review.noteId]) {
+                issues.push({
+                    code: "orphan-review",
+                    severity: "warning",
+                    entityId: review.id,
+                    details: review.cardId,
+                });
+            }
+        }
+        for (const conflict of Object.values(this.collection.conflicts)) {
+            if (!conflict.resolvedAt) {
+                issues.push({
+                    code: "sync-conflict",
+                    severity: "warning",
+                    entityId: conflict.entityId,
+                    details: conflict.entityKind,
+                });
+            }
+        }
+        return {
+            checkedAt: this.now(),
+            counts: {
+                noteTypes: Object.values(activeNoteTypes).filter((type) => !type.deletedAt).length,
+                notes: activeNotes.length,
+                cards: activeCards.length,
+                reviews: Object.values(this.reviewLog.entries).filter((entry) => !entry.deletedAt)
+                    .length,
+                mediaReferences,
+            },
+            issues,
+        };
     }
 
     getDecks(): CollectionDeck[] {
@@ -542,14 +1026,55 @@ export class CollectionStore {
         await this.initialize();
         const timestamp = this.now();
         const existing = this.collection.noteTypes[definition.id];
+        const templates = definition.templates.map((template) => {
+            const previous = existing?.templates.find((candidate) => candidate.id === template.id);
+            const changed =
+                !previous ||
+                canonicalJson(this.templateContent(previous)) !==
+                    canonicalJson(this.templateContent(template));
+            return {
+                ...template,
+                version: previous ? previous.version + (changed ? 1 : 0) : 1,
+            };
+        });
+        const changed =
+            !existing ||
+            canonicalJson(this.noteTypeContent(existing)) !==
+                canonicalJson(this.noteTypeContent({ ...definition, templates }));
+        if (existing && changed && this.countNotesForType(definition.id) > 0) {
+            await this.writeBackupSnapshot(
+                `before-note-type-${this.safeBackupSegment(existing.name)}`,
+                this.collection,
+                this.reviewLog,
+            );
+        }
         const noteType: NoteTypeDefinition = {
             ...definition,
+            version: existing ? existing.version + (changed ? 1 : 0) : 1,
             fields: definition.fields.map((field) => ({ ...field })),
-            templates: definition.templates.map((template) => ({ ...template })),
+            templates,
             createdAt: existing?.createdAt ?? definition.createdAt ?? timestamp,
             updatedAt: timestamp,
         };
         this.collection.noteTypes[noteType.id] = noteType;
+        if (changed) {
+            for (const note of Object.values(this.collection.notes)) {
+                if (note.deletedAt || note.noteTypeId !== noteType.id) continue;
+                const existingCard = Object.values(this.collection.cards).find(
+                    (card) => !card.deletedAt && card.noteId === note.id,
+                );
+                const deck =
+                    (existingCard && this.collection.decks[existingCard.deckId]) ||
+                    this.collection.decks[DEFAULT_DECK_ID];
+                this.replaceGeneratedCards(
+                    note,
+                    noteType,
+                    deck,
+                    note.source.questionId ?? `^sr-data-id-${note.id}`,
+                    timestamp,
+                );
+            }
+        }
         await this.persistCollection();
         return noteType;
     }
@@ -886,10 +1411,13 @@ export class CollectionStore {
                     candidate.ordinal === input.ordinal),
         );
         if (!card) {
+            const variantId = `legacy-${input.ordinal}`;
             card = {
                 id: this.createId("card"),
                 noteId: note.id,
                 templateId: "builtin-basic-card",
+                variantId,
+                stableKey: createCardStableKey(note.id, "builtin-basic-card", variantId),
                 ordinal: input.ordinal,
                 deckId: deck.id,
                 deckPath: input.deckPath,
@@ -922,39 +1450,34 @@ export class CollectionStore {
         const existing = Object.values(this.collection.cards).filter(
             (card) => card.noteId === note.id && !card.deletedAt,
         );
-        const templates = noteType.templates.filter((template) => template.enabled);
-        const specs =
-            noteType.kind === "cloze"
-                ? this.getClozeOrdinals(note).flatMap((ordinal) =>
-                      templates.map((template) => ({ template, ordinal })),
-                  )
-                : noteType.kind === "image-occlusion"
-                  ? this.getImageOcclusionOrdinals(note).flatMap((ordinal) =>
-                        templates.map((template) => ({ template, ordinal })),
-                    )
-                  : templates.map((template) => ({ template, ordinal: template.ordinal }));
+        const specs = this.getGeneratedCardSpecs(note, noteType);
         for (const card of existing) {
             if (
                 !specs.some(
-                    ({ template, ordinal }) =>
-                        template.id === card.templateId && ordinal === card.ordinal,
+                    ({ template, variantId }) =>
+                        createCardStableKey(note.id, template.id, variantId) === card.stableKey,
                 )
             ) {
                 card.deletedAt = timestamp;
                 card.updatedAt = timestamp;
             }
         }
-        for (const { template, ordinal } of specs) {
+        for (const { template, ordinal, variantId } of specs) {
             const targetDeck = template.deckOverride
                 ? this.ensureDeckPathInMemory(template.deckOverride, timestamp)
                 : deck;
+            const stableKey = createCardStableKey(note.id, template.id, variantId);
             const current = existing.find(
-                (card) => card.templateId === template.id && card.ordinal === ordinal,
+                (card) =>
+                    card.stableKey === stableKey ||
+                    (card.templateId === template.id && card.ordinal === ordinal),
             );
             if (current) {
                 current.deckId = targetDeck.id;
                 current.deckPath = targetDeck.name;
                 current.ordinal = ordinal;
+                current.variantId = variantId;
+                current.stableKey = stableKey;
                 current.legacyStableId = legacyQuestionIds?.[ordinal]
                     ? `${legacyQuestionIds[ordinal]}:0`
                     : `${questionId}:${ordinal}`;
@@ -965,6 +1488,8 @@ export class CollectionStore {
                 id: this.createId("card"),
                 noteId: note.id,
                 templateId: template.id,
+                variantId,
+                stableKey,
                 ordinal,
                 deckId: targetDeck.id,
                 deckPath: targetDeck.name,
@@ -986,13 +1511,35 @@ export class CollectionStore {
         }
     }
 
-    private getImageOcclusionOrdinals(note: CollectionNote): number[] {
-        try {
-            const masks = JSON.parse(note.fields.masks ?? "[]") as unknown[];
-            return masks.map((_mask, index) => index);
-        } catch {
-            return [];
+    private getGeneratedCardSpecs(
+        note: CollectionNote,
+        noteType: Pick<NoteTypeDefinition, "kind" | "templates">,
+    ): Array<{
+        template: NoteTypeDefinition["templates"][number];
+        ordinal: number;
+        variantId: string;
+    }> {
+        const templates = noteType.templates.filter((template) => template.enabled);
+        if (noteType.kind === "cloze") {
+            return this.getClozeOrdinals(note).flatMap((ordinal) =>
+                templates.map((template) => ({
+                    template,
+                    ordinal,
+                    variantId: `cloze-${ordinal + 1}`,
+                })),
+            );
         }
+        if (noteType.kind === "image-occlusion") {
+            const variants = getImageOcclusionVariantIds(note);
+            return variants.flatMap((variantId, ordinal) =>
+                templates.map((template) => ({ template, ordinal, variantId })),
+            );
+        }
+        return templates.map((template) => ({
+            template,
+            ordinal: template.ordinal,
+            variantId: "base",
+        }));
     }
 
     private getClozeOrdinals(note: CollectionNote): number[] {
@@ -1042,10 +1589,98 @@ export class CollectionStore {
             .join("/");
     }
 
+    private templateContent(template: NoteTypeDefinition["templates"][number]): unknown {
+        return {
+            id: template.id,
+            name: template.name,
+            ordinal: template.ordinal,
+            questionFormat: template.questionFormat,
+            answerFormat: template.answerFormat,
+            deckOverride: template.deckOverride,
+            enabled: template.enabled,
+        };
+    }
+
+    private noteTypeContent(
+        noteType: Pick<NoteTypeDefinition, "name" | "kind" | "fields" | "templates" | "css">,
+    ): unknown {
+        return {
+            name: noteType.name,
+            kind: noteType.kind,
+            fields: noteType.fields,
+            templates: noteType.templates.map((template) => this.templateContent(template)),
+            css: noteType.css,
+        };
+    }
+
+    private extractMediaPaths(value: string, includePlainValue: boolean): string[] {
+        const paths = new Set<string>();
+        for (const match of value.matchAll(/!\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)) {
+            if (match[1]?.trim()) paths.add(match[1].trim());
+        }
+        for (const match of value.matchAll(/(?:src|href)=["']([^"']+)["']/gi)) {
+            const path = match[1]?.trim();
+            if (path && !/^(?:https?:|data:|blob:)/i.test(path)) paths.add(path);
+        }
+        if (includePlainValue) {
+            const trimmed = value.trim();
+            if (trimmed && !trimmed.includes("\n") && !/^!\[\[/.test(trimmed)) paths.add(trimmed);
+        }
+        return [...paths];
+    }
+
+    private isScheduleValid(schedule: unknown): boolean {
+        if (!schedule || typeof schedule !== "object" || Array.isArray(schedule)) return false;
+        const entry = schedule as Record<string, unknown>;
+        if (typeof entry.algorithm !== "string") return false;
+        const data = entry.scheduleData;
+        if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+        const record = data as Record<string, unknown>;
+        if (typeof record.interval !== "number" || !Number.isFinite(record.interval)) return false;
+        if (record.interval < 0 || typeof record.dueDate !== "string") return false;
+        return !Number.isNaN(Date.parse(record.dueDate));
+    }
+
+    private safeBackupSegment(value: string): string {
+        return (
+            value
+                .trim()
+                .toLocaleLowerCase()
+                .replace(/[^a-zа-яё0-9]+/gi, "-")
+                .replace(/^-|-$/g, "") || "collection"
+        );
+    }
+
+    private async writeBackupSnapshot(
+        reason: string,
+        collection: unknown,
+        reviewLog: unknown,
+        schemaVersion = COLLECTION_SCHEMA_VERSION,
+    ): Promise<CollectionBackupDescriptor | null> {
+        if (!this.storage.writeBackup) return null;
+        const createdAt = this.now();
+        const stamp = new Date(createdAt).toISOString().replace(/[:.]/g, "-");
+        const path = `${COLLECTION_BACKUP_FOLDER}/${stamp}-${this.safeBackupSegment(reason)}.json`;
+        const backup: CollectionBackupData = {
+            formatVersion: 1,
+            path,
+            createdAt,
+            reason,
+            schemaVersion,
+            collection: cloneJson(collection),
+            reviewLog: cloneJson(reviewLog),
+        };
+        await this.storage.writeBackup(path, JSON.stringify(backup, null, 2));
+        return { path, createdAt, reason, schemaVersion };
+    }
+
     private async persistCollection(): Promise<void> {
         const operation = this.writeQueue.then(async () => {
             const onDisk = parseCollection(await this.storage.readCollection());
-            this.collection = mergeCollections(this.collection, onDisk);
+            // This store is the author of the pending mutation. If the filesystem still contains
+            // the previous value with the same coarse timestamp, keep the in-memory value while
+            // retaining the collision in the conflict journal.
+            this.collection = mergeCollections(this.collection, onDisk, "left");
             this.collection.revision++;
             this.collection.updatedAt = this.now();
             await this.storage.writeCollection(formatCollection(this.collection));

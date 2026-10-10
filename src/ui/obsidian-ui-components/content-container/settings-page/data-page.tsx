@@ -1,5 +1,11 @@
-import { Setting, SettingGroup } from "obsidian";
+import "src/ui/obsidian-ui-components/content-container/settings-page/data-page.css";
+import { ButtonComponent, Notice, setIcon, Setting, SettingGroup } from "obsidian";
 
+import {
+    CollectionIntegrityIssue,
+    CollectionIntegrityReport,
+    IntegrityIssueCode,
+} from "src/data/collection/collection-types";
 import { DataManager } from "src/data/data-manager";
 import { DataStore } from "src/data/data-store/base/data-store";
 import { DEFAULT_SETTINGS } from "src/data/settings";
@@ -17,6 +23,10 @@ import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirma
  * @extends {SettingsPage}
  */
 export class DataPage extends SettingsPage {
+    private safetyEl: HTMLDivElement;
+    private integrityReport: CollectionIntegrityReport | null = null;
+    private safetyBusy = false;
+
     constructor(
         pageContainerEl: HTMLElement,
         plugin: SRPlugin,
@@ -39,6 +49,9 @@ export class DataPage extends SettingsPage {
             openPage,
             scrollListener,
         );
+
+        this.safetyEl = this.containerEl.createDiv("sr-collection-safety");
+        void this.renderCollectionSafety();
 
         // TODO: Implement this when the other data stores are implemented
 
@@ -320,5 +333,161 @@ export class DataPage extends SettingsPage {
                             });
                     });
             });
+    }
+
+    private async renderCollectionSafety(): Promise<void> {
+        this.safetyEl.empty();
+        const hero = this.safetyEl.createDiv("sr-collection-safety-hero");
+        const icon = hero.createDiv("sr-collection-safety-icon");
+        setIcon(icon, this.integrityReport?.issues.length ? "shield-alert" : "shield-check");
+        const copy = hero.createDiv("sr-collection-safety-copy");
+        copy.createEl("h2", { text: t("COLLECTION_SAFETY") });
+        copy.createEl("p", { text: t("COLLECTION_SAFETY_DESC") });
+
+        const actions = hero.createDiv("sr-collection-safety-actions");
+        new ButtonComponent(actions)
+            .setIcon("archive")
+            .setTooltip(t("CREATE_COLLECTION_BACKUP"))
+            .setDisabled(this.safetyBusy)
+            .onClick(() => void this.createCollectionBackup());
+        new ButtonComponent(actions)
+            .setButtonText(this.safetyBusy ? t("CHECKING_COLLECTION") : t("RUN_INTEGRITY_CHECK"))
+            .setCta()
+            .setDisabled(this.safetyBusy)
+            .onClick(() => void this.runIntegrityCheck());
+
+        if (this.integrityReport) this.renderIntegrityResult(this.integrityReport);
+
+        const recovery = this.safetyEl.createDiv("sr-collection-recovery");
+        const recoveryHeader = recovery.createDiv("sr-collection-recovery-header");
+        recoveryHeader.createEl("h3", { text: t("COLLECTION_BACKUPS") });
+        const backups = await this.dataManager.collectionStore.listBackups();
+        if (backups.length === 0) {
+            recovery.createDiv({
+                cls: "sr-collection-empty",
+                text: t("NO_COLLECTION_BACKUPS"),
+            });
+            return;
+        }
+        const list = recovery.createDiv("sr-collection-backup-list");
+        for (const backup of backups.slice(0, 12)) {
+            const row = list.createDiv("sr-collection-backup-row");
+            const rowIcon = row.createDiv("sr-collection-backup-icon");
+            setIcon(rowIcon, "history");
+            const details = row.createDiv("sr-collection-backup-copy");
+            details.createEl("strong", {
+                text: new Date(backup.createdAt).toLocaleString(),
+            });
+            details.createSpan({ text: `${backup.reason} · schema ${backup.schemaVersion}` });
+            new ButtonComponent(row)
+                .setButtonText(t("RESTORE_COLLECTION_BACKUP"))
+                .setDisabled(this.safetyBusy)
+                .onClick(() => this.confirmRestoreBackup(backup.path));
+        }
+    }
+
+    private renderIntegrityResult(report: CollectionIntegrityReport): void {
+        const result = this.safetyEl.createDiv("sr-collection-health");
+        const errors = report.issues.filter((issue) => issue.severity === "error").length;
+        const warnings = report.issues.length - errors;
+        result.toggleClass("is-healthy", report.issues.length === 0);
+        const heading = result.createDiv("sr-collection-health-heading");
+        heading.createEl("strong", {
+            text:
+                report.issues.length === 0
+                    ? t("COLLECTION_HEALTHY")
+                    : t("COLLECTION_ISSUES_FOUND", { count: report.issues.length }),
+        });
+        heading.createSpan({
+            text: t("COLLECTION_COUNTS", {
+                notes: report.counts.notes,
+                cards: report.counts.cards,
+                reviews: report.counts.reviews,
+                media: report.counts.mediaReferences,
+            }),
+        });
+        if (report.issues.length === 0) return;
+
+        const badges = result.createDiv("sr-collection-health-badges");
+        badges.createSpan({ cls: "is-error", text: t("INTEGRITY_ERRORS", { count: errors }) });
+        badges.createSpan({
+            cls: "is-warning",
+            text: t("INTEGRITY_WARNINGS", { count: warnings }),
+        });
+        const issues = result.createDiv("sr-collection-issue-list");
+        for (const issue of report.issues.slice(0, 12)) this.renderIntegrityIssue(issues, issue);
+    }
+
+    private renderIntegrityIssue(parent: HTMLElement, issue: CollectionIntegrityIssue): void {
+        const row = parent.createDiv("sr-collection-issue-row");
+        const icon = row.createDiv("sr-collection-issue-icon");
+        setIcon(icon, issue.severity === "error" ? "circle-x" : "triangle-alert");
+        const copy = row.createDiv("sr-collection-issue-copy");
+        copy.createEl("strong", { text: this.integrityIssueLabel(issue.code) });
+        copy.createSpan({
+            text: [issue.entityId, issue.details].filter(Boolean).join(" · "),
+        });
+    }
+
+    private integrityIssueLabel(code: IntegrityIssueCode): string {
+        const labels: Record<IntegrityIssueCode, Parameters<typeof t>[0]> = {
+            "missing-note-type": "INTEGRITY_MISSING_NOTE_TYPE",
+            "missing-required-field": "INTEGRITY_MISSING_REQUIRED_FIELD",
+            "orphan-card": "INTEGRITY_ORPHAN_CARD",
+            "missing-template": "INTEGRITY_MISSING_TEMPLATE",
+            "missing-deck": "INTEGRITY_MISSING_DECK",
+            "missing-deck-options": "INTEGRITY_MISSING_DECK_OPTIONS",
+            "duplicate-stable-key": "INTEGRITY_DUPLICATE_STABLE_KEY",
+            "invalid-stable-key": "INTEGRITY_INVALID_STABLE_KEY",
+            "invalid-schedule": "INTEGRITY_INVALID_SCHEDULE",
+            "missing-source": "INTEGRITY_MISSING_SOURCE",
+            "missing-media": "INTEGRITY_MISSING_MEDIA",
+            "orphan-review": "INTEGRITY_ORPHAN_REVIEW",
+            "sync-conflict": "INTEGRITY_SYNC_CONFLICT",
+        };
+        return t(labels[code]);
+    }
+
+    private async runIntegrityCheck(): Promise<void> {
+        this.safetyBusy = true;
+        await this.renderCollectionSafety();
+        this.integrityReport = await this.dataManager.collectionStore.checkIntegrity();
+        this.safetyBusy = false;
+        await this.renderCollectionSafety();
+    }
+
+    private async createCollectionBackup(): Promise<void> {
+        this.safetyBusy = true;
+        await this.renderCollectionSafety();
+        try {
+            await this.dataManager.collectionStore.createBackup("manual");
+            new Notice(t("COLLECTION_BACKUP_CREATED"));
+        } catch {
+            new Notice(t("COLLECTION_BACKUP_FAILED"));
+        }
+        this.safetyBusy = false;
+        await this.renderCollectionSafety();
+    }
+
+    private confirmRestoreBackup(path: string): void {
+        new ConfirmationModal(
+            this.plugin.app,
+            t("RESTORE_COLLECTION_BACKUP"),
+            t("RESTORE_COLLECTION_BACKUP_CONFIRM"),
+            t("COLLECTION_BACKUP_RESTORED"),
+            async () => {
+                this.safetyBusy = true;
+                await this.renderCollectionSafety();
+                try {
+                    await this.dataManager.collectionStore.restoreBackup(path);
+                    await this.dataManager.sync();
+                    this.integrityReport = await this.dataManager.collectionStore.checkIntegrity();
+                } catch {
+                    new Notice(t("COLLECTION_RESTORE_FAILED"));
+                }
+                this.safetyBusy = false;
+                await this.renderCollectionSafety();
+            },
+        ).open();
     }
 }

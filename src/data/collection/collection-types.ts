@@ -1,6 +1,6 @@
 import { ISerializedScheduleEntry } from "src/data/plugin-data";
 
-export const COLLECTION_SCHEMA_VERSION = 4;
+export const COLLECTION_SCHEMA_VERSION = 5;
 export const REVIEW_LOG_SCHEMA_VERSION = 1;
 
 export type NoteTypeKind = "standard" | "cloze" | "image-occlusion";
@@ -19,6 +19,8 @@ export interface NoteFieldDefinition {
 
 export interface CardTemplateDefinition {
     id: string;
+    /** Incremented whenever generation or presentation rules change. */
+    version: number;
     name: string;
     ordinal: number;
     questionFormat: string;
@@ -29,6 +31,8 @@ export interface CardTemplateDefinition {
 
 export interface NoteTypeDefinition {
     id: string;
+    /** Incremented whenever fields, templates, kind, or styling change. */
+    version: number;
     name: string;
     kind: NoteTypeKind;
     fields: NoteFieldDefinition[];
@@ -84,6 +88,10 @@ export interface CollectionCard {
     id: string;
     noteId: string;
     templateId: string;
+    /** Stable template-specific variant, e.g. base, cloze-2, or an occlusion mask id. */
+    variantId: string;
+    /** Deterministic identity that survives template reordering and content edits. */
+    stableKey: string;
     ordinal: number;
     deckId: string;
     deckPath: string;
@@ -103,6 +111,20 @@ export interface CollectionCard {
     deletedAt?: number;
 }
 
+export type CollectionEntityKind = "noteType" | "deckOptions" | "deck" | "note" | "card";
+
+/** Preserves both sides of a same-revision sync collision instead of silently dropping one. */
+export interface CollectionConflict {
+    id: string;
+    entityKind: CollectionEntityKind;
+    entityId: string;
+    detectedAt: number;
+    winner: "left" | "right";
+    winningValue: unknown;
+    losingValue: unknown;
+    resolvedAt?: number;
+}
+
 export interface CollectionData {
     schemaVersion: number;
     revision: number;
@@ -112,6 +134,67 @@ export interface CollectionData {
     decks: Record<string, CollectionDeck>;
     notes: Record<string, CollectionNote>;
     cards: Record<string, CollectionCard>;
+    conflicts: Record<string, CollectionConflict>;
+}
+
+export type IntegritySeverity = "error" | "warning";
+
+export type IntegrityIssueCode =
+    | "missing-note-type"
+    | "missing-required-field"
+    | "orphan-card"
+    | "missing-template"
+    | "missing-deck"
+    | "missing-deck-options"
+    | "duplicate-stable-key"
+    | "invalid-stable-key"
+    | "invalid-schedule"
+    | "missing-source"
+    | "missing-media"
+    | "orphan-review"
+    | "sync-conflict";
+
+export interface CollectionIntegrityIssue {
+    code: IntegrityIssueCode;
+    severity: IntegritySeverity;
+    entityId: string;
+    details?: string;
+}
+
+export interface CollectionIntegrityReport {
+    checkedAt: number;
+    counts: {
+        noteTypes: number;
+        notes: number;
+        cards: number;
+        reviews: number;
+        mediaReferences: number;
+    };
+    issues: CollectionIntegrityIssue[];
+}
+
+export interface CollectionBackupDescriptor {
+    path: string;
+    createdAt: number;
+    reason: string;
+    schemaVersion: number;
+}
+
+export interface CollectionBackupData extends CollectionBackupDescriptor {
+    formatVersion: 1;
+    /** Raw snapshot; restore always runs it through the current sequential migrator. */
+    collection: unknown;
+    reviewLog: unknown;
+}
+
+export interface NoteTypeChangePreview {
+    affectedNotes: number;
+    currentCards: number;
+    resultingCards: number;
+    preservedCards: number;
+    createdCards: number;
+    retiredCards: number;
+    changedTemplates: number;
 }
 
 export type ReviewRating = 1 | 2 | 3 | 4;

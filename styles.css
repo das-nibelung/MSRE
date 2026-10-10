@@ -2162,6 +2162,167 @@ body:not(.is-mobile) #sr-modal-view {
   padding-bottom: var(--safe-area-inset-bottom) !important;
 }
 
+/* src/ui/obsidian-ui-components/content-container/settings-page/data-page.css */
+.sr-collection-safety {
+  margin: 0 0 24px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--background-secondary);
+}
+.sr-collection-safety-hero {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 18px;
+}
+.sr-collection-safety-icon,
+.sr-collection-backup-icon,
+.sr-collection-issue-icon {
+  display: grid;
+  place-items: center;
+  color: var(--interactive-accent);
+}
+.sr-collection-safety-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+}
+.sr-collection-safety-copy h2,
+.sr-collection-recovery h3 {
+  margin: 0;
+  font-size: var(--font-ui-medium);
+}
+.sr-collection-safety-copy p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.sr-collection-safety-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.sr-collection-health {
+  margin: 0 12px 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: color-mix(
+    in srgb,
+    var(--color-orange) 10%,
+    var(--background-primary)
+  );
+}
+.sr-collection-health.is-healthy {
+  background: color-mix(
+    in srgb,
+    var(--color-green) 11%,
+    var(--background-primary)
+  );
+}
+.sr-collection-health-heading,
+.sr-collection-backup-copy,
+.sr-collection-issue-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+.sr-collection-health-heading span,
+.sr-collection-backup-copy span,
+.sr-collection-issue-copy span {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  overflow-wrap: anywhere;
+}
+.sr-collection-health-badges {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.sr-collection-health-badges span {
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+}
+.sr-collection-health-badges .is-error {
+  color: var(--text-error);
+  background: color-mix(in srgb, var(--text-error) 12%, transparent);
+}
+.sr-collection-health-badges .is-warning {
+  color: var(--color-orange);
+  background: color-mix(in srgb, var(--color-orange) 12%, transparent);
+}
+.sr-collection-issue-list {
+  margin-top: 10px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.sr-collection-issue-row,
+.sr-collection-backup-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 52px;
+}
+.sr-collection-issue-row + .sr-collection-issue-row,
+.sr-collection-backup-row + .sr-collection-backup-row {
+  border-top: 1px solid var(--background-modifier-border);
+}
+.sr-collection-issue-icon {
+  color: var(--text-warning);
+}
+.sr-collection-recovery {
+  padding: 16px 18px 18px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.sr-collection-recovery-header {
+  margin-bottom: 8px;
+}
+.sr-collection-empty {
+  padding: 14px 0 2px;
+  color: var(--text-muted);
+}
+.sr-collection-backup-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  color: var(--text-muted);
+  background: var(--background-modifier-hover);
+}
+@media (max-width: 520px) {
+  .sr-collection-safety {
+    margin-inline: 0;
+    border-radius: 16px;
+  }
+  .sr-collection-safety-hero {
+    grid-template-columns: 38px minmax(0, 1fr);
+    padding: 15px;
+  }
+  .sr-collection-safety-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+  }
+  .sr-collection-safety-actions {
+    grid-column: 1 / -1;
+  }
+  .sr-collection-safety-actions button:last-child {
+    flex: 1;
+  }
+  .sr-collection-backup-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+    padding: 7px 0;
+  }
+  .sr-collection-backup-row > button {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
 /* src/ui/obsidian-ui-components/content-container/settings-page/settings-page.css */
 .sr-settings-tab {
   --sr-settings-content-width: 760px;

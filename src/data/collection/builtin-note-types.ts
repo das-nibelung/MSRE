@@ -33,6 +33,7 @@ function template(
 ): CardTemplateDefinition {
     return {
         id,
+        version: 1,
         name,
         ordinal,
         questionFormat,
@@ -46,6 +47,7 @@ export function getBuiltinNoteTypes(): NoteTypeDefinition[] {
     return [
         {
             id: BASIC_NOTE_TYPE_ID,
+            version: 1,
             name: "Basic",
             kind: "standard",
             fields: [field(FRONT_FIELD_ID, "Front", 0), field(BACK_FIELD_ID, "Back", 1)],
@@ -64,6 +66,7 @@ export function getBuiltinNoteTypes(): NoteTypeDefinition[] {
         },
         {
             id: REVERSED_NOTE_TYPE_ID,
+            version: 1,
             name: "Basic (and reversed card)",
             kind: "standard",
             fields: [field(FRONT_FIELD_ID, "Front", 0), field(BACK_FIELD_ID, "Back", 1)],
@@ -89,6 +92,7 @@ export function getBuiltinNoteTypes(): NoteTypeDefinition[] {
         },
         {
             id: CLOZE_NOTE_TYPE_ID,
+            version: 1,
             name: "Cloze",
             kind: "cloze",
             fields: [field(TEXT_FIELD_ID, "Text", 0), field(EXTRA_FIELD_ID, "Extra", 1)],
@@ -107,6 +111,7 @@ export function getBuiltinNoteTypes(): NoteTypeDefinition[] {
         },
         {
             id: IMAGE_OCCLUSION_NOTE_TYPE_ID,
+            version: 1,
             name: "Image Occlusion",
             kind: "image-occlusion",
             fields: [
