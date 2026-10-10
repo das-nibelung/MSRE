@@ -4,6 +4,7 @@
     padding: 0;
     max-width: 100%;
     max-height: 100%;
+    background: var(--background-primary);
 }
 
 #sr-modal-view .sr-modal-content {
@@ -11,9 +12,17 @@
     padding: 0;
 }
 
-#sr-modal-view .modal-close-button,
+.sr-modal-host .modal-close-button,
+.sr-native-modal-close-button,
 #sr-modal-view .modal-header {
-    display: none;
+    display: none !important;
+}
+
+/* iOS can render this affordance outside the plugin modal and mount it late. */
+body.sr-review-modal-open .modal-close-button:not(.sr-modal-close-button),
+body.sr-review-modal-open [aria-label="Close"]:not(.sr-modal-close-button),
+body.sr-review-modal-open [aria-label="Закрыть"]:not(.sr-modal-close-button) {
+    display: none !important;
 }
 
 body:not(.is-mobile) #sr-modal-view {

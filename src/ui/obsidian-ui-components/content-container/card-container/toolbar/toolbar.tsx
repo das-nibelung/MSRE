@@ -1,7 +1,7 @@
 import "src/ui/obsidian-ui-components/content-container/card-container/toolbar/toolbar.css";
-import { Platform } from "obsidian";
 
 import { Deck } from "src/data/data-structures/deck/deck";
+import { t } from "src/lang/helpers";
 import { DeckStats } from "src/scheduling/flashcard-review-sequencer";
 import DeckInfoComponent from "src/ui/obsidian-ui-components/content-container/card-container/toolbar/deck-info/deck-info";
 import BackButtonComponent from "src/ui/obsidian-ui-components/content-container/card-container/toolbar/toolbar-buttons/back-button";
@@ -9,13 +9,13 @@ import CardMenuButtonComponent from "src/ui/obsidian-ui-components/content-conta
 import EditButtonComponent from "src/ui/obsidian-ui-components/content-container/card-container/toolbar/toolbar-buttons/edit-button";
 import ResetButtonComponent from "src/ui/obsidian-ui-components/content-container/card-container/toolbar/toolbar-buttons/reset-button";
 import SkipButtonComponent from "src/ui/obsidian-ui-components/content-container/card-container/toolbar/toolbar-buttons/skip-button";
-import ModalCloseButtonComponent from "src/ui/obsidian-ui-components/content-container/modal-close-button";
-import EmulatedPlatform from "src/utils/platform-detector";
+import SRButtonComponent from "src/ui/sr-button";
 
 export default class CardToolbarComponent {
     private toolbar: HTMLDivElement;
     private infoSection: DeckInfoComponent;
     private resetButton: ResetButtonComponent;
+    private undoButton: SRButtonComponent;
     private extendedMenuButton: CardMenuButtonComponent;
     private shortMenuButton: CardMenuButtonComponent;
 
@@ -27,7 +27,9 @@ export default class CardToolbarComponent {
         editClickHandler: () => void,
         jumpToCurrentCard: () => Promise<void>,
         displayCurrentCardInfoNotice: () => void,
+        buryCurrentCard: () => Promise<void>,
         skipCurrentCard: () => void,
+        undoLastReview: () => Promise<void>,
         onOpenResetModalClick: () => void,
         closeModal?: () => void,
     ) {
@@ -35,12 +37,21 @@ export default class CardToolbarComponent {
         this.toolbar = parentEl.createDiv();
         this.toolbar.addClass("sr-card-toolbar");
         const isModal = closeModal !== undefined;
+        const iconButtonClasses = ["clickable-icon", "sr-toolbar-icon-button"];
 
-        new BackButtonComponent(this.toolbar, async () => await backToDeckHandler(), [
-            (EmulatedPlatform().isPhone || Platform.isPhone) && isModal
-                ? "mod-raised"
-                : "clickable-icon",
-        ]);
+        new BackButtonComponent(
+            this.toolbar,
+            async () => await backToDeckHandler(),
+            iconButtonClasses,
+        );
+
+        this.undoButton = new SRButtonComponent(this.toolbar, {
+            classNames: [...iconButtonClasses, "sr-undo-button", "sr-is-hidden"],
+            icon: "undo-2",
+            tooltip: t("UNDO_LAST_REVIEW"),
+            onClick: () => undoLastReview(),
+        });
+        this.undoButton.setDisabled(true);
 
         const centerSpacer = this.toolbar.createDiv();
         centerSpacer.addClass("sr-flex-spacer");
@@ -50,24 +61,26 @@ export default class CardToolbarComponent {
 
         this.toolbar.createDiv().addClass("sr-flex-spacer");
 
-        new EditButtonComponent(
-            this.toolbar,
-            editClickHandler,
-            EmulatedPlatform().isPhone || Platform.isPhone ? ["mod-raised"] : ["clickable-icon"],
-        );
+        new SRButtonComponent(this.toolbar, {
+            classNames: [...iconButtonClasses, "sr-source-button"],
+            icon: "file-output",
+            tooltip: t("OPEN_SOURCE_NOTE"),
+            onClick: async () => {
+                await jumpToCurrentCard();
+                closeModal?.();
+            },
+        });
+
+        new EditButtonComponent(this.toolbar, editClickHandler, iconButtonClasses);
 
         this.resetButton = new ResetButtonComponent(
             this.toolbar,
             onOpenResetModalClick,
-            EmulatedPlatform().isPhone || Platform.isPhone ? ["mod-raised"] : ["clickable-icon"],
+            iconButtonClasses,
         );
         this.resetButton.setDisabled(true);
 
-        new SkipButtonComponent(
-            this.toolbar,
-            () => skipCurrentCard(),
-            EmulatedPlatform().isPhone || Platform.isPhone ? ["mod-raised"] : ["clickable-icon"],
-        );
+        new SkipButtonComponent(this.toolbar, () => skipCurrentCard(), iconButtonClasses);
 
         this.toolbar.createDiv("sr-divider");
 
@@ -81,12 +94,11 @@ export default class CardToolbarComponent {
             editClickHandler,
             jumpToCurrentCard,
             displayCurrentCardInfoNotice,
+            buryCurrentCard,
             skipCurrentCard,
             onOpenResetModalClick,
             closeModal,
-            EmulatedPlatform().isPhone || Platform.isPhone
-                ? ["mod-raised", "sr-short-menu-button"]
-                : ["clickable-icon", "sr-short-menu-button"],
+            [...iconButtonClasses, "sr-short-menu-button"],
         );
 
         this.extendedMenuButton = new CardMenuButtonComponent(
@@ -99,22 +111,15 @@ export default class CardToolbarComponent {
             editClickHandler,
             jumpToCurrentCard,
             displayCurrentCardInfoNotice,
+            buryCurrentCard,
             skipCurrentCard,
             onOpenResetModalClick,
             closeModal,
-            EmulatedPlatform().isPhone || Platform.isPhone
-                ? ["mod-raised", "sr-extended-menu-button"]
-                : ["clickable-icon", "sr-extended-menu-button"],
+            [...iconButtonClasses, "sr-extended-menu-button"],
         );
 
-        // If we don't have a close modal, we don't need the close button
-        if (closeModal === undefined) return;
-
-        const closeButtonClasses = [
-            EmulatedPlatform().isPhone || Platform.isPhone ? "mod-raised" : "clickable-icon",
-        ];
-
-        new ModalCloseButtonComponent(this.toolbar, closeModal, closeButtonClasses);
+        // The back button is the predictable exit from study mode. A second close icon made
+        // the mobile header crowded and duplicated Obsidian's own navigation affordances.
     }
 
     /**
@@ -159,5 +164,10 @@ export default class CardToolbarComponent {
         this.resetButton.buttonEl.toggleClass("mod-disabled", disabled);
         this.extendedMenuButton.setResetButtonDisabled(disabled);
         this.shortMenuButton.setResetButtonDisabled(disabled);
+    }
+
+    public setUndoAvailable(available: boolean): void {
+        this.undoButton.setDisabled(!available);
+        this.undoButton.buttonEl.toggleClass("sr-is-hidden", !available);
     }
 }

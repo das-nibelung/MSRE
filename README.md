@@ -17,6 +17,44 @@ Install the fork separately on desktop and iPhone. Disable the official
 `Spaced Repetition` plugin before enabling this fork so that both plugins do not
 write scheduling information to the same notes.
 
+## Obsidian-native card workflow
+
+The fork includes a persistent **Cards** view that uses the already-loaded
+incremental index instead of rescanning the vault. It supports instant search
+across questions, answers, decks, and note paths; filters for new, due, and
+scheduled cards; and opens every result at its original note block.
+
+Use **Personal Spaced Repetition: Create flashcard** from the command palette to
+turn selected text into a basic card. The plugin adds the configured flashcard
+tag when necessary. A new vault can also create its first starter card directly
+from the empty deck screen. These workflows work offline on desktop and mobile.
+
+The editor context menu can also create basic, two-way, and cloze cards from a
+selection. The file menu opens the browser already filtered to the current note.
+Inside the browser, cards can be narrowed by scheduling state and deck, then
+sorted by due status, question, or source note without rescanning Markdown.
+Each browser row can be edited in place or opened in its source note. A native
+overflow menu keeps secondary actions out of the main interface: bury until
+tomorrow, confirmed progress reset, and confirmed source deletion. Scheduled
+cards show their due date, interval, and ease. Edits still write back to the
+original Markdown question, preserving Obsidian as the source of truth.
+
+The browser supports persistent multi-selection across filters, selecting all
+current search results, resetting the selected schedules in one confirmed
+operation, and burying a selection until tomorrow. The review-session overflow
+menu exposes the same bury action. When the browser is scoped to a note, its
+review button starts that note's queue directly instead of returning to the
+global deck picker.
+
+The mobile study flow uses a touch-first deck dashboard, compact card library,
+four adaptive rating controls, swipe shortcuts, one-step source-note access,
+single-level review undo, and an end-of-session summary. Keyboard review follows
+the familiar `1` Again, `2` Hard, `3` Good, `4` Easy layout, with `Ctrl/Cmd+Z`
+for undo. Visible controls remain available for every gesture action.
+Mobile review opens as a native Obsidian workspace view to keep controls clear
+of the iOS status bar. The study canvas uses a centered layered card, adaptive
+reading typography, and a compact response dock.
+
 ## Incremental card index
 
 This fork keeps a disposable, device-local card index in IndexedDB. Unchanged

@@ -1,8 +1,10 @@
 import { PaneType, WorkspaceLeaf } from "obsidian";
 
-import { SR_TAB_VIEW } from "src/data/constants";
+import { CARD_BROWSER_VIEW_TYPE, CARD_CREATOR_VIEW_TYPE, SR_TAB_VIEW } from "src/data/constants";
 import { SettingsManager } from "src/data/settings-manager";
 import SRPlugin from "src/main";
+import { CardBrowserView } from "src/ui/card-browser/card-browser-view";
+import { NativeCreatorRequest, NativeCreatorView } from "src/ui/native-creator/native-creator-view";
 import { SRTabView } from "src/ui/obsidian-ui-components/item-views/sr-tab-view";
 import { ReviewQueueLoader } from "src/ui/review-queue-loader";
 import { TabViewType } from "src/utils/types";
@@ -22,6 +24,7 @@ export default class TabViewManager {
     private plugin: SRPlugin;
     private settingsManager: SettingsManager;
     private reviewQueueLoader: ReviewQueueLoader | null = null;
+    private creatorRequest: NativeCreatorRequest = { mode: "card" };
 
     // Add any new other tab view types to this, then they'll be automatically registered
     private tabViewTypes: TabViewType[] = [
@@ -34,6 +37,18 @@ export default class TabViewManager {
                     this.settingsManager.settings,
                     this.reviewQueueLoader,
                 );
+            },
+        },
+        {
+            type: CARD_BROWSER_VIEW_TYPE,
+            viewCreator: (leaf) => new CardBrowserView(leaf, this.plugin),
+        },
+        {
+            type: CARD_CREATOR_VIEW_TYPE,
+            viewCreator: (leaf) => {
+                const view = new NativeCreatorView(leaf, this.plugin);
+                view.configure(this.creatorRequest);
+                return view;
             },
         },
     ];
@@ -59,8 +74,27 @@ export default class TabViewManager {
      */
     public async openSRTabView(reviewQueueLoader: ReviewQueueLoader) {
         this.reviewQueueLoader = reviewQueueLoader;
+        const leaf = await this.openTabView(SR_TAB_VIEW, true);
+        if (leaf?.view instanceof SRTabView) {
+            await leaf.view.setReviewQueueLoader(reviewQueueLoader);
+        }
+    }
 
-        await this.openTabView(SR_TAB_VIEW, true);
+    public async openCardBrowser(notePath: string | null = null): Promise<void> {
+        const leaf = await this.openTabView(CARD_BROWSER_VIEW_TYPE, true);
+        if (leaf?.view instanceof CardBrowserView) leaf.view.setNoteScope(notePath);
+    }
+
+    public refreshCardBrowser(): void {
+        for (const leaf of this.plugin.app.workspace.getLeavesOfType(CARD_BROWSER_VIEW_TYPE)) {
+            if (leaf.view instanceof CardBrowserView) leaf.view.refresh();
+        }
+    }
+
+    public async openNativeCreator(request: NativeCreatorRequest): Promise<void> {
+        this.creatorRequest = request;
+        const leaf = await this.openTabView(CARD_CREATOR_VIEW_TYPE, true);
+        if (leaf?.view instanceof NativeCreatorView) leaf.view.configure(request);
     }
 
     /**
@@ -70,11 +104,11 @@ export default class TabViewManager {
      * their corresponding leaves from the workspace, effectively closing them.
      */
     public closeAllTabViews() {
-        this.forEachTabViewType((viewType) => {
+        for (const { type } of this.tabViewTypes) {
             this.plugin.app.workspace
-                .getLeavesOfType(viewType.type)
+                .getLeavesOfType(type)
                 .forEach((leaf: WorkspaceLeaf) => leaf.detach());
-        });
+        }
     }
 
     public forEachTabViewType(callback: (type: TabViewType) => void) {
@@ -87,7 +121,10 @@ export default class TabViewManager {
         );
     }
 
-    public async openTabView(type: string, newLeaf?: PaneType | boolean) {
+    public async openTabView(
+        type: string,
+        newLeaf?: PaneType | boolean,
+    ): Promise<WorkspaceLeaf | null> {
         const { workspace } = this.plugin.app;
 
         let leaf: WorkspaceLeaf | null;
@@ -108,5 +145,6 @@ export default class TabViewManager {
         if (leaf !== null && leaf !== undefined) {
             await workspace.revealLeaf(leaf);
         }
+        return leaf ?? null;
     }
 }

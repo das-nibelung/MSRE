@@ -2,15 +2,17 @@ import { now } from "moment";
 import { App, MarkdownView, Notice, Platform } from "obsidian";
 
 import { DataManager } from "src/data/data-manager";
+import { DataStore } from "src/data/data-store/base/data-store";
 import { Card } from "src/data/data-structures/card/card";
 import { Question } from "src/data/data-structures/card/questions/question";
 import { Deck } from "src/data/data-structures/deck/deck";
+import { TopicPath } from "src/data/data-structures/deck/topic-path";
 import { SRSettings } from "src/data/settings";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { Note } from "src/note/note";
 import { RepItemScheduleInfo } from "src/scheduling/algorithms/base/rep-item-schedule-info";
-import { ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
+import { RepItemState, ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
 import {
     DeckStats,
     FlashcardReviewMode,
@@ -64,6 +66,23 @@ export interface SessionData {
     currentNote: Note;
 }
 
+export interface SessionSummary {
+    reviewed: number;
+    again: number;
+    hard: number;
+    good: number;
+    easy: number;
+    durationMs: number;
+}
+
+interface ReviewUndoSnapshot {
+    card: Card;
+    previousSchedule: RepItemScheduleInfo | null;
+    chosenDeckPath: TopicPath;
+    response: ReviewResponse;
+    reviewLogId: string | null;
+}
+
 // TODO: Refactor/integrate this code with the backend
 
 /**
@@ -85,6 +104,10 @@ export default class ContentManager {
 
     private reviewQueueLoader: ReviewQueueLoader;
     private sessionData: SessionData | null = null;
+    private sessionSummary: SessionSummary | null = null;
+    private sessionStartedAt = 0;
+    private lastReviewSnapshot: ReviewUndoSnapshot | null = null;
+    private isUndoingReview = false;
 
     private lastPressedOnProcessReview: number = 0;
     private pendingResumeTimeout: number | null = null;
@@ -106,10 +129,23 @@ export default class ContentManager {
         this.uiManager = this.plugin.uiManager;
         this.dataManager = this.plugin.dataManager;
 
+        const openCardBrowser = async () => {
+            // A workspace view is otherwise opened behind the review modal on mobile.
+            // Close the modal first so the newly opened card browser is actually visible.
+            closeModal?.();
+            await this.uiManager.openCardBrowser();
+        };
+
         this.deckContainer = new DeckContainer(
             parentEl,
+            this.plugin,
             this._changeReviewMode.bind(this),
             this._startReviewOfDeck.bind(this),
+            openCardBrowser,
+            this.uiManager.openNativeCardCreator.bind(this.uiManager),
+            this.uiManager.openNativeDeckCreator.bind(this.uiManager),
+            (deckPath: string) => void this.uiManager.openNativeDeckOptions(deckPath),
+            this.uiManager.openNativeKnowledgeAreaCreator.bind(this.uiManager),
             closeModal,
         );
 
@@ -126,6 +162,8 @@ export default class ContentManager {
             this._showAnswer.bind(this),
             this._jumpToCurrentCard.bind(this),
             this._displayCurrentCardInfoNotice.bind(this),
+            () => this._buryCurrentCard(),
+            () => this._undoLastReview(),
             closeModal,
         );
     }
@@ -194,6 +232,17 @@ export default class ContentManager {
 
     private async _reviewDeck(deck: Deck): Promise<void> {
         this.deckContainer.closeList();
+        this.sessionStartedAt = Date.now();
+        this.sessionSummary = {
+            reviewed: 0,
+            again: 0,
+            hard: 0,
+            good: 0,
+            easy: 0,
+            durationMs: 0,
+        };
+        this.lastReviewSnapshot = null;
+        this.cardContainer.setUndoAvailable(false);
         this.sessionData = this._getNewSessionData(deck);
         if (this.sessionData === null) return;
         this.uiManager.setUIState(UIState.CardFront);
@@ -213,7 +262,13 @@ export default class ContentManager {
             // } else {
             //     await this._showDecksList(true);
             // }
-            await this._showDecksList(true);
+            if (this.sessionSummary !== null && this.sessionSummary.reviewed > 0) {
+                this.sessionSummary.durationMs = Date.now() - this.sessionStartedAt;
+                this.uiManager.setUIState(UIState.CardFront);
+                this.cardContainer.drawCompletionState(this.sessionSummary);
+            } else {
+                await this._showDecksList(true);
+            }
             return;
         }
 
@@ -342,7 +397,15 @@ export default class ContentManager {
             t("CANCEL"),
             async () => {
                 if (this.sessionData === null || this.reviewSequencer === null) return;
+                const currentCard = this.sessionData.cardData.currentCard;
+                const sourcePath =
+                    currentCard?.storageInfo?.notePath ?? this.sessionData.currentNote.filePath;
+                const questionId =
+                    currentCard?.storageInfo?.questionId ??
+                    this.sessionData.currentQuestion.questionText.obsidianBlockId ??
+                    null;
                 await this.reviewSequencer.deleteCurrentCardFromNote();
+                await this.dataManager.collectionStore.deleteNoteBySource(sourcePath, questionId);
                 await this._showNextCard();
             },
         ).open();
@@ -418,10 +481,8 @@ export default class ContentManager {
         if (!currentQuestion) return;
 
         if (
-            (!this.settings.openViewInNewTab &&
-                !(Platform.isMobile || EmulatedPlatform().isMobile)) ||
-            (!this.settings.openViewInNewTabMobile &&
-                (Platform.isMobile || EmulatedPlatform().isMobile))
+            !this.settings.openViewInNewTab &&
+            !(Platform.isMobile || EmulatedPlatform().isMobile)
         ) {
             new Notice("Note was opened in new tab in the background");
         }
@@ -468,6 +529,13 @@ export default class ContentManager {
         await this._showNextCard();
     }
 
+    public async _buryCurrentCard() {
+        if (this.reviewSequencer === null) return;
+        await this.reviewSequencer.buryCurrentQuestion();
+        new Notice(t("CARD_BURIED_UNTIL_TOMORROW"));
+        await this._showNextCard();
+    }
+
     private _displayCurrentCardInfoNotice() {
         if (this.sessionData === null) return;
         new CardInfoNotice(
@@ -477,7 +545,7 @@ export default class ContentManager {
     }
 
     public async _processReview(response: ReviewResponse): Promise<void> {
-        if (this.reviewSequencer === null) return;
+        if (this.reviewSequencer === null || this.sessionData === null) return;
         const timeNow = now();
         if (
             timeNow - this.lastPressedOnProcessReview <
@@ -487,8 +555,142 @@ export default class ContentManager {
         }
         this.lastPressedOnProcessReview = timeNow;
 
+        const currentCard = this.reviewSequencer.currentCard;
+        const snapshot: ReviewUndoSnapshot | null =
+            response === ReviewResponse.Reset || currentCard === null
+                ? null
+                : {
+                      card: currentCard,
+                      previousSchedule: currentCard.scheduleInfo,
+                      chosenDeckPath: this.sessionData.deckData.chosenDeck.getTopicPath().clone(),
+                      response,
+                      reviewLogId: null,
+                  };
+
+        const previousSchedule = currentCard?.scheduleInfo?.serializeSchedule() ?? null;
+
         await this.reviewSequencer.processReview(response);
+        if (snapshot !== null) {
+            try {
+                snapshot.reviewLogId = await this.dataManager.collectionStore.recordReview({
+                    sourcePath:
+                        currentCard?.storageInfo?.notePath ?? this.sessionData.currentNote.filePath,
+                    questionId:
+                        currentCard?.storageInfo?.questionId ??
+                        this.sessionData.currentQuestion.questionText.obsidianBlockId ??
+                        null,
+                    ordinal: currentCard?.cardIdx ?? 0,
+                    deckPath: snapshot.chosenDeckPath.path.join("/"),
+                    front: currentCard?.front ?? "",
+                    back: currentCard?.back ?? "",
+                    rating: this.reviewResponseToRating(response),
+                    mode: this.reviewMode === FlashcardReviewMode.Cram ? "cram" : "review",
+                    previousSchedule,
+                    nextSchedule: currentCard?.scheduleInfo?.serializeSchedule() ?? null,
+                });
+            } catch (error) {
+                console.warn("MSRE: Unable to record review history", error);
+            }
+            this.lastReviewSnapshot = snapshot;
+            this.recordResponse(response, 1);
+            this.cardContainer.setUndoAvailable(true);
+        }
         await this._showNextCard();
+    }
+
+    private async _undoLastReview(): Promise<void> {
+        const snapshot = this.lastReviewSnapshot;
+        if (snapshot === null || this.isUndoingReview) return;
+        this.isUndoingReview = true;
+        this.cardContainer.setUndoAvailable(false);
+
+        try {
+            const previousTotalCards = this.sessionData?.totalCardsInSession;
+            const previousTotalDecks = this.sessionData?.totalDecksInSession;
+            snapshot.card.scheduleInfo = snapshot.previousSchedule;
+            await DataStore.getInstance().writeSchedule(snapshot.card.question);
+
+            this.reviewSequencer = await this.reviewQueueLoader.loadReviewQueue();
+            const stableId = snapshot.card.stableId;
+            const restoredCard = (
+                this.reviewSequencer.originalDeckTree.getFlattenedRepItemArray(
+                    RepItemState.AnyItem,
+                    true,
+                ) as Card[]
+            ).find((card) => card.stableId === stableId);
+            const restoredCardSelected =
+                restoredCard !== undefined &&
+                this.reviewSequencer.selectCard(restoredCard, snapshot.chosenDeckPath);
+            if (!restoredCardSelected) {
+                this.reviewSequencer.setCurrentDeck(snapshot.chosenDeckPath);
+            }
+            const chosenDeck = this.reviewSequencer.originalDeckTree.getDeck(
+                snapshot.chosenDeckPath,
+            );
+            this.sessionData = this._getNewSessionData(chosenDeck);
+            if (this.sessionData === null || !this.reviewSequencer.hasCurrentCard) {
+                throw new Error("Restored card is not available in the review queue");
+            }
+
+            if (previousTotalCards !== undefined) {
+                this.sessionData.totalCardsInSession = previousTotalCards;
+            }
+            if (previousTotalDecks !== undefined) {
+                this.sessionData.totalDecksInSession = previousTotalDecks;
+            }
+
+            this.recordResponse(snapshot.response, -1);
+            if (snapshot.reviewLogId) {
+                await this.dataManager.collectionStore.removeReview(snapshot.reviewLogId);
+            }
+            this.lastReviewSnapshot = null;
+            this.uiManager.setUIState(UIState.CardFront);
+            this.sessionData.cardData.currentCardState = CardState.Front;
+            await this.cardContainer.drawCardFront(this.sessionData, this.settings);
+            new Notice(t("REVIEW_UNDONE"));
+        } catch (error) {
+            console.warn("SR: Unable to undo the last review", error);
+            this.cardContainer.setUndoAvailable(true);
+            new Notice(t("UNDO_REVIEW_FAILED"));
+        } finally {
+            this.isUndoingReview = false;
+        }
+    }
+
+    private recordResponse(response: ReviewResponse, delta: 1 | -1): void {
+        if (this.sessionSummary === null) return;
+        this.sessionSummary.reviewed = Math.max(0, this.sessionSummary.reviewed + delta);
+        switch (response) {
+            case ReviewResponse.Again:
+                this.sessionSummary.again = Math.max(0, this.sessionSummary.again + delta);
+                break;
+            case ReviewResponse.Hard:
+                this.sessionSummary.hard = Math.max(0, this.sessionSummary.hard + delta);
+                break;
+            case ReviewResponse.Good:
+                this.sessionSummary.good = Math.max(0, this.sessionSummary.good + delta);
+                break;
+            case ReviewResponse.Easy:
+                this.sessionSummary.easy = Math.max(0, this.sessionSummary.easy + delta);
+                break;
+            case ReviewResponse.Reset:
+                break;
+        }
+    }
+
+    private reviewResponseToRating(response: ReviewResponse): 1 | 2 | 3 | 4 {
+        switch (response) {
+            case ReviewResponse.Again:
+                return 1;
+            case ReviewResponse.Hard:
+                return 2;
+            case ReviewResponse.Good:
+                return 3;
+            case ReviewResponse.Easy:
+                return 4;
+            case ReviewResponse.Reset:
+                return 1;
+        }
     }
 
     // MARK: Deck button handlers

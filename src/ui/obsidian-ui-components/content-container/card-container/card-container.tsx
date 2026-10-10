@@ -1,7 +1,11 @@
 import "src/ui/obsidian-ui-components/content-container/card-container/card-container.css";
 import moment from "moment";
-import { App, Platform } from "obsidian";
+import { App, ButtonComponent, Platform, setIcon } from "obsidian";
 
+import {
+    IMAGE_OCCLUSION_NOTE_TYPE_ID,
+    OCCLUSION_ASSETS_FIELD_ID,
+} from "src/data/collection/builtin-note-types";
 import { CardType } from "src/data/data-structures/card/questions/question";
 import { SRSettings } from "src/data/settings";
 import { t } from "src/lang/helpers";
@@ -15,6 +19,7 @@ import CardToolbarComponent from "src/ui/obsidian-ui-components/content-containe
 import {
     CardState,
     SessionData,
+    SessionSummary,
 } from "src/ui/obsidian-ui-components/content-container/content-manager";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
 import { escapeHtml } from "src/utils/escape-html";
@@ -38,14 +43,43 @@ export class CardContainer {
     private pendingResumeTimeout: number | null = null;
 
     private response: ResponseSectionComponent;
+    private activeReviewMode = FlashcardReviewMode.Review;
 
     private clozeInputs: NodeListOf<HTMLInputElement> | null = null;
     private clozeAnswers: NodeListOf<Element> | null = null;
+    private typedAnswer = "";
+    private typedAnswerExpected: string | null = null;
 
     private processReviewHandler: (response: ReviewResponse) => Promise<void>;
     private skipCardHandler: () => void;
-    private showAnswerHandler: () => void;
+    private showAnswerHandler: () => void | Promise<void>;
     private jumpToCardHandler: () => Promise<void>;
+    private backToDeckHandler: () => Promise<void>;
+    private undoLastReviewHandler: () => Promise<void>;
+    private gestureStart: {
+        pointerId: number;
+        x: number;
+        y: number;
+        lastX: number;
+        lastTime: number;
+        velocityX: number;
+        axis: "pending" | "horizontal" | "vertical";
+        card: HTMLElement;
+    } | null = null;
+    private suppressNextCardClick = false;
+    private workspaceTouchStart: {
+        identifier: number;
+        x: number;
+        y: number;
+        lastX: number;
+        lastY: number;
+        lastTime: number;
+        velocityX: number;
+        velocityY: number;
+        axis: "pending" | "horizontal" | "vertical" | "vertical-scroll";
+        card: HTMLElement;
+    } | null = null;
+    private workspaceGestureShieldEnabled = false;
 
     constructor(
         app: App,
@@ -57,9 +91,11 @@ export class CardContainer {
         editCardHandler: () => void,
         processReviewHandler: (response: ReviewResponse) => Promise<void>,
         skipCardHandler: () => void,
-        showAnswerHandler: () => void,
+        showAnswerHandler: () => void | Promise<void>,
         jumpToCurrentCardHandler: () => Promise<void>,
         displayCurrentCardInfoNoticeHandler: () => void,
+        buryCurrentCardHandler: () => Promise<void>,
+        undoLastReviewHandler: () => Promise<void>,
         closeModal?: () => void,
     ) {
         // Init properties
@@ -70,6 +106,8 @@ export class CardContainer {
         this.skipCardHandler = skipCardHandler;
         this.showAnswerHandler = showAnswerHandler;
         this.jumpToCardHandler = jumpToCurrentCardHandler;
+        this.backToDeckHandler = backToDeckHandler;
+        this.undoLastReviewHandler = undoLastReviewHandler;
 
         // Build ui
         this.view = parentEl.createDiv();
@@ -85,7 +123,9 @@ export class CardContainer {
             editCardHandler,
             jumpToCurrentCardHandler,
             displayCurrentCardInfoNoticeHandler,
+            buryCurrentCardHandler,
             this.skipCardHandler,
+            undoLastReviewHandler,
             () => {
                 new ConfirmationModal(
                     app,
@@ -105,7 +145,9 @@ export class CardContainer {
 
         this.content = this.scrollWrapper.createDiv();
         this.content.addClass("sr-content");
-
+        this.content.addEventListener("click", (event) => {
+            this.revealAnswerFromCard(event);
+        });
         this.response = new ResponseSectionComponent(
             this.view,
             settings,
@@ -127,6 +169,7 @@ export class CardContainer {
 
         await this.drawCardFront(sessionData, settings);
 
+        this.enableWorkspaceGestureShield();
         this.view.removeClass("sr-is-hidden");
         activeDocument.addEventListener("keydown", this._keydownHandler);
     }
@@ -145,6 +188,7 @@ export class CardContainer {
             this.pendingResumeTimeout = null;
         }
         this.cardState = CardState.Closed;
+        this.disableWorkspaceGestureShield();
         activeDocument.removeEventListener("keydown", this._keydownHandler);
         this.view.addClass("sr-is-hidden");
     }
@@ -163,14 +207,17 @@ export class CardContainer {
     }
 
     public async drawCardFront(sessionData: SessionData, settings: SRSettings) {
+        this.typedAnswer = "";
         this.toolbar.setResetButtonDisabled(true);
+        this.content.removeClass("sr-session-complete-screen");
+        this.content.removeAttribute("aria-live");
         // Update current deck info
         this.cardState = sessionData.cardData.currentCardState;
 
         this._updateInfoBar(sessionData, settings.flashcardCardOrder);
 
         // Update card content
-        await this.drawCardFrontContent(sessionData, settings);
+        await this.drawCardFrontContent(sessionData, settings, true);
 
         // Update response buttons
         this.response.resetResponseButtons();
@@ -188,9 +235,13 @@ export class CardContainer {
         }
     }
 
-    private drawCardContext(sessionData: SessionData, settings: SRSettings) {
+    private drawCardContext(
+        sessionData: SessionData,
+        settings: SRSettings,
+        parentEl: HTMLDivElement = this.content,
+    ) {
         if (settings.showContextInCards) {
-            this.contextSection = new ContextSectionComponent(this.content);
+            this.contextSection = new ContextSectionComponent(parentEl);
             this.contextSection.updateCardContext(
                 settings.showContextInCards,
                 sessionData.currentQuestion,
@@ -199,12 +250,22 @@ export class CardContainer {
         }
     }
 
-    private async drawCardFrontContent(sessionData: SessionData, settings: SRSettings) {
+    private async drawCardFrontContent(
+        sessionData: SessionData,
+        settings: SRSettings,
+        allowTapToReveal: boolean,
+    ) {
         // Update card content
         this.content.empty();
 
+        const cardSurface = this.content.createDiv("sr-study-card");
+
         // Create context section
-        this.drawCardContext(sessionData, settings);
+        this.drawCardContext(sessionData, settings, cardSurface);
+
+        const cardFace = cardSurface.createDiv({
+            cls: "sr-study-card-face sr-study-card-front",
+        });
 
         // Build card content
         const wrapper: RenderMarkdownWrapper = new RenderMarkdownWrapper(
@@ -215,18 +276,103 @@ export class CardContainer {
 
         await wrapper.renderMarkdownWrapper(
             sessionData.cardData.currentCard.front.trimStart(),
-            this.content,
+            cardFace,
             sessionData.currentQuestion.questionText.textDirection,
             // sessionData.cardData.currentCardState
         );
+
+        const typedAnswerExpected = this.getTypedAnswerExpected(sessionData);
+        const usesTypedAnswer = typedAnswerExpected !== undefined;
+        this.typedAnswerExpected = typedAnswerExpected ?? null;
+        if (
+            allowTapToReveal &&
+            usesTypedAnswer &&
+            cardFace.querySelector(".cloze-input") === null
+        ) {
+            const composer = cardSurface.createDiv("sr-typed-answer-composer");
+            const input = composer.createEl("input", {
+                cls: "sr-typed-answer-input",
+                attr: {
+                    type: "text",
+                    autocomplete: "off",
+                    autocapitalize: "sentences",
+                    placeholder: t("TYPE_YOUR_ANSWER"),
+                    "aria-label": t("TYPE_YOUR_ANSWER"),
+                },
+            });
+            input.value = this.typedAnswer;
+            input.addEventListener("input", () => (this.typedAnswer = input.value));
+            input.addEventListener("keydown", (event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                event.stopPropagation();
+                this.typedAnswer = input.value;
+                input.blur();
+                void this.showAnswerHandler();
+            });
+            const submit = composer.createEl("button", {
+                cls: "sr-typed-answer-submit",
+                attr: { type: "button", "aria-label": t("CHECK_ANSWER") },
+            });
+            setIcon(submit, "arrow-up");
+            submit.addEventListener("click", (event) => {
+                event.stopPropagation();
+                this.typedAnswer = input.value;
+                void this.showAnswerHandler();
+            });
+        }
+
+        const isMobile = Platform.isMobile || EmulatedPlatform().isMobile;
+        this.content.toggleClass("sr-can-reveal-answer", allowTapToReveal && isMobile);
+        if (allowTapToReveal && isMobile) {
+            const hint = cardSurface.createDiv("sr-tap-answer-hint");
+            const icon = hint.createSpan("sr-tap-answer-hint-icon");
+            setIcon(icon, "mouse-pointer-click");
+            hint.createSpan({ text: t("TAP_CARD_TO_SHOW_ANSWER") });
+            hint.setAttribute("aria-hidden", "true");
+        }
         // Set scroll position back to top
         this.content.scrollTop = 0;
+    }
+
+    private getTypedAnswerExpected(sessionData: SessionData): string | null | undefined {
+        const card = sessionData.cardData.currentCard;
+        const note = this.plugin.dataManager.collectionStore.findNoteBySource(
+            sessionData.currentNote.filePath,
+            card.storageInfo?.questionId,
+        );
+        if (note?.answerMode === "type") return null;
+        if (note?.noteTypeId === IMAGE_OCCLUSION_NOTE_TYPE_ID) {
+            try {
+                const assets = JSON.parse(note.fields[OCCLUSION_ASSETS_FIELD_ID] ?? "[]") as Array<{
+                    label?: string;
+                }>;
+                const questionId = card.storageInfo?.questionId;
+                const storedCard = Object.values(
+                    this.plugin.dataManager.collectionStore.getCollectionSnapshot().cards,
+                ).find(
+                    (candidate) =>
+                        !candidate.deletedAt &&
+                        candidate.noteId === note.id &&
+                        Boolean(questionId) &&
+                        candidate.legacyStableId?.startsWith(`${questionId}:`),
+                );
+                const ordinal = storedCard?.ordinal ?? card.cardIdx;
+                const label = assets[ordinal]?.label?.trim();
+                if (label) return label;
+            } catch {
+                return undefined;
+            }
+        }
+        const fallback = card.back.match(/<!--\s*sr-typed-answer:\s*([^]*?)\s*-->/i);
+        return fallback ? decodeURIComponent(fallback[1].trim()) : undefined;
     }
 
     public drawPendingState(nextPendingDueUnix: number): void {
         this.toolbar.setResetButtonDisabled(true);
         this.cardState = CardState.Front;
         this.content.empty();
+        this.content.removeClass("sr-can-reveal-answer");
         this.response.hideAllButtons();
         this.pendingClock = this.content.createDiv({
             cls: "sr-centered",
@@ -295,7 +441,7 @@ export class CardContainer {
                     e.preventDefault();
                     e.stopPropagation();
                     (input as HTMLElement).blur();
-                    this.showAnswerHandler();
+                    void this.showAnswerHandler();
                 }
             });
         });
@@ -343,20 +489,31 @@ export class CardContainer {
         settings: SRSettings,
         determineButtonSchedule: (response: ReviewResponse) => RepItemScheduleInfo | null,
     ) {
+        this.activeReviewMode = reviewMode;
         this.setCustomHotKeyState(settings.useCustomHotkeys);
+        this.content.removeClass("sr-session-complete-screen");
         this.cardState = sessionData.cardData.currentCardState;
+        this.content.removeClass("sr-can-reveal-answer");
 
         this.toolbar.setResetButtonDisabled(false);
 
         // Show answer text
+        let cardSurface: HTMLDivElement;
         if (sessionData.currentQuestion.questionType !== CardType.Cloze) {
-            await this.drawCardFrontContent(sessionData, settings);
-            const hr: HTMLElement = activeDocument.createElement("hr");
-            this.content.appendChild(hr);
+            await this.drawCardFrontContent(sessionData, settings, false);
+            cardSurface = this.content.querySelector<HTMLDivElement>(".sr-study-card")!;
         } else {
             this.content.empty();
-            this.drawCardContext(sessionData, settings);
+            cardSurface = this.content.createDiv("sr-study-card");
+            this.drawCardContext(sessionData, settings, cardSurface);
         }
+
+        cardSurface.addClass("sr-study-card-answer-visible");
+        const divider = cardSurface.createDiv("sr-study-card-divider");
+        divider.setAttribute("aria-hidden", "true");
+        const answerFace = cardSurface.createDiv({
+            cls: "sr-study-card-face sr-study-card-back",
+        });
 
         const wrapper: RenderMarkdownWrapper = new RenderMarkdownWrapper(
             this.app,
@@ -365,10 +522,55 @@ export class CardContainer {
         );
         await wrapper.renderMarkdownWrapper(
             sessionData.cardData.currentCard.back,
-            this.content,
+            answerFace,
             sessionData.currentQuestion.questionText.textDirection,
             // sessionData.cardData.currentCardState,
         );
+
+        if (this.typedAnswer.trim()) {
+            const marker = sessionData.cardData.currentCard.back.match(
+                /<!--\s*sr-typed-answer:\s*([^]*?)\s*-->/i,
+            );
+            const expected =
+                this.typedAnswerExpected ??
+                (marker ? decodeURIComponent(marker[1].trim()) : answerFace.innerText.trim());
+            const comparison = cardSurface.createDiv("sr-typed-answer-result");
+            comparison.createSpan({ text: t("YOUR_ANSWER") });
+            comparison.createEl("strong", { text: this.typedAnswer.trim() });
+            if (expected) {
+                const matches =
+                    this.typedAnswer.trim().localeCompare(expected, undefined, {
+                        sensitivity: "base",
+                    }) === 0;
+                comparison.toggleClass("is-correct", matches);
+                comparison.toggleClass("is-different", !matches);
+                if (!matches && marker) {
+                    comparison.createSpan({ text: `${t("EXPECTED_ANSWER")}: ${expected}` });
+                }
+            }
+        }
+
+        if (Platform.isMobile || EmulatedPlatform().isMobile) {
+            const guide = cardSurface.createDiv("sr-swipe-guide");
+            const gestures: [string, string, string][] =
+                reviewMode === FlashcardReviewMode.Cram
+                    ? [
+                          ["arrow-left", t("AGAIN"), "again"],
+                          ["arrow-right", t("EASY"), "easy"],
+                      ]
+                    : [
+                          ["arrow-left", t("AGAIN"), "again"],
+                          ["arrow-down", t("HARD"), "hard"],
+                          ["arrow-up", t("GOOD"), "good"],
+                          ["arrow-right", t("EASY"), "easy"],
+                      ];
+            for (const [iconName, label, tone] of gestures) {
+                const item = guide.createDiv(`sr-swipe-guide-item is-${tone}`);
+                const icon = item.createSpan();
+                setIcon(icon, iconName);
+                item.createSpan({ text: label });
+            }
+        }
 
         // Evaluate cloze answers
         this._evaluateClozeAnswers();
@@ -389,6 +591,489 @@ export class CardContainer {
         this.response.againButton.buttonEl.focus();
     }
 
+    public drawCompletionState(summary: SessionSummary): void {
+        this.cardState = CardState.Closed;
+        this.toolbar.setResetButtonDisabled(true);
+        this.content.empty();
+        this.content.removeClass("sr-can-reveal-answer");
+        this.content.addClass("sr-session-complete-screen");
+        this.content.setAttribute("aria-live", "polite");
+        this.response.hideAllButtons();
+
+        const icon = this.content.createDiv("sr-session-complete-icon");
+        setIcon(icon, "check");
+        this.content.createDiv({ cls: "sr-session-complete-eyebrow", text: t("READY_TO_REVIEW") });
+        const title = this.content.createEl("h2", {
+            text: t("SESSION_COMPLETE"),
+            attr: { tabindex: "-1" },
+        });
+        this.content.createEl("p", { text: t("SESSION_COMPLETE_DESC") });
+
+        const stats = this.content.createDiv("sr-session-summary-grid");
+        this.createSummaryStat(stats, summary.reviewed, t("SESSION_REVIEWED"));
+        const minutes = Math.max(1, Math.round(summary.durationMs / 60000));
+        this.createSummaryStat(
+            stats,
+            t("MINUTES_SHORT", { count: minutes }),
+            t("SESSION_DURATION"),
+        );
+        this.createSummaryStat(stats, summary.again, t("AGAIN"));
+        this.createSummaryStat(stats, summary.hard, t("HARD"));
+        this.createSummaryStat(stats, summary.good, t("GOOD"));
+        this.createSummaryStat(stats, summary.easy, t("EASY"));
+
+        new ButtonComponent(this.content)
+            .setButtonText(t("BACK_TO_DECKS"))
+            .setCta()
+            .setClass("sr-session-complete-action")
+            .onClick(() => void this.backToDeckHandler());
+        title.focus();
+    }
+
+    public setUndoAvailable(available: boolean): void {
+        this.toolbar.setUndoAvailable(available);
+    }
+
+    private createSummaryStat(parent: HTMLElement, value: string | number, label: string): void {
+        const stat = parent.createDiv("sr-session-summary-stat");
+        stat.createEl("strong", { text: String(value) });
+        stat.createSpan({ text: label });
+    }
+
+    private onGestureStart = (event: PointerEvent): void => {
+        if (event.pointerType === "touch") {
+            if (
+                event.target instanceof Node &&
+                this.content.contains(event.target) &&
+                this.isGestureTarget(event.target)
+            ) {
+                event.stopPropagation();
+            }
+            this.gestureStart = null;
+            return;
+        }
+        if (
+            !(Platform.isMobile || EmulatedPlatform().isMobile) ||
+            !event.isPrimary ||
+            event.pointerType !== "pen"
+        ) {
+            this.gestureStart = null;
+            return;
+        }
+        const target = event.target;
+        if (
+            !(target instanceof Element) ||
+            !this.content.contains(target) ||
+            target.closest("a, button, input, textarea, select, [contenteditable='true']") !== null
+        ) {
+            this.gestureStart = null;
+            return;
+        }
+        event.stopPropagation();
+        const card = this.content.querySelector<HTMLElement>(".sr-study-card");
+        if (card === null) return;
+        this.gestureStart = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            lastX: event.clientX,
+            lastTime: event.timeStamp,
+            velocityX: 0,
+            axis: "pending",
+            card,
+        };
+        this.content.setPointerCapture(event.pointerId);
+    };
+
+    private onGestureMove = (event: PointerEvent): void => {
+        if (event.pointerType === "touch" && this.workspaceTouchStart !== null) {
+            event.stopPropagation();
+            return;
+        }
+        const start = this.gestureStart;
+        if (start === null || start.pointerId !== event.pointerId) return;
+        event.stopPropagation();
+
+        const deltaX = event.clientX - start.x;
+        const deltaY = event.clientY - start.y;
+        if (start.axis === "pending" && Math.max(Math.abs(deltaX), Math.abs(deltaY)) >= 8) {
+            start.axis = Math.abs(deltaX) > Math.abs(deltaY) * 1.08 ? "horizontal" : "vertical";
+        }
+        if (start.axis !== "horizontal" || this.cardState !== CardState.Back) return;
+
+        event.preventDefault();
+        const elapsed = Math.max(1, event.timeStamp - start.lastTime);
+        start.velocityX = (event.clientX - start.lastX) / elapsed;
+        start.lastX = event.clientX;
+        start.lastTime = event.timeStamp;
+
+        const limitedX = Math.max(-180, Math.min(180, deltaX));
+        const rotation = limitedX / 55;
+        start.card.addClass("is-swiping");
+        start.card.toggleClass("is-swiping-left", limitedX < 0);
+        start.card.toggleClass("is-swiping-right", limitedX > 0);
+        start.card.dataset.swipeLabel = limitedX < 0 ? t("AGAIN") : t("GOOD");
+        start.card.setCssProps({
+            transform: `translate3d(${limitedX}px, 0, 0) rotate(${rotation}deg)`,
+            opacity: String(1 - Math.min(Math.abs(limitedX) / 720, 0.2)),
+        });
+    };
+
+    private onGestureEnd = (event: PointerEvent): void => {
+        if (event.pointerType === "touch" && this.workspaceTouchStart !== null) {
+            event.stopPropagation();
+            return;
+        }
+        const start = this.gestureStart;
+        if (start === null || start.pointerId !== event.pointerId) return;
+        event.stopPropagation();
+        this.gestureStart = null;
+        if (this.content.hasPointerCapture(event.pointerId)) {
+            this.content.releasePointerCapture(event.pointerId);
+        }
+
+        const deltaX = event.clientX - start.x;
+        const shouldRate =
+            start.axis === "horizontal" &&
+            this.cardState === CardState.Back &&
+            (Math.abs(deltaX) >= Math.min(88, this.content.clientWidth * 0.18) ||
+                (Math.abs(deltaX) >= 24 && Math.abs(start.velocityX) >= 0.45));
+
+        if (start.axis === "horizontal" && Math.abs(deltaX) > 8) {
+            this.suppressNextCardClick = true;
+            window.setTimeout(() => {
+                this.suppressNextCardClick = false;
+            }, 0);
+        }
+
+        if (!shouldRate) {
+            void this.resetGestureCard(start.card, true);
+            return;
+        }
+
+        const response = deltaX < 0 ? ReviewResponse.Again : ReviewResponse.Good;
+        void this.animateGesture(start.card, deltaX < 0 ? "left" : "right", () =>
+            this.processReviewHandler(response),
+        );
+    };
+
+    private onGestureCancel = (event: PointerEvent): void => {
+        if (event.pointerType === "touch" && this.workspaceTouchStart !== null) {
+            event.stopPropagation();
+            return;
+        }
+        const start = this.gestureStart;
+        if (start === null || start.pointerId !== event.pointerId) return;
+        event.stopPropagation();
+        this.gestureStart = null;
+        void this.resetGestureCard(start.card, true);
+    };
+
+    private async resetGestureCard(card: HTMLElement, animate: boolean): Promise<void> {
+        if (animate && card.style.transform !== "") {
+            const animation = card.animate(
+                [
+                    { transform: card.style.transform, opacity: card.style.opacity || "1" },
+                    { transform: "translate3d(0, 0, 0) rotate(0deg)", opacity: 1 },
+                ],
+                { duration: 190, easing: "cubic-bezier(.2,.8,.2,1)" },
+            );
+            await animation.finished.catch((): void => {});
+        }
+        card.removeClasses([
+            "is-swiping",
+            "is-swiping-left",
+            "is-swiping-right",
+            "is-swiping-up",
+            "is-swiping-down",
+        ]);
+        card.removeAttribute("data-swipe-label");
+        card.style.removeProperty("transform");
+        card.style.removeProperty("opacity");
+    }
+
+    private enableWorkspaceGestureShield(): void {
+        if (
+            this.workspaceGestureShieldEnabled ||
+            !(Platform.isMobile || EmulatedPlatform().isMobile)
+        ) {
+            return;
+        }
+        this.workspaceGestureShieldEnabled = true;
+        activeWindow.addEventListener("pointerdown", this.onGestureStart, true);
+        activeWindow.addEventListener("pointermove", this.onGestureMove, true);
+        activeWindow.addEventListener("pointerup", this.onGestureEnd, true);
+        activeWindow.addEventListener("pointercancel", this.onGestureCancel, true);
+        activeWindow.addEventListener("touchstart", this.onWorkspaceTouchStart, {
+            capture: true,
+            passive: false,
+        });
+        activeWindow.addEventListener("touchmove", this.onWorkspaceTouchMove, {
+            capture: true,
+            passive: false,
+        });
+        activeWindow.addEventListener("touchend", this.onWorkspaceTouchEnd, {
+            capture: true,
+            passive: true,
+        });
+        activeWindow.addEventListener("touchcancel", this.onWorkspaceTouchEnd, {
+            capture: true,
+            passive: true,
+        });
+    }
+
+    private disableWorkspaceGestureShield(): void {
+        if (!this.workspaceGestureShieldEnabled) return;
+        this.workspaceGestureShieldEnabled = false;
+        this.workspaceTouchStart = null;
+        activeWindow.removeEventListener("pointerdown", this.onGestureStart, true);
+        activeWindow.removeEventListener("pointermove", this.onGestureMove, true);
+        activeWindow.removeEventListener("pointerup", this.onGestureEnd, true);
+        activeWindow.removeEventListener("pointercancel", this.onGestureCancel, true);
+        activeWindow.removeEventListener("touchstart", this.onWorkspaceTouchStart, true);
+        activeWindow.removeEventListener("touchmove", this.onWorkspaceTouchMove, true);
+        activeWindow.removeEventListener("touchend", this.onWorkspaceTouchEnd, true);
+        activeWindow.removeEventListener("touchcancel", this.onWorkspaceTouchEnd, true);
+    }
+
+    private onWorkspaceTouchStart = (event: TouchEvent): void => {
+        const target = event.target;
+        if (
+            event.touches.length !== 1 ||
+            !(target instanceof Node) ||
+            !this.content.contains(target) ||
+            (target instanceof Element &&
+                target.closest(
+                    "a, button, input, textarea, select, [contenteditable='true'], .internal-embed",
+                ) !== null)
+        ) {
+            this.workspaceTouchStart = null;
+            return;
+        }
+
+        const touch = event.touches[0];
+        const card = this.content.querySelector<HTMLElement>(".sr-study-card");
+        if (card === null) return;
+        this.workspaceTouchStart = {
+            identifier: touch.identifier,
+            x: touch.clientX,
+            y: touch.clientY,
+            lastX: touch.clientX,
+            lastY: touch.clientY,
+            lastTime: event.timeStamp,
+            velocityX: 0,
+            velocityY: 0,
+            axis: "pending",
+            card,
+        };
+        event.stopPropagation();
+    };
+
+    private isGestureTarget(target: Node): boolean {
+        return !(
+            target instanceof Element &&
+            target.closest(
+                "a, button, input, textarea, select, [contenteditable='true'], .internal-embed",
+            ) !== null
+        );
+    }
+
+    private onWorkspaceTouchMove = (event: TouchEvent): void => {
+        const start = this.workspaceTouchStart;
+        if (start === null) return;
+        const touch = [...event.touches].find((item) => item.identifier === start.identifier);
+        if (touch === undefined) return;
+
+        const deltaX = touch.clientX - start.x;
+        const deltaY = touch.clientY - start.y;
+        if (start.axis === "pending" && Math.max(Math.abs(deltaX), Math.abs(deltaY)) >= 7) {
+            if (Math.abs(deltaX) > Math.abs(deltaY) * 1.05) {
+                start.axis = "horizontal";
+            } else {
+                const contentCanScroll = this.content.scrollHeight > this.content.clientHeight + 4;
+                start.axis = contentCanScroll ? "vertical-scroll" : "vertical";
+            }
+        }
+        if (start.axis === "vertical-scroll") {
+            event.stopPropagation();
+            return;
+        }
+
+        if (start.axis === "horizontal" || start.axis === "vertical") {
+            event.preventDefault();
+            const elapsed = Math.max(1, event.timeStamp - start.lastTime);
+            start.velocityX = (touch.clientX - start.lastX) / elapsed;
+            start.velocityY = (touch.clientY - start.lastY) / elapsed;
+            start.lastX = touch.clientX;
+            start.lastY = touch.clientY;
+            start.lastTime = event.timeStamp;
+            this.updateTouchGesture(start, deltaX, deltaY);
+        }
+        event.stopPropagation();
+    };
+
+    private onWorkspaceTouchEnd = (event: TouchEvent): void => {
+        const start = this.workspaceTouchStart;
+        if (start === null) return;
+        event.stopPropagation();
+        this.workspaceTouchStart = null;
+        const touch = [...event.changedTouches].find(
+            (item) => item.identifier === start.identifier,
+        );
+        const endX = touch?.clientX ?? start.lastX;
+        const endY = touch?.clientY ?? start.lastY;
+        const deltaX = endX - start.x;
+        const deltaY = endY - start.y;
+        const distance = Math.hypot(deltaX, deltaY);
+        const velocity = Math.hypot(start.velocityX, start.velocityY);
+        const isGestureAxis = start.axis === "horizontal" || start.axis === "vertical";
+
+        if (isGestureAxis && distance > 8) {
+            this.suppressNextCardClick = true;
+            window.setTimeout(() => {
+                this.suppressNextCardClick = false;
+            }, 0);
+        }
+
+        const shouldAct =
+            isGestureAxis &&
+            (distance >= Math.min(82, this.content.clientWidth * 0.17) ||
+                (distance >= 26 && velocity >= 0.42));
+        if (!shouldAct) {
+            void this.resetGestureCard(start.card, true);
+            return;
+        }
+
+        if (this.cardState === CardState.Front) {
+            void this.resetGestureCard(start.card, false).then(() => this.showAnswerHandler());
+            return;
+        }
+        if (this.cardState !== CardState.Back) {
+            void this.resetGestureCard(start.card, true);
+            return;
+        }
+
+        const { response, direction } = this.getTouchGestureAction(deltaX, deltaY);
+        void this.animateGesture(start.card, direction, () => this.processReviewHandler(response));
+    };
+
+    private updateTouchGesture(
+        start: NonNullable<CardContainer["workspaceTouchStart"]>,
+        deltaX: number,
+        deltaY: number,
+    ): void {
+        const maxTravel = Math.min(190, this.content.clientWidth * 0.42);
+        const scale = Math.min(1, maxTravel / Math.max(1, Math.hypot(deltaX, deltaY)));
+        const x = deltaX * scale;
+        const y = deltaY * scale;
+        const action =
+            this.cardState === CardState.Back
+                ? this.getTouchGestureAction(deltaX, deltaY)
+                : { response: ReviewResponse.Good, direction: "up" as const };
+        const label =
+            this.cardState === CardState.Front
+                ? t("SHOW_ANSWER")
+                : action.response === ReviewResponse.Again
+                  ? t("AGAIN")
+                  : action.response === ReviewResponse.Hard
+                    ? t("HARD")
+                    : action.response === ReviewResponse.Good
+                      ? t("GOOD")
+                      : t("EASY");
+        start.card.addClass("is-swiping");
+        start.card.removeClasses([
+            "is-swiping-left",
+            "is-swiping-right",
+            "is-swiping-up",
+            "is-swiping-down",
+        ]);
+        start.card.addClass(`is-swiping-${action.direction}`);
+        start.card.dataset.swipeLabel = label;
+        start.card.setCssProps({
+            transform: `translate3d(${x}px, ${y}px, 0) rotate(${x / 70}deg)`,
+            opacity: String(1 - Math.min(Math.hypot(x, y) / 760, 0.18)),
+        });
+    }
+
+    private getTouchGestureAction(
+        deltaX: number,
+        deltaY: number,
+    ): {
+        response: ReviewResponse;
+        direction: "left" | "right" | "up" | "down";
+    } {
+        if (Math.abs(deltaX) >= Math.abs(deltaY)) {
+            return deltaX < 0
+                ? { response: ReviewResponse.Again, direction: "left" }
+                : { response: ReviewResponse.Easy, direction: "right" };
+        }
+        if (this.activeReviewMode === FlashcardReviewMode.Cram) {
+            return deltaY < 0
+                ? { response: ReviewResponse.Again, direction: "up" }
+                : { response: ReviewResponse.Easy, direction: "down" };
+        }
+        return deltaY < 0
+            ? { response: ReviewResponse.Good, direction: "up" }
+            : { response: ReviewResponse.Hard, direction: "down" };
+    }
+
+    private async animateGesture(
+        card: HTMLElement,
+        direction: "left" | "right" | "up" | "down",
+        action: () => void | Promise<void>,
+    ): Promise<void> {
+        const reduceMotion = activeWindow.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (!reduceMotion) {
+            const exitTransform =
+                direction === "left"
+                    ? "translate3d(-115vw, 0, 0) rotate(-8deg)"
+                    : direction === "right"
+                      ? "translate3d(115vw, 0, 0) rotate(8deg)"
+                      : direction === "up"
+                        ? "translate3d(0, -115vh, 0)"
+                        : "translate3d(0, 115vh, 0)";
+            const animation = card.animate(
+                [
+                    { transform: card.style.transform || "translate3d(0, 0, 0)", opacity: 1 },
+                    {
+                        transform: exitTransform,
+                        opacity: 0.05,
+                    },
+                ],
+                { duration: 180, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" },
+            );
+            await animation.finished.catch((): void => {});
+        }
+        await action();
+    }
+
+    private revealAnswerFromCard(event: MouseEvent): void {
+        if (this.suppressNextCardClick) {
+            event.preventDefault();
+            return;
+        }
+        if (
+            this.cardState !== CardState.Front ||
+            !(Platform.isMobile || EmulatedPlatform().isMobile)
+        ) {
+            return;
+        }
+
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        if (
+            target.closest(
+                "a, button, input, textarea, select, [contenteditable='true'], .internal-embed",
+            ) !== null
+        ) {
+            return;
+        }
+
+        const selection = activeWindow.getSelection();
+        if (selection !== null && !selection.isCollapsed) return;
+        void this.showAnswerHandler();
+    }
+
     private _keydownHandler = (e: KeyboardEvent) => {
         if (!this.plugin.isInitialized) throw new Error("SR plugin or data not initialized!!!");
         if (this.plugin.uiManager === null) throw new Error("UI manager not initialized!!!");
@@ -398,7 +1083,6 @@ export class CardContainer {
             (activeDocument.activeElement !== null &&
                 (activeDocument.activeElement.nodeName === "TEXTAREA" ||
                     activeDocument.activeElement.nodeName === "INPUT")) ||
-            this.cardState === CardState.Closed ||
             !this.plugin.uiManager.getSRInFocusState() ||
             Platform.isMobile || // No keyboard events on mobile
             EmulatedPlatform().isMobile
@@ -410,6 +1094,14 @@ export class CardContainer {
             e.preventDefault();
             e.stopPropagation();
         };
+
+        if ((e.metaKey || e.ctrlKey) && e.code === "KeyZ") {
+            void this.undoLastReviewHandler();
+            consumeKeyEvent();
+            return;
+        }
+
+        if (this.cardState === CardState.Closed) return;
 
         switch (e.code) {
             case "KeyS":
@@ -424,7 +1116,7 @@ export class CardContainer {
             case "NumpadEnter":
             case "Space":
                 if (this.cardState === CardState.Front) {
-                    this.showAnswerHandler();
+                    void this.showAnswerHandler();
                     consumeKeyEvent();
                 } else if (this.cardState === CardState.Back) {
                     void this.processReviewHandler(ReviewResponse.Good);
@@ -436,7 +1128,7 @@ export class CardContainer {
                 if (this.cardState !== CardState.Back) {
                     break;
                 }
-                void this.processReviewHandler(ReviewResponse.Hard);
+                void this.processReviewHandler(ReviewResponse.Again);
                 consumeKeyEvent();
                 break;
             case "Numpad2":
@@ -444,11 +1136,19 @@ export class CardContainer {
                 if (this.cardState !== CardState.Back) {
                     break;
                 }
-                void this.processReviewHandler(ReviewResponse.Good);
+                void this.processReviewHandler(ReviewResponse.Hard);
                 consumeKeyEvent();
                 break;
             case "Numpad3":
             case "Digit3":
+                if (this.cardState !== CardState.Back) {
+                    break;
+                }
+                void this.processReviewHandler(ReviewResponse.Good);
+                consumeKeyEvent();
+                break;
+            case "Numpad4":
+            case "Digit4":
                 if (this.cardState !== CardState.Back) {
                     break;
                 }

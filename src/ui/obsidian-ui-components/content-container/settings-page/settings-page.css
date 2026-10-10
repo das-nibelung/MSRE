@@ -1,109 +1,186 @@
-/* MARK: Settings Tab */
-
-/* Style the tab */
+/* Keep the plugin layer small and rely on Obsidian's native SettingGroup surface. */
 .sr-settings-tab {
-    overflow: hidden;
-}
-
-.is-phone .modal.mod-settings .sr-settings-tab {
-    padding-bottom: max(var(--safe-area-inset-bottom), var(--size-4-4));
-}
-
-.sr-main-page {
-    & .sr-settings-page-title-icon {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    }
-
-    & .sr-settings-page-title {
-        display: flex;
-        align-items: center;
-        gap: var(--size-4-2);
-    }
-}
-
-.sr-settings-tab {
-    & .sr-main-page {
-        & .setting-item {
-            flex-direction: row !important;
-            align-items: center !important;
-
-            & .setting-item-info {
-                align-self: unset !important;
-            }
-
-            & .setting-item-control {
-                width: unset !important;
-                justify-content: flex-end !important;
-            }
-        }
-    }
-}
-
-.is-phone .modal .sr-settings-tab {
-    & .sr-settings-page-title-wrapper {
-        font-size: var(--font-ui-normal);
-        padding-left: var(--size-4-2);
-        border-left: 1px solid var(--background-modifier-border);
-    }
-
-    & .sr-settings-page-header {
-        padding: var(--size-4-2);
-        border: unset;
-        background-color: var(--setting-items-background);
-        border-radius: var(--setting-items-radius);
-    }
+    --sr-settings-content-width: 760px;
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden !important;
 }
 
 .sr-settings-page {
     display: flex;
-    flex-direction: column;
-    gap: var(--size-4-4);
-    height: 100%;
     width: 100%;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
     overflow: hidden;
-
-    & button {
-        cursor: pointer;
-    }
 }
 
 .sr-settings-page-header {
     display: flex;
+    min-height: 52px;
+    flex: 0 0 auto;
     align-items: center;
     gap: var(--size-4-2);
-    padding-bottom: var(--size-4-2);
+    padding: var(--size-4-1) 0 var(--size-4-2);
     border-bottom: 1px solid var(--background-modifier-border);
     cursor: pointer;
+}
+
+.sr-settings-page-back-button {
+    flex: 0 0 auto;
+}
+
+.sr-settings-page-title-wrapper {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--size-4-2);
+    font-size: var(--font-ui-large);
+    font-weight: var(--font-semibold);
+}
+
+.sr-settings-page-title-icon {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
 }
 
 .sr-settings-page-title-setting {
     cursor: pointer;
 }
 
-.sr-settings-page-title-wrapper {
+.sr-settings-page-content {
+    flex: 1 1 auto;
+    width: min(100%, var(--sr-settings-content-width));
+    height: 0;
+    min-height: 0;
+    margin-inline: auto;
+    padding: var(--size-4-4) var(--size-4-1) max(var(--size-4-8), var(--safe-area-inset-bottom));
+    overflow-x: hidden;
+    overflow-y: auto !important;
+    overscroll-behavior-y: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* SettingGroup already draws the grouped surface. The old outer shell caused
+ * nested rounded panels and clipped controls on iPhone. */
+.sr-settings-tab .sr-settings-page-content > .setting-group {
+    margin: 0 0 var(--size-4-6);
+    padding: 0;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.sr-settings-tab .setting-group-heading {
+    margin: 0 0 var(--size-4-2);
+    padding-inline: var(--size-4-1);
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    font-weight: var(--font-semibold);
+    letter-spacing: 0.045em;
+    text-transform: uppercase;
+}
+
+.sr-settings-tab .sr-settings-page-title-setting {
+    min-height: 54px;
+    transition: background-color 140ms ease;
+}
+
+.sr-settings-tab .sr-settings-page-title-setting:hover,
+.sr-settings-tab .sr-settings-page-title-setting:focus-within {
+    background: var(--background-modifier-hover);
+}
+
+.sr-main-page .sr-settings-page-title-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    background: var(--background-primary);
+    color: var(--interactive-accent);
+}
+
+.sr-main-page .sr-settings-page-title-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.sr-main-page .sr-settings-page-title {
     display: flex;
-    justify-content: center;
     align-items: center;
     gap: var(--size-4-2);
-    font-size: var(--font-ui-large);
 }
 
-.sr-settings-page-title-icon {
-    display: flex;
-    justify-content: center;
-    align-items: center;
+@media (max-width: 600px) {
+    .is-phone .modal.mod-settings .sr-settings-tab {
+        height: 100%;
+        min-height: 0;
+        overflow: hidden !important;
+        padding-bottom: max(var(--size-4-4), var(--safe-area-inset-bottom));
+    }
+
+    .is-phone .sr-settings-page {
+        height: 100%;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .is-phone .sr-settings-page-header {
+        position: sticky;
+        z-index: 2;
+        top: 0;
+        min-height: 52px;
+        padding: var(--size-4-1) var(--size-4-2);
+        background: var(--background-primary);
+    }
+
+    .is-phone .sr-settings-page-back-button {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+    }
+
+    .is-phone .sr-settings-page-title-wrapper {
+        overflow: hidden;
+        font-size: var(--font-ui-medium);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .is-phone .sr-settings-page-content {
+        flex: 1 1 auto;
+        width: 100%;
+        height: 0;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto !important;
+        padding: var(--size-4-4) var(--size-4-3) max(var(--size-4-8), var(--safe-area-inset-bottom));
+    }
+
+    .is-phone .sr-settings-tab .setting-item {
+        min-height: 56px;
+    }
+
+    .is-phone .sr-settings-tab .setting-item-control button,
+    .is-phone .sr-settings-tab .setting-item-control select,
+    .is-phone .sr-settings-tab .setting-item-control input {
+        min-height: 44px;
+    }
+
+    .is-phone .sr-settings-tab textarea {
+        width: 100%;
+        min-height: 96px;
+        resize: vertical;
+    }
 }
 
-.sr-settings-page-content {
-    display: flex;
-    flex-direction: column;
-    overflow-x: hidden;
-    overflow-y: auto;
-    height: 100%;
-}
-
-body:not(.is-phone) .sr-settings-page-content {
-    padding-right: var(--size-4-1);
+@media (prefers-reduced-motion: reduce) {
+    .sr-settings-tab .sr-settings-page-title-setting {
+        transition: none;
+    }
 }

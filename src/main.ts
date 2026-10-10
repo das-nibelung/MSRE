@@ -158,6 +158,7 @@ export default class SRPlugin extends Plugin {
      */
     private async onOsrVaultDataChanged() {
         await this.uiManager.updateStatusBar();
+        this.uiManager.tabViewManager.refreshCardBrowser();
         if (this.dataManager.data.settings.enableNoteReviewPaneOnStartup) {
             this.uiManager.sidebarManager.redraw();
         }

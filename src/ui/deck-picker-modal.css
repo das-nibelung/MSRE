@@ -1,0 +1,113 @@
+.sr-deck-picker-modal .modal-content {
+    display: flex;
+    min-height: min(68vh, 620px);
+    flex-direction: column;
+    gap: 14px;
+}
+
+.sr-deck-picker-header h2 {
+    margin: 0;
+    letter-spacing: -0.02em;
+}
+
+.sr-deck-picker-header p {
+    margin: 5px 0 0;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+}
+
+.sr-deck-picker-search input,
+.sr-deck-picker-create input {
+    width: 100%;
+    min-height: 44px;
+    border-radius: 13px;
+    font-size: 16px;
+}
+
+.sr-deck-picker-list {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 4px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.sr-deck-picker-item {
+    display: grid;
+    min-height: 48px;
+    padding: 6px 10px;
+    grid-template-columns: 34px minmax(0, 1fr) 20px;
+    align-items: center;
+    gap: 9px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-normal);
+    text-align: start;
+}
+
+.sr-deck-picker-item:hover,
+.sr-deck-picker-item:focus-visible {
+    background: var(--background-modifier-hover);
+}
+
+.sr-deck-picker-item.is-selected {
+    background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+    color: var(--interactive-accent);
+}
+
+.sr-deck-picker-item-icon {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border-radius: 10px;
+    background: var(--background-secondary);
+}
+
+.sr-deck-picker-item-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sr-deck-picker-item-copy strong,
+.sr-deck-picker-item-copy span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sr-deck-picker-item-copy span {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}
+
+.sr-deck-picker-create {
+    display: grid;
+    padding-top: 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.sr-deck-picker-create button {
+    min-height: 44px;
+    border-radius: 13px;
+}
+
+@media (max-width: 600px) {
+    .sr-deck-picker-modal.modal {
+        width: calc(100vw - 24px);
+        max-width: none;
+        border-radius: 24px;
+    }
+
+    .sr-deck-picker-modal .modal-content {
+        min-height: 70vh;
+    }
+}

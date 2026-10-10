@@ -12,6 +12,8 @@ export class SRModalView extends Modal {
     private plugin: SRPlugin;
     private settingsManager: SettingsManager;
     private resizeObserver: ResizeObserver | null = null;
+    private closeButtonFrame: number | null = null;
+    private modalMutationObservers: MutationObserver[] = [];
 
     constructor(
         app: App,
@@ -43,6 +45,8 @@ export class SRModalView extends Modal {
 
         this.modalEl.setAttribute("id", "sr-modal-view");
         this.modalEl.addClass("sr-view");
+        this.containerEl.addClass("sr-modal-host");
+        this.removeNativeCloseButtons();
 
         this.contentEl.addClass("sr-modal-content");
 
@@ -61,11 +65,74 @@ export class SRModalView extends Modal {
     }
 
     onOpen(): void {
+        this.getHostDocuments().forEach((doc) => doc.body.addClass("sr-review-modal-open"));
+        this.removeNativeCloseButtons();
+        this.closeButtonFrame = activeWindow.requestAnimationFrame(() => {
+            this.removeNativeCloseButtons();
+        });
+        this.getHostDocuments().forEach((doc) => {
+            const Observer = doc.defaultView?.MutationObserver ?? MutationObserver;
+            const observer = new Observer(() => {
+                this.removeNativeCloseButtons();
+            });
+            observer.observe(doc.body, {
+                attributes: true,
+                attributeFilter: ["class", "aria-label"],
+                childList: true,
+                subtree: true,
+            });
+            this.modalMutationObservers.push(observer);
+        });
         void this.contentManager.open();
     }
 
     onClose(): void {
+        if (this.closeButtonFrame !== null) {
+            activeWindow.cancelAnimationFrame(this.closeButtonFrame);
+            this.closeButtonFrame = null;
+        }
+        this.modalMutationObservers.forEach((observer) => observer.disconnect());
+        this.modalMutationObservers = [];
+        this.getHostDocuments().forEach((doc) => doc.body.removeClass("sr-review-modal-open"));
         this.contentManager.close();
+    }
+
+    /**
+     * Obsidian places the native mobile modal close button outside modalEl and
+     * can mount it after onOpen on iOS. Obsidian has no public option to omit
+     * the control, so remove it immediately and whenever the host reinserts it.
+     */
+    private removeNativeCloseButtons(): void {
+        this.getHostDocuments().forEach((doc) => {
+            doc.querySelectorAll<HTMLElement>(
+                '.modal-close-button, [aria-label="Close"], [aria-label="Закрыть"]',
+            ).forEach((button) => {
+                if (button.hasClass("sr-modal-close-button")) return;
+                button.remove();
+            });
+
+            doc.querySelectorAll<SVGElement>(".lucide-x").forEach((icon) => {
+                const control = icon.closest<HTMLElement>(
+                    "button, .clickable-icon, .modal-close-button",
+                );
+                if (
+                    control === null ||
+                    control.hasClass("sr-modal-close-button") ||
+                    this.modalEl.contains(control)
+                ) {
+                    return;
+                }
+
+                const rect = control.getBoundingClientRect();
+                const isTopRightSystemControl =
+                    rect.top < 96 && rect.right > doc.documentElement.clientWidth - 96;
+                if (isTopRightSystemControl) control.remove();
+            });
+        });
+    }
+
+    private getHostDocuments(): Document[] {
+        return [...new Set([globalThis["document"], activeDocument])];
     }
 
     private async onResize(entries: ResizeObserverEntry[]) {

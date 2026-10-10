@@ -1,13 +1,26 @@
 import "src/ui/styles.css";
-import { Menu, MenuItem, Notice, Platform, TAbstractFile, TFile, WorkspaceLeaf } from "obsidian";
+import {
+    Editor,
+    MarkdownFileInfo,
+    MarkdownView,
+    Menu,
+    MenuItem,
+    Notice,
+    Platform,
+    TAbstractFile,
+    TFile,
+    WorkspaceLeaf,
+} from "obsidian";
 
 import { DataStore } from "src/data/data-store/base/data-store";
+import { Card } from "src/data/data-structures/card/card";
 import { SettingsManager } from "src/data/settings-manager";
 import { appIcon } from "src/icons/app-icon";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { RepItemState, ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
+import { CardCreationMode, createCardInEditor } from "src/ui/card-creation";
 import ContentManager from "src/ui/obsidian-ui-components/content-container/content-manager";
 import { SRTabView } from "src/ui/obsidian-ui-components/item-views/sr-tab-view";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
@@ -84,6 +97,11 @@ export class UIManager {
         this.plugin.registerEvent(
             this.plugin.app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile) => {
                 this.fileMenuHandler(menu, file);
+            }),
+        );
+        this.plugin.registerEvent(
+            this.plugin.app.workspace.on("editor-menu", (menu, editor, info) => {
+                this.editorMenuHandler(menu, editor, info);
             }),
         );
 
@@ -413,9 +431,10 @@ export class UIManager {
         const settings = this.settingsManager.settings;
 
         const isMobile = Platform.isMobile || EmulatedPlatform().isMobile;
-        const openInNewTab =
-            (!isMobile && settings.openViewInNewTab) ||
-            (isMobile && settings.openViewInNewTabMobile);
+        // A real workspace view is the native mobile experience: it avoids Obsidian's
+        // system modal close control overlapping the iOS status bar and participates in
+        // the normal tab/back-stack navigation. Desktop keeps the user's preference.
+        const openInNewTab = isMobile || settings.openViewInNewTab;
 
         const reviewQueueLoader = new ReviewQueueLoader(
             this.plugin,
@@ -432,7 +451,78 @@ export class UIManager {
         this.focusObsidianWindow();
     }
 
+    public async openCardBrowser(notePath: string | null = null): Promise<void> {
+        await this.tabViewManager.openCardBrowser(notePath);
+    }
+
+    public async openNativeCardCreator(deckPath?: string): Promise<void> {
+        await this.tabViewManager.openNativeCreator({ mode: "card", deckPath });
+    }
+
+    public async openNativeMediaManager(): Promise<void> {
+        await this.tabViewManager.openNativeCreator({ mode: "media" });
+    }
+
+    public async openNativeCardEditor(card: Card, deckPath?: string): Promise<void> {
+        await this.tabViewManager.openNativeCreator({ mode: "card", deckPath, card });
+    }
+
+    public async openNativeCardCloner(card: Card, deckPath?: string): Promise<void> {
+        await this.tabViewManager.openNativeCreator({
+            mode: "card",
+            deckPath,
+            duplicateCard: card,
+        });
+    }
+
+    public async openNativeDeckCreator(deckPath?: string, areaId?: string): Promise<void> {
+        await this.tabViewManager.openNativeCreator({
+            mode: "deck",
+            deckPath,
+            targetAreaId: areaId,
+        });
+    }
+
+    public async openNativeDeckOptions(deckPath: string): Promise<void> {
+        await this.tabViewManager.openNativeCreator({ mode: "deck-options", deckPath });
+    }
+
+    public async openNativeKnowledgeAreaCreator(areaId?: string): Promise<void> {
+        await this.tabViewManager.openNativeCreator({ mode: "area", editAreaId: areaId });
+    }
+
+    /** Creates a small, valid starter note so a new user can enter the first card immediately. */
+    public async createStarterCardNote(): Promise<void> {
+        const settings = this.settingsManager.settings;
+        const tag = settings.flashcardTags[0] ?? "#flashcards";
+        const separator = settings.singleLineCardSeparator;
+        let path = `${t("FLASHCARDS")}.md`;
+        let suffix = 2;
+        while (this.plugin.app.vault.getAbstractFileByPath(path)) {
+            path = `${t("FLASHCARDS")} ${suffix}.md`;
+            suffix++;
+        }
+
+        const question = t("CARD_TEMPLATE_QUESTION");
+        const answer = t("CARD_TEMPLATE_ANSWER");
+        const file = await this.plugin.app.vault.create(
+            path,
+            `${tag}\n\n${question}${separator}${answer}\n`,
+        );
+        const leaf = this.plugin.app.workspace.getLeaf("tab");
+        await leaf.openFile(file);
+        if (leaf.view instanceof MarkdownView) {
+            leaf.view.editor.setSelection({ line: 2, ch: 0 }, { line: 2, ch: question.length });
+            leaf.view.editor.focus();
+        }
+        new Notice(t("STARTER_CARD_CREATED"));
+    }
+
     public openFlashcardModal(reviewQueueLoader: ReviewQueueLoader): void {
+        if (Platform.isMobile || EmulatedPlatform().isMobile) {
+            void this.tabViewManager.openSRTabView(reviewQueueLoader);
+            return;
+        }
         this.setSRViewInFocus(true);
         this.focusObsidianWindow();
         new SRModalView(
@@ -455,6 +545,13 @@ export class UIManager {
         if (!(file instanceof TFile && file.extension === "md")) return;
 
         const settings = this.settingsManager.settings;
+
+        menu.addItem((item) => {
+            item.setTitle(t("BROWSE_CARDS_IN_NOTE"))
+                .setIcon("library-big")
+                .setSection("spaced-repetition")
+                .onClick(() => void this.openCardBrowser(file.path));
+        });
 
         if (settings.showFileMenuReviewOptions) {
             menu.addItem((item: MenuItem) => {
@@ -551,6 +648,34 @@ export class UIManager {
                         ).open();
                     });
             });
+        }
+    }
+
+    private editorMenuHandler(
+        menu: Menu,
+        editor: Editor,
+        info: MarkdownView | MarkdownFileInfo,
+    ): void {
+        const addCardAction = (mode: CardCreationMode, title: string, icon: string) => {
+            menu.addItem((item) => {
+                item.setTitle(title)
+                    .setIcon(icon)
+                    .setSection("spaced-repetition")
+                    .onClick(() =>
+                        createCardInEditor(
+                            editor,
+                            this.settingsManager.settings,
+                            mode,
+                            info.file?.basename ?? "",
+                        ),
+                    );
+            });
+        };
+
+        addCardAction("basic", t("CREATE_CARD"), "rectangle-horizontal");
+        addCardAction("reversed", t("CREATE_REVERSED_CARD"), "repeat-2");
+        if (editor.somethingSelected()) {
+            addCardAction("cloze", t("CREATE_CLOZE_CARD"), "text-cursor-input");
         }
     }
 }

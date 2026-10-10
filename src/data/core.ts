@@ -1,5 +1,6 @@
 import { CardIndexFileRevision } from "src/data/card-index/card-index-types";
 import { IncrementalCardIndex } from "src/data/card-index/incremental-card-index";
+import { Card } from "src/data/data-structures/card/card";
 import { QuestionPostponementList } from "src/data/data-structures/card/questions/question-postponement-list";
 import { Deck, DeckTreeFilter } from "src/data/data-structures/deck/deck";
 import { DeckTreeStatsCalculator } from "src/data/data-structures/deck/deck-tree-stats-calculator";
@@ -11,7 +12,7 @@ import { Note } from "src/note/note";
 import { NoteFileLoader } from "src/note/note-file-loader";
 import { NoteReviewQueue } from "src/note/note-review-queue";
 import { RepItemScheduleInfo } from "src/scheduling/algorithms/base/rep-item-schedule-info";
-import { ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
+import { RepItemState, ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
 import { SRAlgorithm } from "src/scheduling/algorithms/base/sr-algorithm";
 import { IOsrVaultNoteLinkInfoFinder } from "src/scheduling/algorithms/osr/obsidian-vault-notelink-info-finder";
 import { OsrNoteGraph } from "src/scheduling/algorithms/osr/osr-note-graph";
@@ -46,6 +47,7 @@ export class OsrCore {
     private _dueDateFlashcardHistogram: CardDueDateHistogram;
     private _dueDateNoteHistogram: NoteDueDateHistogram;
     private loadedNotes = new Map<string, Note>();
+    private managedDeckPaths: TopicPath[] = [];
 
     constructor(
         questionPostponementList: QuestionPostponementList,
@@ -189,6 +191,23 @@ export class OsrCore {
         return this._cardStats;
     }
 
+    /** Keeps native, intentionally empty decks visible in the deck library. */
+    setManagedDeckPaths(paths: TopicPath[]): void {
+        this.managedDeckPaths = paths.map((path) => path.clone());
+    }
+
+    /**
+     * Returns every distinct card currently loaded from the vault.
+     *
+     * Cards can belong to more than one deck, so the deck tree may contain the same object
+     * several times. The browser needs a single row per card and therefore deduplicates by
+     * object identity here instead of scanning the vault a second time.
+     */
+    getAllCards(): Card[] {
+        const cards = this._reviewableDeckTree.getFlattenedRepItemArray(RepItemState.AnyItem, true);
+        return [...new Set(cards)] as Card[];
+    }
+
     /**
      * Loads the initial state of the OSR core.
      *
@@ -311,6 +330,10 @@ export class OsrCore {
             ? this.fullDeckTree.clone()
             : new Deck("root", null);
 
+        for (const path of this.managedDeckPaths) {
+            if (path.hasPath) this._reviewableDeckTree.getOrCreateDeck(path.clone());
+        }
+
         // sort the deck names
         this._reviewableDeckTree.sortSubdecksList();
         this._remainingDeckTree = DeckTreeFilter.filterForRemainingRepItems(
@@ -318,6 +341,9 @@ export class OsrCore {
             this._reviewableDeckTree,
             FlashcardReviewMode.Review,
         );
+        for (const path of this.managedDeckPaths) {
+            if (path.hasPath) this._remainingDeckTree.getOrCreateDeck(path.clone());
+        }
 
         const calc: DeckTreeStatsCalculator = new DeckTreeStatsCalculator();
         this._cardStats = calc.calculate(this._reviewableDeckTree);

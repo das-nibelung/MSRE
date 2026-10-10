@@ -1,10 +1,11 @@
-import { Platform, TFile } from "obsidian";
+import { Editor, MarkdownView, Platform, TFile } from "obsidian";
 
 import { SettingsManager } from "src/data/settings-manager";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
+import { createCardInEditor } from "src/ui/card-creation";
 import { UIManager, UIState } from "src/ui/ui-manager";
 import EmulatedPlatform from "src/utils/platform-detector";
 
@@ -266,7 +267,7 @@ export class CommandManager {
         });
 
         this.plugin.addCommand({
-            id: "srs-card-review-reset",
+            id: "srs-card-review-open-in-background",
             name: t("OPEN_IN_BACKGROUND"),
             repeatable: false,
             checkCallback: (checking: boolean) => {
@@ -299,6 +300,83 @@ export class CommandManager {
      * add all the plugin commands
      */
     private addPluginCommands() {
+        this.plugin.addCommand({
+            id: "open-native-card-creator",
+            name: t("NEW_CARD"),
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await this.uiManager.openNativeCardCreator();
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "open-native-deck-creator",
+            name: t("NEW_DECK"),
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await this.uiManager.openNativeDeckCreator();
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "create-basic-card",
+            name: t("CREATE_CARD"),
+            editorCallback: (editor: Editor, view: MarkdownView) => {
+                createCardInEditor(
+                    editor,
+                    this.settingsManager.settings,
+                    "basic",
+                    view.file?.basename ?? "",
+                );
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "create-reversed-card",
+            name: t("CREATE_REVERSED_CARD"),
+            editorCallback: (editor: Editor, view: MarkdownView) => {
+                createCardInEditor(
+                    editor,
+                    this.settingsManager.settings,
+                    "reversed",
+                    view.file?.basename ?? "",
+                );
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "create-cloze-card",
+            name: t("CREATE_CLOZE_CARD"),
+            editorCallback: (editor: Editor, view: MarkdownView) => {
+                createCardInEditor(
+                    editor,
+                    this.settingsManager.settings,
+                    "cloze",
+                    view.file?.basename ?? "",
+                );
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "open-card-browser",
+            name: t("BROWSE_CARDS"),
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await this.uiManager.openCardBrowser();
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "browse-cards-in-current-note",
+            name: t("BROWSE_CARDS_IN_NOTE"),
+            checkCallback: (checking) => {
+                const file = this.plugin.app.workspace.getActiveFile();
+                if (!this.plugin.isInitialized || !file || file.extension !== "md") return false;
+                if (!checking) void this.uiManager.openCardBrowser(file.path);
+                return true;
+            },
+        });
+
         this.plugin.addCommand({
             id: "srs-note-review-open-note",
             name: t("OPEN_NOTE_FOR_REVIEW"),

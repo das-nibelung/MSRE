@@ -157,7 +157,7 @@ export const DEFAULT_SETTINGS: SRSettings = {
     showDeleteButtonInCardView: false,
     showDeleteButtonInFileMenu: false,
     openViewInNewTab: false,
-    openViewInNewTabMobile: false,
+    openViewInNewTabMobile: true,
     useCustomHotkeys: false,
     useCalloutsForSchedulingComments: false,
 

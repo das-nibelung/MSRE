@@ -48,13 +48,12 @@ export class UIPreferencesPage extends SettingsPage {
                         const isMobile = Platform.isMobile || EmulatedPlatform().isMobile;
                         toggle
                             .setValue(
-                                isMobile
-                                    ? this.settingsManager.settings.openViewInNewTabMobile
-                                    : this.settingsManager.settings.openViewInNewTab,
+                                isMobile ? true : this.settingsManager.settings.openViewInNewTab,
                             )
+                            .setDisabled(isMobile)
                             .onChange(async (value) => {
                                 if (isMobile) {
-                                    this.settingsManager.settings.openViewInNewTabMobile = value;
+                                    this.settingsManager.settings.openViewInNewTabMobile = true;
                                     this.settingsManager.settings.flashcardHeightPercentageMobile = 100;
                                     this.settingsManager.settings.flashcardWidthPercentageMobile = 100;
                                 } else {
@@ -86,9 +85,7 @@ export class UIPreferencesPage extends SettingsPage {
                         toggle
                             .setValue(this.settingsManager.settings.useCustomHotkeys)
                             .setDisabled(
-                                (isMobile &&
-                                    !this.settingsManager.settings.openViewInNewTabMobile) ||
-                                    (!isMobile && !this.settingsManager.settings.openViewInNewTab),
+                                !isMobile && !this.settingsManager.settings.openViewInNewTab,
                             )
                             .onChange(async (value) => {
                                 this.settingsManager.settings.useCustomHotkeys = value;

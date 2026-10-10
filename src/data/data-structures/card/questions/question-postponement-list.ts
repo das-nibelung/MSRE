@@ -19,6 +19,8 @@ export interface IQuestionPostponementList {
      * @param {Question} question - The question to add.
      */
     add(question: Question): void;
+    /** Removes a question so a manually unburied card can return immediately. */
+    remove(question: Question): void;
     /**
      * Checks if a question is in the list of postponed questions.
      *
@@ -84,6 +86,11 @@ export class QuestionPostponementList implements IQuestionPostponementList {
      */
     add(question: Question): void {
         if (!this.includes(question)) this.list.push(question.questionText.textHash);
+    }
+
+    remove(question: Question): void {
+        const index = this.list.indexOf(question.questionText.textHash);
+        if (index >= 0) this.list.splice(index, 1);
     }
 
     /**
