@@ -42,10 +42,16 @@ export class FileNativeStore {
 
     async readAllDocuments(): Promise<Array<{ path: string; manifest: FileNativeDocument }>> {
         const results: Array<{ path: string; manifest: FileNativeDocument }> = [];
-        for (const file of this.vault.getMarkdownFiles()) {
-            if (file.path === FILE_NATIVE_CATALOG_PATH) continue;
-            const manifest = await this.readDocument(file);
-            if (manifest) results.push({ path: file.path, manifest });
+        const files = this.vault
+            .getMarkdownFiles()
+            .filter((file) => file.path !== FILE_NATIVE_CATALOG_PATH);
+        // Keep startup bounded on large vaults while avoiding a slow serial read per card file.
+        for (let offset = 0; offset < files.length; offset += 64) {
+            const batch = files.slice(offset, offset + 64);
+            const manifests = await Promise.all(batch.map((file) => this.readDocument(file)));
+            manifests.forEach((manifest, index) => {
+                if (manifest) results.push({ path: batch[index].path, manifest });
+            });
         }
         return results;
     }
