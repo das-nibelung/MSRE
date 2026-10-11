@@ -23,6 +23,7 @@ import {
     AnkiTransferService,
     DuplicatePolicy,
 } from "src/data/anki/anki-transfer-service";
+import { analyzeCardQuality, CardQualityIssue, CardQualityReport } from "src/data/card-quality";
 import {
     canonicalAnswerMode,
     createDefaultAnswerConfig,
@@ -805,17 +806,11 @@ export class NativeCreatorView extends ItemView {
         const frontLabel = this.cardType === "cloze" ? t("CLOZE_TEXT") : t("CARD_FRONT");
         const frontHelp = this.cardType === "cloze" ? t("CLOZE_TEXT_HELP") : undefined;
         const cardFields = surface.createDiv("sr-native-card-fields");
-        let duplicateStatus: HTMLDivElement | null = null;
-        const updateDuplicateStatus = (): void => {
-            if (!duplicateStatus) return;
-            const count = this.countMatchingFronts(this.front);
-            duplicateStatus.hidden = count === 0;
-            duplicateStatus.setText(
-                this.creatorText(
-                    `${count} possible duplicate${count === 1 ? "" : "s"}`,
-                    `Возможных дубликатов: ${count}`,
-                ),
-            );
+        let qualityPanel: HTMLDetailsElement | null = null;
+        const updateQuality = (): void => {
+            if (qualityPanel) {
+                this.renderCardQualityReport(qualityPanel, this.getNativeCardQualityReport());
+            }
         };
         const frontGroup = this.createFieldGroup(cardFields, frontLabel, frontHelp);
         const frontInput = this.createRichTextEditor(
@@ -826,7 +821,7 @@ export class NativeCreatorView extends ItemView {
             "front",
             (value) => {
                 this.front = value;
-                updateDuplicateStatus();
+                updateQuality();
             },
         );
 
@@ -841,13 +836,13 @@ export class NativeCreatorView extends ItemView {
             this.cardType === "cloze" ? t("CLOZE_ANSWER_PLACEHOLDER") : t("CARD_BACK_PLACEHOLDER"),
             this.cardType === "cloze" ? t("CLOZE_ANSWER") : t("CARD_BACK"),
             "back",
-            (value) => (this.back = value),
+            (value) => {
+                this.back = value;
+                updateQuality();
+            },
         );
-        duplicateStatus = cardFields.createDiv({
-            cls: "sr-native-duplicate-status",
-            attr: { role: "status", "aria-live": "polite" },
-        });
-        updateDuplicateStatus();
+        qualityPanel = surface.createEl("details", { cls: "sr-card-quality" });
+        this.renderCardQualityReport(qualityPanel, this.getNativeCardQualityReport());
 
         if (this.showCardPreview) this.renderFullCardPreview(surface);
 
@@ -919,6 +914,303 @@ export class NativeCreatorView extends ItemView {
             .onClick(() => void this.saveCard(false));
 
         if (!Platform.isMobile) window.setTimeout(() => frontInput.focus(), 0);
+    }
+
+    private getNativeCardQualityReport(): CardQualityReport {
+        return analyzeCardQuality({
+            kind: this.cardType === "cloze" ? "cloze-selection" : "basic",
+            question: this.front,
+            answer: this.back,
+            questionHasMedia: this.hasPendingMedia("front"),
+            answerHasMedia: this.hasPendingMedia("back"),
+            requireAnswer: true,
+            duplicateCount: this.countMatchingFronts(this.front),
+            mediaReferences: this.existingMedia
+                .filter(
+                    (attachment) => attachment.target === "front" || attachment.target === "back",
+                )
+                .map((attachment) => attachment.path),
+            mediaExists: (path) => this.qualityMediaExists(path),
+        });
+    }
+
+    private getStructuredCardQualityReport(noteType: NoteTypeDefinition): CardQualityReport {
+        const fields = [...noteType.fields].sort((left, right) => left.ordinal - right.ordinal);
+        const primaryFieldId = noteType.templates[0]?.sourceFieldId ?? fields[0]?.id;
+        const primary = fields.find((field) => field.id === primaryFieldId) ?? fields[0];
+        const answer = fields.find((field) => field.id !== primary?.id);
+        return analyzeCardQuality({
+            kind: noteType.kind === "cloze" ? "cloze-markup" : "custom",
+            question: primary ? (this.customFieldValues[primary.id] ?? "") : "",
+            answer: answer ? (this.customFieldValues[answer.id] ?? "") : "",
+            questionHasMedia: primary ? this.hasPendingMedia(`field:${primary.id}`) : false,
+            answerHasMedia: answer ? this.hasPendingMedia(`field:${answer.id}`) : false,
+            requireAnswer: false,
+            fields: fields.map((field) => ({
+                name: field.name,
+                value: this.customFieldValues[field.id] ?? "",
+                required: field.required,
+                hasMedia: this.hasPendingMedia(`field:${field.id}`),
+            })),
+            duplicateCount: primary
+                ? this.countMatchingFronts(this.customFieldValues[primary.id] ?? "")
+                : 0,
+            mediaReferences: this.existingMedia
+                .filter((attachment) => attachment.target.startsWith("field:"))
+                .map((attachment) => attachment.path),
+            mediaExists: (path) => this.qualityMediaExists(path),
+        });
+    }
+
+    private qualityMediaExists(path: string): boolean {
+        let normalized = path.trim().replace(/^<|>$/g, "").split("#")[0];
+        try {
+            normalized = decodeURIComponent(normalized);
+        } catch {
+            // Keep the original path when it is not URI encoded.
+        }
+        if (
+            this.plugin.app.vault.getAbstractFileByPath(normalizePath(normalized)) instanceof TFile
+        ) {
+            return true;
+        }
+        const sourcePath =
+            this.editingCard?.question.note.filePath ??
+            this.editingStructuredNote?.source.path ??
+            "";
+        return (
+            this.plugin.app.metadataCache.getFirstLinkpathDest(normalized, sourcePath) instanceof
+            TFile
+        );
+    }
+
+    private renderCardQualityReport(panel: HTMLDetailsElement, report: CardQualityReport): void {
+        const wasOpen = panel.open;
+        panel.empty();
+        panel.addClass(`is-${report.status}`);
+        panel.removeClass(
+            ...["strong", "fair", "weak"]
+                .filter((status) => status !== report.status)
+                .map((status) => `is-${status}`),
+        );
+        panel.open = wasOpen;
+        const summary = panel.createEl("summary");
+        const icon = summary.createSpan("sr-card-quality-icon");
+        setIcon(
+            icon,
+            report.status === "strong"
+                ? "shield-check"
+                : report.status === "fair"
+                  ? "triangle-alert"
+                  : "circle-x",
+        );
+        const copy = summary.createSpan("sr-card-quality-summary-copy");
+        copy.createEl("strong", {
+            text:
+                report.status === "strong"
+                    ? this.creatorText("Strong card", "Хорошая карточка")
+                    : report.status === "fair"
+                      ? this.creatorText("Worth reviewing", "Стоит проверить")
+                      : this.creatorText("Fix before saving", "Исправьте перед сохранением"),
+        });
+        copy.createSpan({
+            text:
+                report.issues.length === 0
+                    ? this.creatorText(
+                          "Focused and ready to study",
+                          "Сфокусирована и готова к изучению",
+                      )
+                    : this.creatorText(
+                          `${report.issues.length} actionable suggestion${report.issues.length === 1 ? "" : "s"}`,
+                          `Рекомендаций: ${report.issues.length}`,
+                      ),
+        });
+        summary.createSpan({ cls: "sr-card-quality-score", text: String(report.score) });
+        const body = panel.createDiv("sr-card-quality-body");
+        if (report.issues.length === 0) {
+            body.createDiv({
+                cls: "sr-card-quality-success",
+                text: this.creatorText(
+                    "One clear prompt, one retrievable answer.",
+                    "Один ясный вопрос и один воспроизводимый ответ.",
+                ),
+            });
+            return;
+        }
+        for (const issue of report.issues) {
+            const row = body.createDiv(`sr-card-quality-issue is-${issue.severity}`);
+            const marker = row.createSpan();
+            setIcon(
+                marker,
+                issue.severity === "error"
+                    ? "circle-x"
+                    : issue.severity === "warning"
+                      ? "triangle-alert"
+                      : "lightbulb",
+            );
+            const issueCopy = row.createDiv();
+            const text = this.cardQualityIssueText(issue);
+            issueCopy.createEl("strong", { text: text.title });
+            issueCopy.createSpan({ text: text.action });
+        }
+    }
+
+    private cardQualityIssueText(issue: CardQualityIssue): {
+        title: string;
+        action: string;
+    } {
+        const count = issue.value ?? 0;
+        if (issue.code === "empty-question") {
+            return {
+                title: this.creatorText("Question is empty", "Вопрос пуст"),
+                action: this.creatorText("Add one clear prompt.", "Добавьте один ясный вопрос."),
+            };
+        }
+        if (issue.code === "empty-answer") {
+            return {
+                title: this.creatorText("Answer is empty", "Ответ пуст"),
+                action: this.creatorText(
+                    "Add the information you want to recall.",
+                    "Добавьте информацию, которую нужно вспомнить.",
+                ),
+            };
+        }
+        if (issue.code === "empty-required-field") {
+            return {
+                title: this.creatorText(
+                    `Required field is empty: ${issue.detail ?? ""}`,
+                    `Обязательное поле пусто: ${issue.detail ?? ""}`,
+                ),
+                action: this.creatorText(
+                    "Fill it or attach media.",
+                    "Заполните его или добавьте медиа.",
+                ),
+            };
+        }
+        if (issue.code === "missing-media") {
+            return {
+                title: this.creatorText("Media file is missing", "Медиафайл не найден"),
+                action: this.creatorText(
+                    `Restore or replace ${issue.detail ?? "the file"}.`,
+                    `Восстановите или замените ${issue.detail ?? "файл"}.`,
+                ),
+            };
+        }
+        if (issue.code === "cloze-answer-not-found") {
+            return {
+                title: this.creatorText(
+                    "Cloze answer is absent from the text",
+                    "Cloze-ответ отсутствует в тексте",
+                ),
+                action: this.creatorText(
+                    "Copy the exact hidden phrase into the answer field.",
+                    "Скопируйте скрываемую фразу в поле ответа без изменений.",
+                ),
+            };
+        }
+        if (issue.code === "cloze-answer-repeated") {
+            return {
+                title: this.creatorText(
+                    `The answer occurs ${count} times`,
+                    `Ответ встречается ${count} раза`,
+                ),
+                action: this.creatorText(
+                    "Make the selected phrase unique to hide the intended occurrence.",
+                    "Уточните фразу, чтобы скрывалось нужное вхождение.",
+                ),
+            };
+        }
+        if (issue.code === "cloze-pattern-required") {
+            return {
+                title: this.creatorText("No Cloze deletion found", "Cloze-пропуск не найден"),
+                action: this.creatorText(
+                    "Add at least one {{c1::hidden fragment}}.",
+                    "Добавьте хотя бы один {{c1::скрытый фрагмент}}.",
+                ),
+            };
+        }
+        if (issue.code === "cloze-empty-deletion") {
+            return {
+                title: this.creatorText("Cloze deletion is empty", "Cloze-пропуск пуст"),
+                action: this.creatorText(
+                    "Put text inside the deletion.",
+                    "Добавьте текст внутрь пропуска.",
+                ),
+            };
+        }
+        if (issue.code === "question-too-long") {
+            return {
+                title: this.creatorText(`Question has ${count} words`, `В вопросе ${count} слов`),
+                action: this.creatorText(
+                    "Keep only the context needed to identify one fact.",
+                    "Оставьте только контекст, необходимый для одного факта.",
+                ),
+            };
+        }
+        if (issue.code === "answer-too-long") {
+            return {
+                title: this.creatorText(`Answer has ${count} words`, `В ответе ${count} слов`),
+                action: this.creatorText(
+                    "Split it into smaller cards or move explanation into Extra.",
+                    "Разделите ответ на карточки или перенесите объяснение в Extra.",
+                ),
+            };
+        }
+        if (issue.code === "multiple-prompts") {
+            return {
+                title: this.creatorText(
+                    `${count} questions in one card`,
+                    `В одной карточке вопросов: ${count}`,
+                ),
+                action: this.creatorText(
+                    "Create one card for each question.",
+                    "Создайте отдельную карточку для каждого вопроса.",
+                ),
+            };
+        }
+        if (issue.code === "too-many-answer-items") {
+            return {
+                title: this.creatorText(
+                    `${count} items must be recalled at once`,
+                    `Нужно вспомнить элементов: ${count}`,
+                ),
+                action: this.creatorText(
+                    "Chunk the list or create one card per item.",
+                    "Разбейте список на части или создайте карточку для каждого пункта.",
+                ),
+            };
+        }
+        if (issue.code === "answer-in-question") {
+            return {
+                title: this.creatorText(
+                    "The question reveals the answer",
+                    "Вопрос подсказывает ответ",
+                ),
+                action: this.creatorText(
+                    "Remove the answer phrase or replace it with neutral context.",
+                    "Уберите фразу ответа или замените её нейтральным контекстом.",
+                ),
+            };
+        }
+        if (issue.code === "dense-sentence") {
+            return {
+                title: this.creatorText("Dense sentence", "Перегруженное предложение"),
+                action: this.creatorText(
+                    "Shorten it so the prompt can be understood in one reading.",
+                    "Сократите его, чтобы вопрос понимался с первого прочтения.",
+                ),
+            };
+        }
+        return {
+            title: this.creatorText(
+                `${count} possible duplicate${count === 1 ? "" : "s"}`,
+                `Возможных дубликатов: ${count}`,
+            ),
+            action: this.creatorText(
+                "Check the existing card before saving another copy.",
+                "Проверьте существующую карточку перед сохранением копии.",
+            ),
+        };
     }
 
     private renderFullCardPreview(parent: HTMLElement): void {
@@ -6616,6 +6908,15 @@ export class NativeCreatorView extends ItemView {
             surface.createDiv({ cls: "sr-native-form-tip", text: t("CUSTOM_CLOZE_HELP") });
         }
         let firstInput: HTMLElement | null = null;
+        let qualityPanel: HTMLDetailsElement | null = null;
+        const updateQuality = (): void => {
+            if (qualityPanel) {
+                this.renderCardQualityReport(
+                    qualityPanel,
+                    this.getStructuredCardQualityReport(noteType),
+                );
+            }
+        };
         for (const field of [...noteType.fields].sort(
             (left, right) => left.ordinal - right.ordinal,
         )) {
@@ -6633,6 +6934,7 @@ export class NativeCreatorView extends ItemView {
                     this.customFieldValues[field.id] = input.value;
                     this.clearError();
                     this.saveDraft();
+                    updateQuality();
                 });
                 firstInput ??= input;
             } else {
@@ -6645,28 +6947,15 @@ export class NativeCreatorView extends ItemView {
                     (value) => {
                         this.customFieldValues[field.id] = value;
                         this.clearError();
+                        updateQuality();
                     },
                 );
                 firstInput ??= input;
             }
         }
 
-        const primaryField = [...noteType.fields].sort(
-            (left, right) => left.ordinal - right.ordinal,
-        )[0];
-        const duplicateCount = primaryField
-            ? this.countMatchingFronts(this.customFieldValues[primaryField.id] ?? "")
-            : 0;
-        if (duplicateCount > 0) {
-            surface.createDiv({
-                cls: "sr-native-duplicate-status",
-                text: this.creatorText(
-                    `${duplicateCount} possible duplicate${duplicateCount === 1 ? "" : "s"}`,
-                    `Возможных дубликатов: ${duplicateCount}`,
-                ),
-                attr: { role: "status" },
-            });
-        }
+        qualityPanel = surface.createEl("details", { cls: "sr-card-quality" });
+        this.renderCardQualityReport(qualityPanel, this.getStructuredCardQualityReport(noteType));
 
         this.renderTagsField(surface);
         this.renderStickyControls(
@@ -6728,6 +7017,15 @@ export class NativeCreatorView extends ItemView {
         );
         if (!hasAnyContent || missingRequired) {
             this.error = t("REQUIRED_FIELDS_MISSING");
+            this.render();
+            return;
+        }
+        const qualityIssue = this.getStructuredCardQualityReport(noteType).issues.find(
+            (issue) => issue.severity === "error",
+        );
+        if (qualityIssue) {
+            const text = this.cardQualityIssueText(qualityIssue);
+            this.error = `${text.title}. ${text.action}`;
             this.render();
             return;
         }
@@ -6797,6 +7095,15 @@ export class NativeCreatorView extends ItemView {
         }
         if (includesCloze && !this.front.includes(this.back.trim())) {
             this.error = t("CLOZE_ANSWER_NOT_FOUND");
+            this.render();
+            return;
+        }
+        const qualityIssue = this.getNativeCardQualityReport().issues.find(
+            (issue) => issue.severity === "error",
+        );
+        if (qualityIssue) {
+            const text = this.cardQualityIssueText(qualityIssue);
+            this.error = `${text.title}. ${text.action}`;
             this.render();
             return;
         }
