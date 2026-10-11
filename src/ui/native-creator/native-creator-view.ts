@@ -151,6 +151,7 @@ interface CardEditorSnapshot {
 }
 
 type OcclusionTool = OcclusionShape | "pan";
+type MediaLibraryFilter = "all" | "image" | "audio" | "video" | "unused" | "duplicate";
 
 const ORGANIZER_ICONS = [
     "folder",
@@ -232,6 +233,10 @@ export class NativeCreatorView extends ItemView {
     private mediaRecorder: MediaRecorder | null = null;
     private mediaRecordingChunks: Blob[] = [];
     private isRecordingMedia = false;
+    private mediaLibraryQuery = "";
+    private mediaLibraryFilter: MediaLibraryFilter = "all";
+    private mediaLibraryPage = 1;
+    private readonly mediaLibraryPageSize = 16;
     private draftRestored = false;
     private templatePreviewDevice: "phone" | "desktop" = "phone";
     private templatePreviewTheme: "light" | "dark" = "dark";
@@ -460,6 +465,7 @@ export class NativeCreatorView extends ItemView {
 
         const page = this.contentEl.createDiv("sr-native-creator-page");
         const top = page.createDiv("sr-native-creator-top");
+        top.addClass("sr-native-creator-top-compact");
         top.toggleClass("sr-native-creator-top-card", this.request.mode === "card");
         const back = new ButtonComponent(top).setIcon("arrow-left").setTooltip(t("BACK_TO_CARDS"));
         back.buttonEl.addClass("sr-native-icon-button");
@@ -514,12 +520,13 @@ export class NativeCreatorView extends ItemView {
                                   : t("NEW_CARD_DESCRIPTION"),
         });
 
-        if (
+        const hasModePicker =
             !this.editingCard &&
             !this.editingAreaId &&
+            this.noteTypeDraft === null &&
             this.request.mode !== "deck-options" &&
-            this.request.mode !== "image-occlusion"
-        ) {
+            this.request.mode !== "image-occlusion";
+        if (hasModePicker) {
             const section = new ButtonComponent(top)
                 .setButtonText(this.getModeLabel(this.request.mode))
                 .setTooltip(t("OPEN_SECTION_MENU"))
@@ -531,6 +538,11 @@ export class NativeCreatorView extends ItemView {
             section.buttonEl.prepend(icon);
             const chevron = section.buttonEl.createSpan("sr-native-section-picker-chevron");
             setIcon(chevron, "chevron-down");
+        } else {
+            const label = top.createDiv("sr-native-header-label");
+            const icon = label.createSpan();
+            setIcon(icon, this.getModeIcon(this.request.mode));
+            label.createSpan({ text: this.getHeaderLabel() });
         }
 
         if (this.request.mode === "card") {
@@ -568,6 +580,8 @@ export class NativeCreatorView extends ItemView {
                 .onClick(() => void this.saveCurrentCard(false));
             save.buttonEl.addClass("sr-native-top-save");
             save.buttonEl.addClass("mod-cta");
+        } else {
+            this.renderHeaderPrimaryAction(top);
         }
 
         const surface = page.createDiv("sr-native-creator-surface");
@@ -598,6 +612,54 @@ export class NativeCreatorView extends ItemView {
         if (mode === "media") return "images";
         if (mode === "transfer") return "arrow-left-right";
         return "square-pen";
+    }
+
+    private getHeaderLabel(): string {
+        if (this.request.mode === "area") {
+            return this.editingAreaId ? t("EDIT_KNOWLEDGE_AREA") : t("NEW_KNOWLEDGE_AREA");
+        }
+        if (this.request.mode === "note-type" && this.noteTypeDraft) return t("EDIT_NOTE_TYPE");
+        if (this.request.mode === "deck-options") return t("DECK_OPTIONS");
+        if (this.request.mode === "image-occlusion") return t("IMAGE_OCCLUSION");
+        return this.getModeLabel(this.request.mode);
+    }
+
+    private renderHeaderPrimaryAction(parent: HTMLElement): void {
+        let label = "";
+        let action: (() => void) | null = null;
+        if (this.request.mode === "deck") {
+            label = this.busy ? t("SAVING") : this.creatorText("Create", "Создать");
+            action = () => void this.saveDeck();
+        } else if (this.request.mode === "area") {
+            label = this.busy
+                ? t("SAVING")
+                : this.editingAreaId
+                  ? t("SAVE")
+                  : this.creatorText("Create", "Создать");
+            action = () => void this.saveKnowledgeArea();
+        } else if (this.request.mode === "note-type") {
+            if (this.noteTypeDraft) {
+                label = this.busy ? t("SAVING") : t("SAVE");
+                action = () => void this.saveNoteType();
+            } else {
+                const add = new ButtonComponent(parent)
+                    .setIcon("plus")
+                    .setTooltip(t("NEW_NOTE_TYPE"))
+                    .onClick(() => {
+                        this.noteTypeDraft = this.createEmptyNoteTypeDraft();
+                        this.render();
+                    });
+                add.buttonEl.addClass("sr-native-header-icon-action");
+                return;
+            }
+        }
+        if (!action) return;
+        const button = new ButtonComponent(parent)
+            .setButtonText(label)
+            .setDisabled(this.busy)
+            .onClick(action);
+        button.buttonEl.addClass("sr-native-top-save");
+        button.buttonEl.addClass("mod-cta");
     }
 
     private openModeMenu(event: MouseEvent): void {
@@ -2925,52 +2987,178 @@ export class NativeCreatorView extends ItemView {
             parent.createDiv({ cls: "sr-media-manager-empty", text: t("NO_MEDIA_FILES") });
             return;
         }
-        for (const file of files) {
-            const row = parent.createDiv("sr-media-manager-row");
-            const preview = row.createDiv("sr-media-manager-preview");
-            if (/^(png|jpe?g|gif|webp|svg|bmp|avif|heic|heif)$/i.test(file.extension)) {
-                preview.createEl("img", {
-                    attr: { src: this.plugin.app.vault.getResourcePath(file), alt: file.name },
-                });
-            } else {
-                setIcon(
-                    preview,
-                    /^(mp3|wav|m4a|ogg|flac|aac|webm)$/i.test(file.extension)
-                        ? "audio-lines"
-                        : "film",
-                );
-            }
-            const copy = row.createDiv("sr-media-manager-copy");
-            copy.createEl("strong", { text: file.name });
-            copy.createSpan({ text: this.formatFileSize(file.stat.size) });
-            const badges = copy.createDiv("sr-media-manager-badges");
-            if (!referenced.has(file.path)) badges.createSpan({ text: t("UNUSED") });
-            if (duplicates.has(file)) badges.createSpan({ text: t("DUPLICATE") });
-            const rowActions = row.createDiv("sr-media-manager-row-actions");
-            const replace = new ButtonComponent(rowActions)
-                .setIcon("replace")
-                .setTooltip(t("REPLACE_MEDIA"));
-            const replaceInput = rowActions.createEl("input", {
-                cls: "sr-native-media-input",
-                attr: { type: "file", accept: "image/*,audio/*,video/*" },
+
+        const controls = parent.createDiv("sr-media-library-controls");
+        const search = controls.createDiv("sr-media-library-search");
+        const searchIcon = search.createSpan();
+        setIcon(searchIcon, "search");
+        const searchInput = search.createEl("input", {
+            attr: {
+                type: "search",
+                placeholder: this.creatorText("Search media…", "Поиск медиа…"),
+                "aria-label": this.creatorText("Search media", "Поиск медиа"),
+            },
+        });
+        searchInput.value = this.mediaLibraryQuery;
+        const filters = controls.createDiv("sr-media-library-filters");
+        const filterButtons = new Map<MediaLibraryFilter, HTMLButtonElement>();
+        for (const [filter, icon, english, russian] of [
+            ["all", "files", "All", "Все"],
+            ["image", "image", "Images", "Изображения"],
+            ["audio", "audio-lines", "Audio", "Аудио"],
+            ["video", "film", "Video", "Видео"],
+            ["unused", "unlink", "Unused", "Не используются"],
+            ["duplicate", "copy", "Duplicates", "Дубликаты"],
+        ] as const) {
+            const button = filters.createEl("button", {
+                attr: { type: "button" },
             });
-            replace.onClick(() => replaceInput.click());
-            replaceInput.addEventListener("change", () => {
-                const replacement = replaceInput.files?.[0];
-                if (!replacement) return;
-                void replacement
-                    .arrayBuffer()
-                    .then((data) => this.plugin.app.vault.modifyBinary(file, data))
-                    .then(() => {
-                        new Notice(t("MEDIA_REPLACED"));
-                        this.render();
-                    });
-            });
-            new ButtonComponent(rowActions)
-                .setIcon("trash-2")
-                .setTooltip(t("DELETE_MEDIA"))
-                .onClick(() => this.confirmTrashMedia([file]));
+            const iconEl = button.createSpan();
+            setIcon(iconEl, icon);
+            button.createSpan({ text: this.creatorText(english, russian) });
+            filterButtons.set(filter, button);
         }
+
+        const resultMeta = parent.createDiv("sr-media-library-result-meta");
+        const results = parent.createDiv("sr-media-library-results");
+        const pagination = parent.createDiv("sr-media-library-pagination");
+        const imageExtensions = /^(png|jpe?g|gif|webp|svg|bmp|avif|heic|heif)$/i;
+        const audioExtensions = /^(mp3|wav|m4a|ogg|flac|aac|webm)$/i;
+        const mediaKind = (file: TFile): "image" | "audio" | "video" =>
+            imageExtensions.test(file.extension)
+                ? "image"
+                : audioExtensions.test(file.extension)
+                  ? "audio"
+                  : "video";
+
+        const renderResults = (): void => {
+            for (const [filter, button] of filterButtons) {
+                button.toggleClass("is-active", filter === this.mediaLibraryFilter);
+                button.setAttribute("aria-pressed", String(filter === this.mediaLibraryFilter));
+            }
+            const query = this.mediaLibraryQuery.trim().toLocaleLowerCase();
+            const filtered = files
+                .filter((file) => {
+                    if (query && !file.path.toLocaleLowerCase().includes(query)) return false;
+                    if (this.mediaLibraryFilter === "unused") return !referenced.has(file.path);
+                    if (this.mediaLibraryFilter === "duplicate") return duplicates.has(file);
+                    if (this.mediaLibraryFilter === "all") return true;
+                    return mediaKind(file) === this.mediaLibraryFilter;
+                })
+                .sort((left, right) => right.stat.mtime - left.stat.mtime);
+            const pages = Math.max(1, Math.ceil(filtered.length / this.mediaLibraryPageSize));
+            this.mediaLibraryPage = Math.min(Math.max(1, this.mediaLibraryPage), pages);
+            const start = (this.mediaLibraryPage - 1) * this.mediaLibraryPageSize;
+            const visible = filtered.slice(start, start + this.mediaLibraryPageSize);
+
+            resultMeta.empty();
+            resultMeta.createSpan({
+                text: this.creatorText(`${filtered.length} files`, `${filtered.length} файлов`),
+            });
+            resultMeta.createSpan({
+                text: this.creatorText(
+                    `Page ${this.mediaLibraryPage} of ${pages}`,
+                    `Страница ${this.mediaLibraryPage} из ${pages}`,
+                ),
+            });
+            results.empty();
+            if (visible.length === 0) {
+                results.createDiv({
+                    cls: "sr-media-manager-empty",
+                    text: this.creatorText(
+                        "No media matches these filters.",
+                        "По этим фильтрам ничего не найдено.",
+                    ),
+                });
+            }
+            for (const file of visible) {
+                const row = results.createDiv("sr-media-manager-row");
+                const preview = row.createDiv("sr-media-manager-preview");
+                const kind = mediaKind(file);
+                if (kind === "image") {
+                    preview.createEl("img", {
+                        attr: {
+                            src: this.plugin.app.vault.getResourcePath(file),
+                            alt: file.name,
+                            loading: "lazy",
+                        },
+                    });
+                } else setIcon(preview, kind === "audio" ? "audio-lines" : "film");
+                const copy = row.createDiv("sr-media-manager-copy");
+                copy.createEl("strong", { text: file.name });
+                copy.createSpan({ text: this.formatFileSize(file.stat.size) });
+                const badges = copy.createDiv("sr-media-manager-badges");
+                if (!referenced.has(file.path)) badges.createSpan({ text: t("UNUSED") });
+                if (duplicates.has(file)) badges.createSpan({ text: t("DUPLICATE") });
+                const rowActions = row.createDiv("sr-media-manager-row-actions");
+                const replace = new ButtonComponent(rowActions)
+                    .setIcon("replace")
+                    .setTooltip(t("REPLACE_MEDIA"));
+                const replaceInput = rowActions.createEl("input", {
+                    cls: "sr-native-media-input",
+                    attr: { type: "file", accept: "image/*,audio/*,video/*" },
+                });
+                replace.onClick(() => replaceInput.click());
+                replaceInput.addEventListener("change", () => {
+                    const replacement = replaceInput.files?.[0];
+                    if (!replacement) return;
+                    void replacement
+                        .arrayBuffer()
+                        .then((data) => this.plugin.app.vault.modifyBinary(file, data))
+                        .then(() => {
+                            new Notice(t("MEDIA_REPLACED"));
+                            this.render();
+                        });
+                });
+                new ButtonComponent(rowActions)
+                    .setIcon("trash-2")
+                    .setTooltip(t("DELETE_MEDIA"))
+                    .onClick(() => this.confirmTrashMedia([file]));
+            }
+
+            pagination.empty();
+            const previous = new ButtonComponent(pagination)
+                .setIcon("chevron-left")
+                .setTooltip(this.creatorText("Previous page", "Предыдущая страница"))
+                .setDisabled(this.mediaLibraryPage <= 1)
+                .onClick(() => {
+                    this.mediaLibraryPage--;
+                    renderResults();
+                    controls.scrollIntoView({ block: "nearest" });
+                });
+            previous.buttonEl.setAttribute(
+                "aria-label",
+                this.creatorText("Previous page", "Предыдущая страница"),
+            );
+            pagination.createSpan({ text: `${this.mediaLibraryPage} / ${pages}` });
+            const next = new ButtonComponent(pagination)
+                .setIcon("chevron-right")
+                .setTooltip(this.creatorText("Next page", "Следующая страница"))
+                .setDisabled(this.mediaLibraryPage >= pages)
+                .onClick(() => {
+                    this.mediaLibraryPage++;
+                    renderResults();
+                    controls.scrollIntoView({ block: "nearest" });
+                });
+            next.buttonEl.setAttribute(
+                "aria-label",
+                this.creatorText("Next page", "Следующая страница"),
+            );
+        };
+
+        searchInput.addEventListener("input", () => {
+            this.mediaLibraryQuery = searchInput.value;
+            this.mediaLibraryPage = 1;
+            renderResults();
+        });
+        for (const [filter, button] of filterButtons) {
+            button.addEventListener("click", () => {
+                this.mediaLibraryFilter = filter;
+                this.mediaLibraryPage = 1;
+                renderResults();
+            });
+        }
+        renderResults();
     }
 
     private createMediaStat(parent: HTMLElement, value: number, label: string): void {
@@ -3051,18 +3239,6 @@ export class NativeCreatorView extends ItemView {
             this.deckIcon = icon;
         });
 
-        const preview = surface.createDiv("sr-native-deck-preview");
-        const previewIcon = preview.createDiv("sr-native-deck-preview-icon");
-        setIcon(previewIcon, this.deckIcon);
-        const previewCopy = preview.createDiv();
-        previewCopy.createSpan({ text: t("DECK_WILL_APPEAR_AS") });
-        const previewName = previewCopy.createEl("strong", {
-            text: normalizeManagedDeckPath(this.selectedDeck) || t("NEW_DECK"),
-        });
-        input.addEventListener("input", () => {
-            previewName.setText(normalizeManagedDeckPath(input.value) || t("NEW_DECK"));
-        });
-
         if (this.error) {
             surface.createDiv({
                 cls: "sr-native-form-error",
@@ -3071,12 +3247,6 @@ export class NativeCreatorView extends ItemView {
             });
         }
 
-        const actions = surface.createDiv("sr-native-form-actions");
-        new ButtonComponent(actions)
-            .setButtonText(this.busy ? t("SAVING") : t("CREATE_DECK"))
-            .setCta()
-            .setDisabled(this.busy)
-            .onClick(() => void this.saveDeck());
         window.setTimeout(() => input.focus(), 0);
     }
 
@@ -3687,18 +3857,6 @@ export class NativeCreatorView extends ItemView {
             });
         }
 
-        const actions = surface.createDiv("sr-native-form-actions");
-        new ButtonComponent(actions)
-            .setButtonText(
-                this.busy
-                    ? t("SAVING")
-                    : this.editingAreaId
-                      ? t("SAVE_CHANGES")
-                      : t("CREATE_KNOWLEDGE_AREA"),
-            )
-            .setCta()
-            .setDisabled(this.busy)
-            .onClick(() => void this.saveKnowledgeArea());
         window.setTimeout(() => input.focus(), 0);
     }
 
@@ -3708,21 +3866,6 @@ export class NativeCreatorView extends ItemView {
             this.renderNoteTypeEditor(surface, this.noteTypeDraft);
             return;
         }
-
-        const toolbar = surface.createDiv("sr-note-type-toolbar");
-        const copy = toolbar.createDiv();
-        copy.createEl("h2", { text: t("NOTE_TYPES") });
-        copy.createEl("p", { text: t("NOTE_TYPES_HELP") });
-        const add = new ButtonComponent(toolbar)
-            .setButtonText(t("NEW_NOTE_TYPE"))
-            .setCta()
-            .onClick(() => {
-                this.noteTypeDraft = this.createEmptyNoteTypeDraft();
-                this.render();
-            });
-        const addIcon = add.buttonEl.createSpan("sr-note-type-button-icon");
-        setIcon(addIcon, "plus");
-        add.buttonEl.prepend(addIcon);
 
         this.renderTemplateLibrary(surface);
 
@@ -3935,17 +4078,6 @@ export class NativeCreatorView extends ItemView {
                 attr: { role: "alert" },
             });
         }
-        const actions = parent.createDiv("sr-native-form-actions sr-note-type-save-actions");
-        new ButtonComponent(actions).setButtonText(t("CANCEL")).onClick(() => {
-            this.noteTypeDraft = null;
-            this.error = "";
-            this.render();
-        });
-        new ButtonComponent(actions)
-            .setButtonText(this.busy ? t("SAVING") : t("SAVE_NOTE_TYPE"))
-            .setCta()
-            .setDisabled(this.busy)
-            .onClick(() => void this.saveNoteType());
     }
 
     private renderFieldDefinitions(parent: HTMLElement, draft: NoteTypeEditorDraft): void {
