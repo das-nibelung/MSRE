@@ -12,6 +12,11 @@ import {
 } from "obsidian";
 
 import {
+    canonicalAnswerMode,
+    createDefaultAnswerConfig,
+    normalizeAnswerConfig,
+} from "src/data/collection/answer-evaluator";
+import {
     BASIC_NOTE_TYPE_ID,
     CLOZE_NOTE_TYPE_ID,
     IMAGE_OCCLUSION_NOTE_TYPE_ID,
@@ -23,6 +28,7 @@ import {
 } from "src/data/collection/builtin-note-types";
 import { DEFAULT_DECK_OPTIONS_ID } from "src/data/collection/collection-store";
 import {
+    CardAnswerMode,
     CardTemplateDefinition,
     CollectionNote,
     DeckOptionsDefinition,
@@ -236,7 +242,12 @@ export class NativeCreatorView extends ItemView {
             } else {
                 this.loadCardForEditing(this.editingCard);
                 this.selectedNoteTypeId = this.noteTypeIdForCardType(this.cardType);
-                if (structuredNote?.answerMode) this.answerMode = structuredNote.answerMode;
+                if (structuredNote?.answerMode) {
+                    this.answerMode =
+                        canonicalAnswerMode(structuredNote.answerMode) === "text"
+                            ? "type"
+                            : "reveal";
+                }
                 this.front = this.extractMediaEmbeds(this.front, "front");
                 this.back = this.extractMediaEmbeds(this.back, "back");
             }
@@ -248,7 +259,10 @@ export class NativeCreatorView extends ItemView {
             );
             this.loadCardForEditing(source);
             this.selectedNoteTypeId = this.noteTypeIdForCardType(this.cardType);
-            if (structuredNote?.answerMode) this.answerMode = structuredNote.answerMode;
+            if (structuredNote?.answerMode) {
+                this.answerMode =
+                    canonicalAnswerMode(structuredNote.answerMode) === "text" ? "type" : "reveal";
+            }
             this.tagsText = structuredNote?.tags.join(", ") ?? "";
             this.front = this.extractMediaEmbeds(this.front, "front");
             this.back = this.extractMediaEmbeds(this.back, "back");
@@ -1880,7 +1894,8 @@ export class NativeCreatorView extends ItemView {
             deckOverride: null,
             enabled: true,
             generator: template.generator ?? "standard",
-            answerMode: template.answerMode ?? "reveal",
+            answerMode: canonicalAnswerMode(template.answerMode),
+            answerConfig: createDefaultAnswerConfig(),
             answerFieldId: template.answerField ? (byName.get(template.answerField) ?? null) : null,
             sourceFieldId: template.sourceField ? (byName.get(template.sourceField) ?? null) : null,
             condition: conditionForField(
@@ -2178,12 +2193,22 @@ export class NativeCreatorView extends ItemView {
             this.createTemplateSelect(
                 behavior,
                 t("TEMPLATE_ANSWER_MODE"),
-                template.answerMode ?? "reveal",
+                canonicalAnswerMode(template.answerMode),
                 [
                     ["reveal", t("ANSWER_MODE_REVEAL")],
-                    ["type", t("ANSWER_MODE_TYPE")],
+                    ["text", t("ANSWER_MODE_TEXT")],
+                    ["multiple-text", t("ANSWER_MODE_MULTIPLE_TEXT")],
+                    ["number", t("ANSWER_MODE_NUMBER")],
+                    ["formula", t("ANSWER_MODE_FORMULA")],
+                    ["ordered-list", t("ANSWER_MODE_ORDERED_LIST")],
+                    ["unordered-list", t("ANSWER_MODE_UNORDERED_LIST")],
+                    ["image-labels", t("ANSWER_MODE_IMAGE_LABELS")],
+                    ["multiple-choice", t("ANSWER_MODE_MULTIPLE_CHOICE")],
                 ],
-                (value) => (template.answerMode = value as "reveal" | "type"),
+                (value) => {
+                    template.answerMode = value as CardAnswerMode;
+                    template.answerConfig = normalizeAnswerConfig(template.answerConfig);
+                },
             );
             if ((template.generator ?? draft.kind) === "cloze") {
                 this.createTemplateSelect(
@@ -2197,7 +2222,10 @@ export class NativeCreatorView extends ItemView {
                     (value) => (template.sourceFieldId = value || null),
                 );
             }
-            if ((template.answerMode ?? "reveal") === "type") {
+            const answerMode = canonicalAnswerMode(template.answerMode);
+            if (
+                ["text", "number", "formula", "ordered-list", "unordered-list"].includes(answerMode)
+            ) {
                 this.createTemplateSelect(
                     behavior,
                     t("TEMPLATE_ANSWER_FIELD"),
@@ -2208,6 +2236,9 @@ export class NativeCreatorView extends ItemView {
                     ],
                     (value) => (template.answerFieldId = value || null),
                 );
+            }
+            if (answerMode !== "reveal") {
+                this.renderAnswerCheckingEditor(card, draft, template);
             }
 
             const mode = card.createDiv("sr-template-editor-mode");
@@ -2298,6 +2329,281 @@ export class NativeCreatorView extends ItemView {
         });
     }
 
+    private renderAnswerCheckingEditor(
+        parent: HTMLElement,
+        draft: NoteTypeEditorDraft,
+        template: CardTemplateDefinition,
+    ): void {
+        const mode = canonicalAnswerMode(template.answerMode);
+        const config = normalizeAnswerConfig(template.answerConfig);
+        template.answerConfig = config;
+        const details = parent.createEl("details", {
+            cls: "sr-answer-check-editor sr-note-template-advanced",
+        });
+        details.open = true;
+        details.createEl("summary", { text: t("ANSWER_CHECKING_RULES") });
+        const body = details.createDiv("sr-answer-check-editor-body");
+
+        const addTextArea = (
+            label: string,
+            value: string,
+            placeholder: string,
+            onInput: (next: string) => void,
+        ) => {
+            const control = body.createEl("label", { cls: "sr-answer-check-control" });
+            control.createSpan({ text: label });
+            const input = control.createEl("textarea", {
+                cls: "sr-native-input",
+                attr: { rows: "2", placeholder },
+            });
+            input.value = value;
+            input.addEventListener("input", () => onInput(input.value));
+        };
+        const parseLines = (value: string) =>
+            value
+                .split(/\n|;/)
+                .map((item) => item.trim())
+                .filter(Boolean);
+
+        if (!["multiple-text", "image-labels", "multiple-choice"].includes(mode)) {
+            addTextArea(
+                t("ACCEPTED_ANSWERS"),
+                config.acceptedAnswers.join("\n"),
+                t("ACCEPTED_ANSWERS_PLACEHOLDER"),
+                (value) => (config.acceptedAnswers = parseLines(value)),
+            );
+        }
+        if (["text", "multiple-text", "image-labels"].includes(mode)) {
+            addTextArea(
+                t("SYNONYM_GROUPS"),
+                config.synonymGroups.map((group) => group.join(" = ")).join("\n"),
+                t("SYNONYM_GROUPS_PLACEHOLDER"),
+                (value) => {
+                    config.synonymGroups = value
+                        .split("\n")
+                        .map((line) =>
+                            line
+                                .split(/=|\|/)
+                                .map((item) => item.trim())
+                                .filter(Boolean),
+                        )
+                        .filter((group) => group.length > 1);
+                },
+            );
+            addTextArea(
+                t("REQUIRED_KEYWORDS"),
+                config.requiredKeywords.join("; "),
+                t("REQUIRED_KEYWORDS_PLACEHOLDER"),
+                (value) => (config.requiredKeywords = parseLines(value)),
+            );
+            addTextArea(
+                t("OPTIONAL_KEYWORDS"),
+                config.optionalKeywords.join("; "),
+                t("OPTIONAL_KEYWORDS_PLACEHOLDER"),
+                (value) => (config.optionalKeywords = parseLines(value)),
+            );
+            const toggles = body.createDiv("sr-answer-check-toggles");
+            for (const [key, label] of [
+                ["ignoreCase", t("IGNORE_CASE")],
+                ["ignoreWhitespace", t("IGNORE_WHITESPACE")],
+                ["ignorePunctuation", t("IGNORE_PUNCTUATION")],
+                ["normalizeYo", t("NORMALIZE_YO")],
+            ] as const) {
+                const control = toggles.createEl("label");
+                const input = control.createEl("input", { attr: { type: "checkbox" } });
+                input.checked = config.normalization[key];
+                input.addEventListener("change", () => (config.normalization[key] = input.checked));
+                control.createSpan({ text: label });
+            }
+        }
+
+        if (mode === "number") {
+            const grid = body.createDiv("sr-answer-number-grid");
+            const addNumber = (
+                label: string,
+                value: number | null,
+                onInput: (next: number | null) => void,
+            ) => {
+                const control = grid.createEl("label", { cls: "sr-answer-check-control" });
+                control.createSpan({ text: label });
+                const input = control.createEl("input", {
+                    cls: "sr-native-input",
+                    attr: { type: "number", step: "any" },
+                });
+                input.value = value === null ? "" : String(value);
+                input.addEventListener("input", () =>
+                    onInput(input.value === "" ? null : Number(input.value)),
+                );
+            };
+            addNumber(
+                t("ABSOLUTE_TOLERANCE"),
+                config.numeric.tolerance,
+                (value) => (config.numeric.tolerance = value ?? 0),
+            );
+            addNumber(
+                t("RELATIVE_TOLERANCE"),
+                config.numeric.relativeTolerance,
+                (value) => (config.numeric.relativeTolerance = value ?? 0),
+            );
+            addNumber(
+                t("MINIMUM_VALUE"),
+                config.numeric.min,
+                (value) => (config.numeric.min = value),
+            );
+            addNumber(
+                t("MAXIMUM_VALUE"),
+                config.numeric.max,
+                (value) => (config.numeric.max = value),
+            );
+            addTextArea(
+                t("ACCEPTED_UNITS"),
+                config.numeric.units.join("; "),
+                "mg; g; kg",
+                (value) => (config.numeric.units = parseLines(value)),
+            );
+            addTextArea(
+                t("UNIT_CONVERSIONS"),
+                Object.entries(config.numeric.unitFactors)
+                    .map(([unit, factor]) => `${unit}=${factor}`)
+                    .join("\n"),
+                "mg=0.001",
+                (value) => {
+                    config.numeric.unitFactors = Object.fromEntries(
+                        value
+                            .split("\n")
+                            .map((line) => line.split("="))
+                            .filter(([, factor]) => Number.isFinite(Number(factor)))
+                            .map(([unit, factor]) => [unit.trim(), Number(factor)]),
+                    );
+                },
+            );
+        }
+
+        if (mode === "ordered-list" || mode === "unordered-list") {
+            this.createTemplateSelect(
+                body,
+                t("LIST_SEPARATOR"),
+                config.listSeparator,
+                [
+                    ["newline", t("LIST_SEPARATOR_NEWLINE")],
+                    ["comma", t("LIST_SEPARATOR_COMMA")],
+                    ["semicolon", t("LIST_SEPARATOR_SEMICOLON")],
+                ],
+                (value) => (config.listSeparator = value as typeof config.listSeparator),
+            );
+        }
+
+        if (mode === "multiple-text" || mode === "image-labels") {
+            const heading = body.createDiv("sr-answer-check-heading");
+            heading.createEl("strong", { text: t("ANSWER_PARTS") });
+            new ButtonComponent(heading)
+                .setIcon("plus")
+                .setTooltip(t("ADD_ANSWER_PART"))
+                .onClick(() => {
+                    config.parts.push({
+                        id: this.plugin.dataManager.collectionStore.createId("answer-part"),
+                        label: `${t("ANSWER_PART")} ${config.parts.length + 1}`,
+                        answerFieldId: draft.fields[0]?.id ?? null,
+                        acceptedAnswers: [],
+                        requiredKeywords: [],
+                        optional: false,
+                        weight: 1,
+                    });
+                    this.render();
+                });
+            config.parts.forEach((part, index) => {
+                const row = body.createDiv("sr-answer-part-row");
+                const label = row.createEl("input", {
+                    cls: "sr-native-input",
+                    attr: { type: "text", placeholder: t("ANSWER_PART") },
+                });
+                label.value = part.label;
+                label.addEventListener("input", () => (part.label = label.value));
+                const field = row.createEl("select", { cls: "dropdown" });
+                field.createEl("option", { value: "", text: t("CUSTOM_EXPECTED_ANSWER") });
+                for (const item of draft.fields)
+                    field.createEl("option", { value: item.id, text: item.name });
+                field.value = part.answerFieldId ?? "";
+                field.addEventListener("change", () => (part.answerFieldId = field.value || null));
+                const accepted = row.createEl("input", {
+                    cls: "sr-native-input",
+                    attr: { type: "text", placeholder: t("ACCEPTED_ANSWERS_SHORT") },
+                });
+                accepted.value = part.acceptedAnswers.join("; ");
+                accepted.addEventListener(
+                    "input",
+                    () => (part.acceptedAnswers = parseLines(accepted.value)),
+                );
+                new ButtonComponent(row)
+                    .setIcon("trash-2")
+                    .setTooltip(t("DELETE"))
+                    .onClick(() => {
+                        config.parts.splice(index, 1);
+                        this.render();
+                    });
+            });
+        }
+
+        if (mode === "multiple-choice") {
+            const heading = body.createDiv("sr-answer-check-heading");
+            heading.createEl("strong", { text: t("ANSWER_CHOICES") });
+            const multiple = heading.createEl("label", { cls: "sr-answer-choice-multiple" });
+            const multipleInput = multiple.createEl("input", { attr: { type: "checkbox" } });
+            multipleInput.checked = config.multipleChoice;
+            multipleInput.addEventListener(
+                "change",
+                () => (config.multipleChoice = multipleInput.checked),
+            );
+            multiple.createSpan({ text: t("ALLOW_MULTIPLE_CHOICES") });
+            new ButtonComponent(heading)
+                .setIcon("plus")
+                .setTooltip(t("ADD_CHOICE"))
+                .onClick(() => {
+                    config.choices.push({
+                        id: this.plugin.dataManager.collectionStore.createId("choice"),
+                        label: "",
+                        correct: false,
+                    });
+                    this.render();
+                });
+            config.choices.forEach((choice, index) => {
+                const row = body.createEl("label", { cls: "sr-answer-choice-row" });
+                const correct = row.createEl("input", {
+                    attr: {
+                        type: config.multipleChoice ? "checkbox" : "radio",
+                        name: `correct-${template.id}`,
+                    },
+                });
+                correct.checked = choice.correct;
+                correct.addEventListener("change", () => {
+                    if (!config.multipleChoice)
+                        config.choices.forEach((item) => (item.correct = false));
+                    choice.correct = correct.checked;
+                    this.render();
+                });
+                const label = row.createEl("input", {
+                    cls: "sr-native-input",
+                    attr: { type: "text", placeholder: t("CHOICE_TEXT") },
+                });
+                label.value = choice.label;
+                label.addEventListener("input", () => (choice.label = label.value));
+                new ButtonComponent(row)
+                    .setIcon("trash-2")
+                    .setTooltip(t("DELETE"))
+                    .onClick(() => {
+                        config.choices.splice(index, 1);
+                        this.render();
+                    });
+            });
+        }
+
+        const partial = body.createEl("label", { cls: "sr-answer-partial-toggle" });
+        const partialInput = partial.createEl("input", { attr: { type: "checkbox" } });
+        partialInput.checked = config.allowPartial;
+        partialInput.addEventListener("change", () => (config.allowPartial = partialInput.checked));
+        partial.createSpan({ text: t("ALLOW_PARTIAL_CREDIT") });
+    }
+
     private ensureTemplateBlocks(
         template: CardTemplateDefinition,
         draft: NoteTypeEditorDraft,
@@ -2347,7 +2653,9 @@ export class NativeCreatorView extends ItemView {
             ...(template.answerBlocks ?? []),
         ].find((block) => block.kind === "answer-input" && block.fieldId);
         if (answerInput?.fieldId) {
-            template.answerMode = "type";
+            if (canonicalAnswerMode(template.answerMode) === "reveal") {
+                template.answerMode = "text";
+            }
             template.answerFieldId = answerInput.fieldId;
         }
     }
@@ -3110,6 +3418,7 @@ export class NativeCreatorView extends ItemView {
             enabled: true,
             generator: "standard",
             answerMode: "reveal",
+            answerConfig: createDefaultAnswerConfig(),
             answerFieldId: null,
             sourceFieldId: null,
             condition: { operator: "always", fieldId: null, value: "" },
@@ -3196,6 +3505,21 @@ export class NativeCreatorView extends ItemView {
                 answerFieldId: template.answerFieldId
                     ? (fieldIdMap.get(template.answerFieldId) ?? null)
                     : null,
+                answerConfig: template.answerConfig
+                    ? {
+                          ...normalizeAnswerConfig(template.answerConfig),
+                          parts: normalizeAnswerConfig(template.answerConfig).parts.map((part) => ({
+                              ...part,
+                              id: store.createId("answer-part"),
+                              answerFieldId: part.answerFieldId
+                                  ? (fieldIdMap.get(part.answerFieldId) ?? null)
+                                  : null,
+                          })),
+                          choices: normalizeAnswerConfig(template.answerConfig).choices.map(
+                              (choice) => ({ ...choice, id: store.createId("choice") }),
+                          ),
+                      }
+                    : createDefaultAnswerConfig(),
                 sourceFieldId: template.sourceFieldId
                     ? (fieldIdMap.get(template.sourceFieldId) ?? null)
                     : null,

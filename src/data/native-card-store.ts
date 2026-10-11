@@ -1,5 +1,6 @@
 import { App, normalizePath, TFile } from "obsidian";
 
+import { canonicalAnswerMode } from "src/data/collection/answer-evaluator";
 import {
     IMAGE_OCCLUSION_NOTE_TYPE_ID,
     OCCLUSION_ASSETS_FIELD_ID,
@@ -213,7 +214,7 @@ export function serializeStructuredNoteBody(
         template: NoteTypeDefinition["templates"][number],
         renderedAnswer: string,
     ): string => {
-        if ((template.answerMode ?? "reveal") !== "type") return "";
+        if (canonicalAnswerMode(template.answerMode) === "reveal") return "";
         const expected = template.answerFieldId
             ? (fields[template.answerFieldId] ?? renderedAnswer)
             : renderedAnswer

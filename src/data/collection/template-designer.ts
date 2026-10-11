@@ -1,4 +1,6 @@
+import { canonicalAnswerMode } from "src/data/collection/answer-evaluator";
 import {
+    CardAnswerConfig,
     CardAnswerMode,
     CardTemplateGenerator,
     FieldKind,
@@ -17,7 +19,9 @@ export interface TemplateValidationIssue {
         | "unknown-field"
         | "unbalanced-condition"
         | "invalid-css"
-        | "missing-answer-field";
+        | "missing-answer-field"
+        | "missing-answer-parts"
+        | "missing-answer-choices";
     surface?: TemplateSurfaceName;
     field?: string;
 }
@@ -34,6 +38,7 @@ export interface TemplateLibraryBlueprint {
         browser?: string;
         generator?: CardTemplateGenerator;
         answerMode?: CardAnswerMode;
+        answerConfig?: Partial<CardAnswerConfig>;
         answerField?: string;
         sourceField?: string;
         conditionField?: string;
@@ -259,6 +264,7 @@ export function validateTemplateDesign(
         answerFormat: string;
         browserFormat?: string;
         answerMode?: CardAnswerMode;
+        answerConfig?: Partial<CardAnswerConfig>;
         answerFieldId?: string | null;
         css?: string;
         questionCss?: string;
@@ -274,8 +280,25 @@ export function validateTemplateDesign(
     if (template.browserFormat?.trim()) {
         issues.push(...validateFormat(template.browserFormat, "browser", fields));
     }
-    if (template.answerMode === "type" && !template.answerFieldId) {
+    if (
+        ["text", "number", "formula", "ordered-list", "unordered-list"].includes(
+            canonicalAnswerMode(template.answerMode),
+        ) &&
+        !template.answerFieldId &&
+        !template.answerConfig?.acceptedAnswers?.length
+    ) {
         issues.push({ code: "missing-answer-field", surface: "answer" });
+    }
+    const answerMode = canonicalAnswerMode(template.answerMode);
+    if (answerMode === "multiple-text" && !template.answerConfig?.parts?.length) {
+        issues.push({ code: "missing-answer-parts", surface: "answer" });
+    }
+    if (
+        answerMode === "multiple-choice" &&
+        (!template.answerConfig?.choices?.length ||
+            !template.answerConfig.choices.some((choice) => choice.correct))
+    ) {
+        issues.push({ code: "missing-answer-choices", surface: "answer" });
     }
     if (
         ![template.css, template.questionCss, template.answerCss, template.browserCss].every(

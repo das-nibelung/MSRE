@@ -1,5 +1,6 @@
 import { TFile, Vault } from "obsidian";
 
+import { canonicalAnswerMode, normalizeAnswerConfig } from "src/data/collection/answer-evaluator";
 import {
     BACK_FIELD_ID,
     BASIC_NOTE_TYPE_ID,
@@ -202,7 +203,8 @@ function normalizeTemplate(
         ...template,
         version: Math.max(1, Number(template.version) || 1),
         generator: template.generator ?? fallbackKind,
-        answerMode: template.answerMode ?? "reveal",
+        answerMode: canonicalAnswerMode(template.answerMode),
+        answerConfig: normalizeAnswerConfig(template.answerConfig),
         answerFieldId: template.answerFieldId ?? null,
         sourceFieldId: template.sourceFieldId ?? null,
         condition: template.condition ?? { operator: "always", fieldId: null, value: "" },
@@ -1830,10 +1832,19 @@ export class CollectionStore {
             enabled: template.enabled,
             generator: template.generator,
             answerMode: template.answerMode,
+            answerConfig: template.answerConfig,
             answerFieldId: template.answerFieldId,
             sourceFieldId: template.sourceFieldId,
             condition: template.condition,
             css: template.css,
+            editorMode: template.editorMode,
+            questionBlocks: template.questionBlocks,
+            answerBlocks: template.answerBlocks,
+            browserBlocks: template.browserBlocks,
+            browserFormat: template.browserFormat,
+            questionCss: template.questionCss,
+            answerCss: template.answerCss,
+            browserCss: template.browserCss,
         };
     }
 

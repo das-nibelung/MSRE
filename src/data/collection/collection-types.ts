@@ -1,11 +1,68 @@
 import { ISerializedScheduleEntry } from "src/data/plugin-data";
 
-export const COLLECTION_SCHEMA_VERSION = 7;
+export const COLLECTION_SCHEMA_VERSION = 8;
 export const REVIEW_LOG_SCHEMA_VERSION = 1;
 
 export type NoteTypeKind = "standard" | "cloze" | "image-occlusion";
 export type CardTemplateGenerator = NoteTypeKind;
-export type CardAnswerMode = "reveal" | "type";
+/** `type` is retained as a read-only legacy alias and is migrated to `text`. */
+export type CardAnswerMode =
+    | "reveal"
+    | "type"
+    | "text"
+    | "multiple-text"
+    | "number"
+    | "formula"
+    | "ordered-list"
+    | "unordered-list"
+    | "image-labels"
+    | "multiple-choice";
+
+export interface AnswerNormalizationOptions {
+    ignoreCase: boolean;
+    ignoreWhitespace: boolean;
+    ignorePunctuation: boolean;
+    normalizeYo: boolean;
+}
+
+export interface AnswerPartDefinition {
+    id: string;
+    label: string;
+    answerFieldId: string | null;
+    acceptedAnswers: string[];
+    requiredKeywords: string[];
+    optional: boolean;
+    weight: number;
+}
+
+export interface AnswerChoiceDefinition {
+    id: string;
+    label: string;
+    correct: boolean;
+}
+
+export interface CardAnswerConfig {
+    acceptedAnswers: string[];
+    /** Each row contains mutually interchangeable terms. */
+    synonymGroups: string[][];
+    requiredKeywords: string[];
+    optionalKeywords: string[];
+    normalization: AnswerNormalizationOptions;
+    allowPartial: boolean;
+    parts: AnswerPartDefinition[];
+    numeric: {
+        tolerance: number;
+        relativeTolerance: number;
+        min: number | null;
+        max: number | null;
+        units: string[];
+        /** Unit alias to multiplier in the expected unit, e.g. mg -> 0.001 for grams. */
+        unitFactors: Record<string, number>;
+    };
+    listSeparator: "newline" | "comma" | "semicolon";
+    choices: AnswerChoiceDefinition[];
+    multipleChoice: boolean;
+}
 export type TemplateConditionOperator = "always" | "not-empty" | "empty" | "equals" | "not-equals";
 export type TemplateEditorMode = "visual" | "advanced";
 export type TemplateSurface = "question" | "answer" | "browser";
@@ -54,6 +111,8 @@ export interface CardTemplateDefinition {
     generator?: CardTemplateGenerator;
     /** Review interaction for cards emitted by this template. */
     answerMode?: CardAnswerMode;
+    /** Rules for automatic and partial answer evaluation. */
+    answerConfig?: CardAnswerConfig;
     /** Field whose value is checked for typed answers. Null falls back to the rendered answer. */
     answerFieldId?: string | null;
     /** For cloze templates, limits cloze discovery to one field. */
@@ -127,7 +186,7 @@ export interface CollectionNote {
     id: string;
     noteTypeId: string;
     fields: Record<string, string>;
-    answerMode?: "reveal" | "type";
+    answerMode?: CardAnswerMode;
     tags: string[];
     source: NoteSource;
     createdAt: number;
@@ -292,7 +351,7 @@ export interface NativeNoteInput {
     type: "basic" | "reversed" | "cloze";
     front: string;
     back: string;
-    answerMode?: "reveal" | "type";
+    answerMode?: CardAnswerMode;
     deckPath: string;
     sourcePath: string;
     questionId: string;

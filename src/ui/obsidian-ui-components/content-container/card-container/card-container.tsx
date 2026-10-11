@@ -3,6 +3,13 @@ import moment from "moment";
 import { App, ButtonComponent, Platform, setIcon } from "obsidian";
 
 import {
+    AnswerEvaluationContext,
+    AnswerValue,
+    canonicalAnswerMode,
+    evaluateAnswer,
+    normalizeAnswerConfig,
+} from "src/data/collection/answer-evaluator";
+import {
     IMAGE_OCCLUSION_NOTE_TYPE_ID,
     OCCLUSION_ASSETS_FIELD_ID,
 } from "src/data/collection/builtin-note-types";
@@ -52,8 +59,8 @@ export class CardContainer {
 
     private clozeInputs: NodeListOf<HTMLInputElement> | null = null;
     private clozeAnswers: NodeListOf<Element> | null = null;
-    private typedAnswer = "";
-    private typedAnswerExpected: string | null = null;
+    private answerValue: AnswerValue = "";
+    private answerContext: AnswerEvaluationContext | null = null;
 
     private processReviewHandler: (response: ReviewResponse) => Promise<void>;
     private skipCardHandler: () => void;
@@ -226,7 +233,8 @@ export class CardContainer {
 
     public async drawCardFront(sessionData: SessionData, settings: SRSettings) {
         this.clearGestureState();
-        this.typedAnswer = "";
+        this.answerValue = "";
+        this.answerContext = null;
         this.toolbar.setResetButtonDisabled(true);
         this.content.removeClass("sr-session-complete-screen");
         this.content.removeAttribute("aria-live");
@@ -303,45 +311,10 @@ export class CardContainer {
         this.applyTemplateSurfaceAppearance(cardFace, sessionData, "question");
         this.bindTemplateActions(cardFace);
 
-        const typedAnswerExpected = this.getTypedAnswerExpected(sessionData);
-        const usesTypedAnswer = typedAnswerExpected !== undefined;
-        this.typedAnswerExpected = typedAnswerExpected ?? null;
-        if (
-            allowTapToReveal &&
-            usesTypedAnswer &&
-            cardFace.querySelector(".cloze-input") === null
-        ) {
-            const composer = cardSurface.createDiv("sr-typed-answer-composer");
-            const input = composer.createEl("input", {
-                cls: "sr-typed-answer-input",
-                attr: {
-                    type: "text",
-                    autocomplete: "off",
-                    autocapitalize: "sentences",
-                    placeholder: t("TYPE_YOUR_ANSWER"),
-                    "aria-label": t("TYPE_YOUR_ANSWER"),
-                },
-            });
-            input.value = this.typedAnswer;
-            input.addEventListener("input", () => (this.typedAnswer = input.value));
-            input.addEventListener("keydown", (event) => {
-                if (event.key !== "Enter") return;
-                event.preventDefault();
-                event.stopPropagation();
-                this.typedAnswer = input.value;
-                input.blur();
-                void this.showAnswerHandler();
-            });
-            const submit = composer.createEl("button", {
-                cls: "sr-typed-answer-submit",
-                attr: { type: "button", "aria-label": t("CHECK_ANSWER") },
-            });
-            setIcon(submit, "arrow-up");
-            submit.addEventListener("click", (event) => {
-                event.stopPropagation();
-                this.typedAnswer = input.value;
-                void this.showAnswerHandler();
-            });
+        const answerContext = this.getAnswerContext(sessionData);
+        this.answerContext = answerContext;
+        if (allowTapToReveal && answerContext && cardFace.querySelector(".cloze-input") === null) {
+            this.renderAnswerComposer(cardSurface, answerContext);
         }
 
         const isMobile = Platform.isMobile || EmulatedPlatform().isMobile;
@@ -357,7 +330,7 @@ export class CardContainer {
         this.content.scrollTop = 0;
     }
 
-    private getTypedAnswerExpected(sessionData: SessionData): string | null | undefined {
+    private getAnswerContext(sessionData: SessionData): AnswerEvaluationContext | null {
         const card = sessionData.cardData.currentCard;
         const note = this.plugin.dataManager.collectionStore.findNoteBySource(
             sessionData.currentNote.filePath,
@@ -387,27 +360,172 @@ export class CardContainer {
                       (candidate) => candidate.id === storedCard.templateId,
                   )
                 : undefined;
-        if (template?.answerMode === "type") {
-            const expected = template.answerFieldId
-                ? note?.fields[template.answerFieldId]?.trim()
-                : undefined;
-            if (expected) return expected;
-        }
-        if (note?.answerMode === "type" || template?.answerMode === "type") return null;
-        if (note?.noteTypeId === IMAGE_OCCLUSION_NOTE_TYPE_ID) {
-            try {
-                const assets = JSON.parse(note.fields[OCCLUSION_ASSETS_FIELD_ID] ?? "[]") as Array<{
-                    label?: string;
-                }>;
-                const ordinal = storedCard?.ordinal ?? card.cardIdx;
-                const label = assets[ordinal]?.label?.trim();
-                if (label) return label;
-            } catch {
-                return undefined;
+        const templateMode = canonicalAnswerMode(template?.answerMode);
+        if (template && templateMode !== "reveal") {
+            let expected = template.answerFieldId
+                ? (note?.fields[template.answerFieldId]?.trim() ?? "")
+                : "";
+            if (note?.noteTypeId === IMAGE_OCCLUSION_NOTE_TYPE_ID && !expected) {
+                try {
+                    const assets = JSON.parse(
+                        note.fields[OCCLUSION_ASSETS_FIELD_ID] ?? "[]",
+                    ) as Array<{
+                        label?: string;
+                    }>;
+                    expected = assets[storedCard?.ordinal ?? card.cardIdx]?.label?.trim() ?? "";
+                } catch {
+                    expected = "";
+                }
             }
+            return {
+                mode: templateMode,
+                expected,
+                config: normalizeAnswerConfig(template.answerConfig),
+                values: this.answerValue,
+                fieldValues: note?.fields ?? {},
+            };
+        }
+        if (canonicalAnswerMode(note?.answerMode) === "text") {
+            return {
+                mode: "text",
+                expected: "",
+                values: this.answerValue,
+                fieldValues: note?.fields ?? {},
+            };
         }
         const fallback = card.back.match(/<!--\s*sr-typed-answer:\s*([^]*?)\s*-->/i);
-        return fallback ? decodeURIComponent(fallback[1].trim()) : undefined;
+        return fallback
+            ? {
+                  mode: "text",
+                  expected: decodeURIComponent(fallback[1].trim()),
+                  values: this.answerValue,
+              }
+            : null;
+    }
+
+    private renderAnswerComposer(cardSurface: HTMLElement, context: AnswerEvaluationContext): void {
+        const mode = canonicalAnswerMode(context.mode);
+        const config = normalizeAnswerConfig(context.config);
+        const composer = cardSurface.createDiv(`sr-smart-answer-composer is-${mode}`);
+        composer.addEventListener("click", (event) => event.stopPropagation());
+
+        const submit = () => {
+            const active = composer.querySelector<HTMLElement>("input:focus, textarea:focus");
+            active?.blur();
+            void this.showAnswerHandler();
+        };
+        const bindSubmit = (input: HTMLInputElement | HTMLTextAreaElement) => {
+            input.addEventListener("keydown", (rawEvent) => {
+                const event = rawEvent as KeyboardEvent;
+                if (
+                    event.key !== "Enter" ||
+                    (input instanceof HTMLTextAreaElement && event.shiftKey)
+                )
+                    return;
+                if (
+                    ["ordered-list", "unordered-list"].includes(mode) &&
+                    !event.metaKey &&
+                    !event.ctrlKey
+                )
+                    return;
+                event.preventDefault();
+                event.stopPropagation();
+                submit();
+            });
+        };
+
+        if (mode === "multiple-choice") {
+            const selected = new Set(Array.isArray(this.answerValue) ? this.answerValue : []);
+            const choices = composer.createDiv("sr-answer-choice-grid");
+            const choiceGroup = `sr-answer-${Date.now()}`;
+            for (const choice of config.choices) {
+                const label = choices.createEl("label", { cls: "sr-review-answer-choice" });
+                const input = label.createEl("input", {
+                    attr: {
+                        type: config.multipleChoice ? "checkbox" : "radio",
+                        name: choiceGroup,
+                        value: choice.id,
+                    },
+                });
+                input.checked = selected.has(choice.id);
+                input.addEventListener("change", () => {
+                    if (!config.multipleChoice) selected.clear();
+                    if (input.checked) selected.add(choice.id);
+                    else selected.delete(choice.id);
+                    this.answerValue = [...selected];
+                    choices
+                        .querySelectorAll("label")
+                        .forEach((item) =>
+                            item.toggleClass(
+                                "is-selected",
+                                item.querySelector<HTMLInputElement>("input")?.checked ?? false,
+                            ),
+                        );
+                });
+                label.createSpan({ text: choice.label });
+                label.toggleClass("is-selected", input.checked);
+            }
+        } else if (mode === "multiple-text" || mode === "image-labels") {
+            const values =
+                typeof this.answerValue === "object" && !Array.isArray(this.answerValue)
+                    ? this.answerValue
+                    : {};
+            const parts =
+                config.parts.length > 0
+                    ? config.parts
+                    : [
+                          {
+                              id: "label",
+                              label: t("TYPE_YOUR_ANSWER"),
+                              answerFieldId: null,
+                              acceptedAnswers: context.expected ? [context.expected] : [],
+                              requiredKeywords: [],
+                              optional: false,
+                              weight: 1,
+                          },
+                      ];
+            for (const part of parts) {
+                const field = composer.createEl("label", { cls: "sr-smart-answer-field" });
+                field.createSpan({ text: part.label });
+                const input = field.createEl("input", {
+                    cls: "sr-typed-answer-input",
+                    attr: { type: "text", autocomplete: "off" },
+                });
+                input.value = values[part.id] ?? "";
+                input.addEventListener("input", () => {
+                    values[part.id] = input.value;
+                    this.answerValue = values;
+                });
+                bindSubmit(input);
+            }
+        } else {
+            const isList = mode === "ordered-list" || mode === "unordered-list";
+            const input = isList
+                ? composer.createEl("textarea", {
+                      cls: "sr-typed-answer-input sr-smart-answer-list",
+                      attr: { rows: "4", placeholder: t("TYPE_YOUR_ANSWER") },
+                  })
+                : composer.createEl("input", {
+                      cls: "sr-typed-answer-input",
+                      attr: {
+                          type: mode === "number" ? "text" : "text",
+                          inputmode: mode === "number" ? "decimal" : "text",
+                          autocomplete: "off",
+                          autocapitalize: mode === "formula" ? "off" : "sentences",
+                          placeholder: t("TYPE_YOUR_ANSWER"),
+                          "aria-label": t("TYPE_YOUR_ANSWER"),
+                      },
+                  });
+            input.value = typeof this.answerValue === "string" ? this.answerValue : "";
+            input.addEventListener("input", () => (this.answerValue = input.value));
+            bindSubmit(input);
+        }
+        const button = composer.createEl("button", {
+            cls: "sr-typed-answer-submit",
+            attr: { type: "button", "aria-label": t("CHECK_ANSWER") },
+        });
+        setIcon(button, "arrow-up");
+        button.addEventListener("click", submit);
     }
 
     public drawPendingState(nextPendingDueUnix: number): void {
@@ -573,26 +691,68 @@ export class CardContainer {
         this.applyTemplateSurfaceAppearance(answerFace, sessionData, "answer");
         this.bindTemplateActions(answerFace);
 
-        if (this.typedAnswer.trim()) {
-            const marker = sessionData.cardData.currentCard.back.match(
-                /<!--\s*sr-typed-answer:\s*([^]*?)\s*-->/i,
+        if (this.answerContext) {
+            const context = { ...this.answerContext, values: this.answerValue };
+            if (!context.expected) context.expected = answerFace.innerText.trim();
+            const evaluation = evaluateAnswer(context);
+            const comparison = cardSurface.createDiv(
+                `sr-smart-answer-result is-${evaluation.status}`,
             );
-            const expected =
-                this.typedAnswerExpected ??
-                (marker ? decodeURIComponent(marker[1].trim()) : answerFace.innerText.trim());
-            const comparison = cardSurface.createDiv("sr-typed-answer-result");
-            comparison.createSpan({ text: t("YOUR_ANSWER") });
-            comparison.createEl("strong", { text: this.typedAnswer.trim() });
-            if (expected) {
-                const matches =
-                    this.typedAnswer.trim().localeCompare(expected, undefined, {
-                        sensitivity: "base",
-                    }) === 0;
-                comparison.toggleClass("is-correct", matches);
-                comparison.toggleClass("is-different", !matches);
-                if (!matches && marker) {
-                    comparison.createSpan({ text: `${t("EXPECTED_ANSWER")}: ${expected}` });
+            const summary = comparison.createDiv("sr-smart-answer-summary");
+            const icon = summary.createSpan("sr-smart-answer-status-icon");
+            setIcon(
+                icon,
+                evaluation.status === "correct"
+                    ? "check"
+                    : evaluation.status === "partial"
+                      ? "circle-dot"
+                      : "x",
+            );
+            summary.createEl("strong", {
+                text:
+                    evaluation.status === "correct"
+                        ? t("ANSWER_CORRECT")
+                        : evaluation.status === "partial"
+                          ? t("ANSWER_PARTIAL")
+                          : t("ANSWER_INCORRECT"),
+            });
+            summary.createSpan({
+                cls: "sr-smart-answer-score",
+                text: t("SCORE_PERCENT", { score: Math.round(evaluation.score * 100) }),
+            });
+            const parts = comparison.createDiv("sr-smart-answer-parts");
+            for (const part of evaluation.parts) {
+                const row = parts.createDiv(
+                    `sr-smart-answer-part ${part.correct ? "is-correct" : ""}`,
+                );
+                if (evaluation.parts.length > 1) row.createEl("strong", { text: part.label });
+                const answers = row.createDiv("sr-smart-answer-values");
+                answers.createSpan({ cls: "is-submitted", text: part.submitted || "—" });
+                if (!part.correct) {
+                    answers.createSpan({ cls: "is-expected", text: part.expected });
+                    if (part.diff.length > 0) {
+                        const diff = row.createDiv("sr-smart-answer-diff");
+                        for (const token of part.diff) {
+                            diff.createSpan({ cls: `is-${token.kind}`, text: `${token.value} ` });
+                        }
+                    }
                 }
+            }
+            if (evaluation.missingKeywords.length > 0) {
+                comparison.createDiv({
+                    cls: "sr-smart-answer-missing",
+                    text: t("MISSING_KEYWORDS", {
+                        keywords: evaluation.missingKeywords.join(", "),
+                    }),
+                });
+            }
+            if (evaluation.missingOptionalKeywords.length > 0) {
+                comparison.createDiv({
+                    cls: "sr-smart-answer-optional",
+                    text: t("MISSING_OPTIONAL_KEYWORDS", {
+                        keywords: evaluation.missingOptionalKeywords.join(", "),
+                    }),
+                });
             }
         }
 

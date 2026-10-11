@@ -751,7 +751,10 @@ export class CardBrowserView extends ItemView {
                     type: record.cardType,
                     front: front.innerHTML.trim(),
                     back: back.innerHTML.trim(),
-                    answerMode: note?.answerMode ?? "reveal",
+                    answerMode:
+                        note?.answerMode === "type" || note?.answerMode === "text"
+                            ? "type"
+                            : "reveal",
                     tags: note?.tags ?? record.tags,
                 });
                 this.editingId = null;

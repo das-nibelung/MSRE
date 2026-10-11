@@ -1,3 +1,4 @@
+import { createDefaultAnswerConfig } from "src/data/collection/answer-evaluator";
 import {
     CardTemplateDefinition,
     NoteFieldDefinition,
@@ -44,6 +45,7 @@ function template(
         enabled: true,
         generator,
         answerMode: "reveal",
+        answerConfig: createDefaultAnswerConfig(),
         answerFieldId,
         sourceFieldId: null,
         condition: { operator: "always", fieldId: null, value: "" },
