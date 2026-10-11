@@ -2439,6 +2439,186 @@
     }
 }
 
+/* Stage 11: one compact creation surface instead of stacked control cards. */
+.sr-native-card-utility {
+    display: flex;
+    min-height: 38px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.sr-native-quick-queue,
+.sr-native-quick-hint {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 7px;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}
+
+.sr-native-quick-queue svg {
+    width: 16px;
+    height: 16px;
+    color: var(--interactive-accent);
+}
+
+.sr-native-card-utility-actions {
+    display: flex;
+    flex: none;
+    gap: 3px;
+}
+
+.sr-native-recent-decks {
+    display: flex;
+    margin-top: -6px;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.sr-native-recent-decks::-webkit-scrollbar {
+    display: none;
+}
+
+.sr-native-recent-label {
+    padding-right: 2px;
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+}
+
+.sr-native-recent-decks button,
+.sr-native-sticky-controls button {
+    display: inline-flex;
+    min-height: 32px;
+    padding: 5px 10px;
+    align-items: center;
+    gap: 6px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--background-modifier-hover);
+    box-shadow: none;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    white-space: nowrap;
+}
+
+.sr-native-sticky-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+
+.sr-native-sticky-controls button.is-active {
+    background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-primary));
+    color: var(--interactive-accent);
+}
+
+.sr-native-sticky-controls svg {
+    width: 14px;
+    height: 14px;
+}
+
+.sr-native-full-preview {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 16px;
+    background: var(--background-primary);
+}
+
+.sr-native-full-preview-heading {
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    font-weight: var(--font-semibold);
+}
+
+.sr-native-full-preview-mode {
+    font-weight: var(--font-normal);
+}
+
+.sr-native-full-preview-face {
+    min-width: 0;
+    padding: 12px;
+    border-radius: 12px;
+    background: var(--background-secondary);
+}
+
+.sr-native-full-preview-face > span {
+    display: block;
+    margin-bottom: 7px;
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+}
+
+.sr-native-full-preview-body {
+    overflow-wrap: anywhere;
+}
+
+.sr-native-full-preview-body > :first-child {
+    margin-top: 0;
+}
+
+.sr-native-full-preview-body > :last-child {
+    margin-bottom: 0;
+}
+
+.sr-native-occlusion-batch {
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+    color: var(--interactive-accent);
+    font-size: var(--font-ui-smaller);
+}
+
+@media (max-width: 600px) {
+    .sr-native-card-utility {
+        position: sticky;
+        z-index: 4;
+        top: 0;
+        margin-inline: -2px;
+        padding: 6px 2px 8px;
+        background: color-mix(in srgb, var(--background-primary) 92%, transparent);
+        backdrop-filter: blur(18px) saturate(1.4);
+    }
+
+    .sr-native-quick-hint {
+        display: none;
+    }
+
+    .sr-native-full-preview {
+        grid-template-columns: 1fr;
+    }
+
+    .sr-native-card-meta {
+        gap: 8px;
+    }
+
+    .sr-native-card-editor .sr-native-form-actions {
+        position: sticky;
+        z-index: 5;
+        bottom: env(safe-area-inset-bottom, 0);
+        padding: 8px 0;
+        background: color-mix(in srgb, var(--background-primary) 92%, transparent);
+        backdrop-filter: blur(18px) saturate(1.4);
+    }
+
+    .sr-native-rich-content,
+    .sr-native-rich-preview {
+        scroll-margin-bottom: 180px;
+    }
+}
+
 @media (max-width: 520px) {
     .sr-native-creator-surface:not(.sr-native-card-editor) {
         padding-inline: 14px;

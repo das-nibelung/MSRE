@@ -93,6 +93,7 @@ import {
     pointInOcclusionMask,
     renderOcclusionAssets,
 } from "src/ui/native-creator/image-occlusion";
+import { extractBatchClozeSeeds, QuickAddSeed } from "src/ui/native-creator/quick-add";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
 import { escapeHtml } from "src/utils/escape-html";
 
@@ -131,6 +132,24 @@ interface NoteTypeEditorDraft {
     css: string;
 }
 
+interface CreatorStickyPreferences {
+    deck: boolean;
+    noteType: boolean;
+    tags: boolean;
+    fieldIds: string[];
+}
+
+interface CardEditorSnapshot {
+    front: string;
+    back: string;
+    deckPath: string;
+    noteTypeId: string;
+    cardType: NativeCardType;
+    answerMode: "reveal" | "type";
+    tagsText: string;
+    customFieldValues: Record<string, string>;
+}
+
 type OcclusionTool = OcclusionShape | "pan";
 
 export interface NativeCreatorRequest {
@@ -140,6 +159,7 @@ export interface NativeCreatorRequest {
     duplicateCard?: Card;
     editAreaId?: string;
     targetAreaId?: string;
+    initialSeeds?: QuickAddSeed[];
 }
 
 export class NativeCreatorView extends ItemView {
@@ -202,6 +222,19 @@ export class NativeCreatorView extends ItemView {
     private transferCsvDeck = "";
     private transferCsvMapping: Record<string, number> = {};
     private transferCsvTagsColumn = -1;
+    private quickAddQueue: QuickAddSeed[] = [];
+    private stickyPreferences: CreatorStickyPreferences = {
+        deck: true,
+        noteType: true,
+        tags: false,
+        fieldIds: [],
+    };
+    private cardUndoStack: CardEditorSnapshot[] = [];
+    private cardRedoStack: CardEditorSnapshot[] = [];
+    private fieldEditStart: CardEditorSnapshot | null = null;
+    private showCardPreview = false;
+    private occlusionBatchFiles: File[] = [];
+    private occlusionBatchTotal = 0;
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -242,6 +275,25 @@ export class NativeCreatorView extends ItemView {
 
     onOpen(): Promise<void> {
         this.contentEl.addClass("sr-native-creator-view");
+        this.registerDomEvent(this.contentEl, "keydown", (event: KeyboardEvent) => {
+            if (this.request.mode !== "card" || this.busy) return;
+            const modifier = event.metaKey || event.ctrlKey;
+            if (modifier && event.key.toLowerCase() === "s") {
+                event.preventDefault();
+                void this.saveCurrentCard(event.shiftKey);
+                return;
+            }
+            const target = event.target as HTMLElement | null;
+            const nativeEditor =
+                target?.isContentEditable ||
+                target instanceof HTMLInputElement ||
+                target instanceof HTMLTextAreaElement;
+            if (!nativeEditor && modifier && event.key.toLowerCase() === "z") {
+                event.preventDefault();
+                if (event.shiftKey) this.redoCardEdit();
+                else this.undoCardEdit();
+            }
+        });
         this.render();
         return Promise.resolve();
     }
@@ -256,13 +308,21 @@ export class NativeCreatorView extends ItemView {
         this.clearPendingMedia();
         this.existingMedia = [];
         this.request = request;
+        this.stickyPreferences = this.loadStickyPreferences();
+        this.cardUndoStack = [];
+        this.cardRedoStack = [];
+        this.quickAddQueue = [];
         this.selectedDeck =
             request.deckPath ??
             (this.selectedDeck || localStorage.getItem(this.lastDeckKey()) || "");
         this.editingCard = request.card ?? null;
         this.editingStructuredNote = null;
         this.editingOcclusionNote = null;
-        if (request.mode === "image-occlusion" && !request.card) this.resetOcclusionEditor();
+        if (request.mode === "image-occlusion" && !request.card) {
+            this.occlusionBatchFiles = [];
+            this.occlusionBatchTotal = 0;
+            this.resetOcclusionEditor();
+        }
         this.editingAreaId = request.editAreaId ?? null;
         if (request.mode !== "note-type") this.noteTypeDraft = null;
         this.areaName = this.editingAreaId
@@ -343,6 +403,11 @@ export class NativeCreatorView extends ItemView {
             this.existingMedia = [];
         } else if (request.mode === "card" && !this.draftRestored) {
             this.restoreDraft();
+        }
+        if (request.mode === "card" && request.initialSeeds?.length) {
+            this.clearDraft();
+            this.quickAddQueue = request.initialSeeds.slice(1);
+            this.applyQuickAddSeed(request.initialSeeds[0]);
         }
         this.error = "";
         if (this.contentEl.isShown()) this.render();
@@ -503,6 +568,48 @@ export class NativeCreatorView extends ItemView {
 
     private renderCardForm(surface: HTMLElement): void {
         surface.addClass("sr-native-card-editor");
+        const utility = surface.createDiv("sr-native-card-utility");
+        if (this.quickAddQueue.length > 0) {
+            const queue = utility.createDiv("sr-native-quick-queue");
+            const queueIcon = queue.createSpan();
+            setIcon(queueIcon, "list-checks");
+            queue.createSpan({
+                text: this.creatorText(
+                    `${this.quickAddQueue.length + 1} cards in Quick Add`,
+                    `${this.quickAddQueue.length + 1} карточек в Quick Add`,
+                ),
+            });
+        } else {
+            utility.createSpan({
+                cls: "sr-native-quick-hint",
+                text: this.creatorText(
+                    "⌘↵ Save · ⇧⌘↵ Save & next",
+                    "⌘↵ Сохранить · ⇧⌘↵ Сохранить и дальше",
+                ),
+            });
+        }
+        const utilityActions = utility.createDiv("sr-native-card-utility-actions");
+        for (const [icon, label, disabled, action] of [
+            ["undo-2", t("UNDO"), this.cardUndoStack.length === 0, () => this.undoCardEdit()],
+            ["redo-2", t("REDO"), this.cardRedoStack.length === 0, () => this.redoCardEdit()],
+        ] as const) {
+            const button = new ButtonComponent(utilityActions)
+                .setIcon(icon)
+                .setTooltip(label)
+                .setDisabled(disabled)
+                .onClick(action);
+            button.buttonEl.addClass("sr-native-icon-button");
+        }
+        const previewToggle = new ButtonComponent(utilityActions)
+            .setIcon("panel-top")
+            .setTooltip(this.creatorText("Preview card", "Предпросмотр карточки"))
+            .onClick(() => {
+                this.showCardPreview = !this.showCardPreview;
+                this.render();
+            });
+        previewToggle.buttonEl.addClass("sr-native-icon-button");
+        previewToggle.buttonEl.toggleClass("is-active", this.showCardPreview);
+
         const meta = surface.createDiv("sr-native-card-meta");
         const deckGroup = this.createFieldGroup(meta, t("DECK"));
         deckGroup.addClass("sr-native-compact-field");
@@ -564,6 +671,32 @@ export class NativeCreatorView extends ItemView {
             }
         }
 
+        if (!this.editingCard) {
+            const recentDecks = this.getRecentDecks()
+                .filter((deck) => deck !== this.selectedDeck)
+                .slice(0, 3);
+            if (recentDecks.length > 0) {
+                const recent = surface.createDiv("sr-native-recent-decks");
+                recent.createSpan({
+                    text: this.creatorText("Recent", "Недавние"),
+                    cls: "sr-native-recent-label",
+                });
+                for (const deck of recentDecks) {
+                    const button = recent.createEl("button", {
+                        text: deck.split("/").pop() ?? deck,
+                        attr: { type: "button", title: deck },
+                    });
+                    button.addEventListener("click", () => {
+                        this.rememberCardState();
+                        this.selectedDeck = deck;
+                        this.rememberDeck(deck);
+                        this.saveDraft();
+                        this.render();
+                    });
+                }
+            }
+        }
+
         const frontLabel = this.cardType === "cloze" ? t("CLOZE_TEXT") : t("CARD_FRONT");
         const frontHelp = this.cardType === "cloze" ? t("CLOZE_TEXT_HELP") : undefined;
         const cardFields = surface.createDiv("sr-native-card-fields");
@@ -572,7 +705,12 @@ export class NativeCreatorView extends ItemView {
             if (!duplicateStatus) return;
             const count = this.countMatchingFronts(this.front);
             duplicateStatus.hidden = count === 0;
-            duplicateStatus.setText(`${t("DUPLICATE_MEDIA")}: ${count}`);
+            duplicateStatus.setText(
+                this.creatorText(
+                    `${count} possible duplicate${count === 1 ? "" : "s"}`,
+                    `Возможных дубликатов: ${count}`,
+                ),
+            );
         };
         const frontGroup = this.createFieldGroup(cardFields, frontLabel, frontHelp);
         const frontInput = this.createRichTextEditor(
@@ -606,6 +744,8 @@ export class NativeCreatorView extends ItemView {
         });
         updateDuplicateStatus();
 
+        if (this.showCardPreview) this.renderFullCardPreview(surface);
+
         const advanced = surface.createEl("details", { cls: "sr-native-card-advanced" });
         if (this.answerMode === "type" || this.tagsText.trim()) advanced.open = true;
         const advancedSummary = advanced.createEl("summary");
@@ -631,6 +771,7 @@ export class NativeCreatorView extends ItemView {
             setIcon(icon, iconName);
             button.buttonEl.prepend(icon);
             button.onClick(() => {
+                this.rememberCardState();
                 this.answerMode = mode;
                 this.error = "";
                 this.saveDraft();
@@ -639,6 +780,7 @@ export class NativeCreatorView extends ItemView {
         }
 
         this.renderTagsField(advancedBody);
+        this.renderStickyControls(advancedBody, ["front", "back"]);
 
         if (this.error) {
             surface.createDiv({
@@ -651,7 +793,14 @@ export class NativeCreatorView extends ItemView {
         const actions = surface.createDiv("sr-native-form-actions");
         if (!this.editingCard) {
             const saveAnother = new ButtonComponent(actions)
-                .setButtonText(t("SAVE_AND_ADD_ANOTHER"))
+                .setButtonText(
+                    this.quickAddQueue.length
+                        ? this.creatorText(
+                              `Save & next · ${this.quickAddQueue.length} left`,
+                              `Сохранить и дальше · осталось ${this.quickAddQueue.length}`,
+                          )
+                        : t("SAVE_AND_ADD_ANOTHER"),
+                )
                 .setDisabled(this.busy)
                 .onClick(() => void this.saveCard(true));
             saveAnother.buttonEl.addClass("sr-native-secondary-action");
@@ -665,6 +814,131 @@ export class NativeCreatorView extends ItemView {
             .onClick(() => void this.saveCard(false));
 
         if (!Platform.isMobile) window.setTimeout(() => frontInput.focus(), 0);
+    }
+
+    private renderFullCardPreview(parent: HTMLElement): void {
+        const preview = parent.createDiv("sr-native-full-preview");
+        const heading = preview.createDiv("sr-native-full-preview-heading");
+        heading.createSpan({
+            text: this.creatorText("Card preview", "Предпросмотр карточки"),
+        });
+        heading.createSpan({
+            cls: "sr-native-full-preview-mode",
+            text: this.answerMode === "type" ? t("ANSWER_MODE_TYPE") : t("ANSWER_MODE_REVEAL"),
+        });
+        for (const [label, value] of [
+            [t("CARD_FRONT"), this.front],
+            [t("CARD_BACK"), this.back],
+        ] as const) {
+            const face = preview.createDiv("sr-native-full-preview-face");
+            face.createSpan({ text: label });
+            const body = face.createDiv("sr-native-full-preview-body");
+            if (!value.trim()) {
+                body.createEl("em", {
+                    text: this.creatorText("Empty field", "Пустое поле"),
+                });
+            } else {
+                void MarkdownRenderer.render(
+                    this.app,
+                    value,
+                    body,
+                    this.editingCard?.question.note.filePath ?? "",
+                    this,
+                );
+            }
+        }
+    }
+
+    private renderStructuredCardPreview(parent: HTMLElement, noteType: NoteTypeDefinition): void {
+        const template = noteType.templates[0];
+        if (!template) return;
+        const preview = parent.createDiv("sr-native-full-preview");
+        preview.createDiv({
+            cls: "sr-native-full-preview-heading",
+            text: this.creatorText("Live card preview", "Предпросмотр карточки"),
+        });
+        const question = renderNoteTypeTemplate(
+            template.questionFormat,
+            noteType,
+            this.customFieldValues,
+        );
+        const answer = renderNoteTypeTemplate(
+            template.answerFormat,
+            noteType,
+            this.customFieldValues,
+            question,
+        );
+        for (const [label, value] of [
+            [t("CARD_FRONT"), question],
+            [t("CARD_BACK"), answer],
+        ] as const) {
+            const face = preview.createDiv("sr-native-full-preview-face");
+            face.createSpan({ text: label });
+            const body = face.createDiv("sr-native-full-preview-body");
+            void MarkdownRenderer.render(this.app, value, body, "", this);
+        }
+    }
+
+    private renderStickyControls(parent: HTMLElement, fieldIds: string[]): void {
+        const section = this.createFieldGroup(
+            parent,
+            this.creatorText("Keep for the next card", "Сохранить для следующей карточки"),
+            this.creatorText(
+                "Pinned values stay when you use Save & add another.",
+                "Закреплённые значения сохраняются после «Сохранить и добавить ещё».",
+            ),
+        );
+        section.addClass("sr-native-sticky-section");
+        const controls = section.createDiv("sr-native-sticky-controls");
+        const options: Array<[string, boolean, () => void]> = [
+            [
+                t("DECK"),
+                this.stickyPreferences.deck,
+                () => {
+                    this.stickyPreferences.deck = !this.stickyPreferences.deck;
+                    this.saveStickyPreferences();
+                    this.render();
+                },
+            ],
+            [
+                t("NOTE_TYPES"),
+                this.stickyPreferences.noteType,
+                () => {
+                    this.stickyPreferences.noteType = !this.stickyPreferences.noteType;
+                    this.saveStickyPreferences();
+                    this.render();
+                },
+            ],
+            [
+                t("TAGS"),
+                this.stickyPreferences.tags,
+                () => {
+                    this.stickyPreferences.tags = !this.stickyPreferences.tags;
+                    this.saveStickyPreferences();
+                    this.render();
+                },
+            ],
+            ...fieldIds.map((fieldId): [string, boolean, () => void] => [
+                fieldId === "front"
+                    ? t("CARD_FRONT")
+                    : fieldId === "back"
+                      ? t("CARD_BACK")
+                      : (this.getSelectedNoteType().fields.find((field) => field.id === fieldId)
+                            ?.name ?? fieldId),
+                this.stickyPreferences.fieldIds.includes(fieldId),
+                () => this.toggleStickyField(fieldId),
+            ]),
+        ];
+        for (const [label, active, action] of options) {
+            const button = controls.createEl("button", {
+                cls: active ? "is-active" : "",
+                attr: { type: "button", "aria-pressed": String(active) },
+            });
+            const icon = button.createSpan();
+            setIcon(icon, active ? "pin" : "pin-off");
+            button.createSpan({ text: label });
+            button.addEventListener("click", action);
+        }
     }
 
     private renderMediaControls(parent: HTMLElement, target: MediaTarget): void {
@@ -1041,12 +1315,21 @@ export class NativeCreatorView extends ItemView {
             });
             const input = empty.createEl("input", {
                 cls: "sr-native-media-input",
-                attr: { type: "file", accept: "image/*", tabindex: "-1" },
+                attr: {
+                    type: "file",
+                    accept: "image/*",
+                    tabindex: "-1",
+                    multiple: "true",
+                },
             });
             choose.addEventListener("click", () => input.click());
             input.addEventListener("change", () => {
-                const file = input.files?.[0];
-                if (file) void this.setOcclusionSource(file);
+                const files = Array.from(input.files ?? []);
+                const file = files[0];
+                if (!file) return;
+                this.occlusionBatchFiles = files.slice(1);
+                this.occlusionBatchTotal = files.length;
+                void this.setOcclusionSource(file);
             });
         } else {
             const overview = surface.createDiv("sr-native-occlusion-overview");
@@ -1068,6 +1351,15 @@ export class NativeCreatorView extends ItemView {
                 text: String(getOcclusionCardGroups(this.occlusionMasks).length),
             });
             summary.createSpan({ text: t("OCCLUSION_CARDS_SHORT") });
+            if (this.occlusionBatchTotal > 1) {
+                overview.createDiv({
+                    cls: "sr-native-occlusion-batch",
+                    text: this.creatorText(
+                        `Image ${this.occlusionBatchTotal - this.occlusionBatchFiles.length} of ${this.occlusionBatchTotal}`,
+                        `Изображение ${this.occlusionBatchTotal - this.occlusionBatchFiles.length} из ${this.occlusionBatchTotal}`,
+                    ),
+                });
+            }
 
             const toolbar = surface.createDiv("sr-native-occlusion-toolbar");
             const drawingTools = toolbar.createDiv("sr-native-occlusion-tool-picker");
@@ -1365,6 +1657,8 @@ export class NativeCreatorView extends ItemView {
                     return;
                 }
                 this.request = { mode: "card", deckPath: this.selectedDeck };
+                this.occlusionBatchFiles = [];
+                this.occlusionBatchTotal = 0;
                 this.resetOcclusionEditor();
                 this.render();
             });
@@ -1858,7 +2152,17 @@ export class NativeCreatorView extends ItemView {
                 await this.store.createImageOcclusionNote(draft);
             }
             new Notice(t("OCCLUSION_CARDS_CREATED", { count: storedAssets.length }));
+            const nextBatchFile = this.editingOcclusionNote
+                ? undefined
+                : this.occlusionBatchFiles.shift();
             this.resetOcclusionEditor();
+            if (nextBatchFile) {
+                this.busy = false;
+                await this.setOcclusionSource(nextBatchFile);
+                return;
+            }
+            this.occlusionBatchFiles = [];
+            this.occlusionBatchTotal = 0;
             await this.returnToCards();
         } catch (error) {
             console.error("Spaced Repetition: image occlusion creation failed", error);
@@ -5019,6 +5323,7 @@ export class NativeCreatorView extends ItemView {
                 "aria-multiline": "true",
                 "data-placeholder": placeholder,
                 spellcheck: "true",
+                enterkeyhint: target === "front" ? "next" : "done",
             },
         });
         editor.append(
@@ -5054,7 +5359,10 @@ export class NativeCreatorView extends ItemView {
             onChange(this.readEditorValue(editor));
             this.saveDraft();
         });
-        if (this.cardType === "cloze" && target === "front") {
+        if (
+            (this.cardType === "cloze" || this.getSelectedNoteType().kind === "cloze") &&
+            (target === "front" || target.toString().startsWith("field:"))
+        ) {
             const cloze = new ButtonComponent(toolbar)
                 .setIcon("scan-text")
                 .setTooltip(t("CARD_TYPE_CLOZE"));
@@ -5063,9 +5371,38 @@ export class NativeCreatorView extends ItemView {
                 event.preventDefault();
                 const selected = editor.ownerDocument.getSelection()?.toString().trim() ?? "";
                 if (!selected) return;
-                this.front = this.readEditorValue(editor);
-                this.back = selected;
+                if (this.getSelectedNoteType().id.startsWith("builtin-")) {
+                    this.front = this.readEditorValue(editor);
+                    this.back = selected;
+                } else {
+                    editor.focus();
+                    editor.ownerDocument.execCommand("insertText", false, `{{c1::${selected}}}`);
+                    onChange(this.readEditorValue(editor));
+                }
                 this.saveDraft();
+                this.render();
+            });
+            const batch = new ButtonComponent(toolbar)
+                .setIcon("list-plus")
+                .setTooltip(
+                    this.creatorText("Create clozes from highlights", "Создать cloze из выделений"),
+                );
+            batch.buttonEl.addClass("sr-native-format-button");
+            batch.buttonEl.addEventListener("pointerdown", (event) => {
+                event.preventDefault();
+                const seeds = extractBatchClozeSeeds(this.readEditorValue(editor));
+                if (seeds.length === 0) {
+                    new Notice(
+                        this.creatorText(
+                            "Bold or highlight the answers first.",
+                            "Сначала выделите ответы жирным или маркером.",
+                        ),
+                    );
+                    return;
+                }
+                this.rememberCardState();
+                this.quickAddQueue = [...seeds.slice(1), ...this.quickAddQueue];
+                this.applyQuickAddSeed(seeds[0]);
                 this.render();
             });
         }
@@ -5100,11 +5437,34 @@ export class NativeCreatorView extends ItemView {
             this.clearError();
             this.saveDraft();
         });
+        editor.addEventListener("focus", () => {
+            this.fieldEditStart = this.captureCardState();
+        });
+        editor.addEventListener("blur", () => {
+            if (
+                this.fieldEditStart &&
+                !this.sameCardState(this.fieldEditStart, this.captureCardState())
+            ) {
+                this.rememberCardState(this.fieldEditStart);
+            }
+            this.fieldEditStart = null;
+        });
         editor.addEventListener("keydown", (event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                 event.preventDefault();
                 onChange(this.readEditorValue(editor));
-                void this.saveCard(event.shiftKey);
+                void this.saveCurrentCard(event.shiftKey);
+            } else if (
+                (event.metaKey || event.ctrlKey) &&
+                event.shiftKey &&
+                event.key.toLowerCase() === "p"
+            ) {
+                event.preventDefault();
+                onChange(this.readEditorValue(editor));
+                this.showCardPreview = !this.showCardPreview;
+                this.render();
+            } else if (event.key === "Escape") {
+                editor.blur();
             }
         });
         const addDroppedFiles = (files: FileList | File[]): boolean => {
@@ -5164,6 +5524,145 @@ export class NativeCreatorView extends ItemView {
         clone.querySelectorAll("[data-sr-attachment]").forEach((element) => element.remove());
         const html = clone.innerHTML.trim();
         return html === "<br>" ? "" : html;
+    }
+
+    private creatorText(english: string, russian: string): string {
+        return (activeDocument.documentElement.lang || navigator.language)
+            .toLocaleLowerCase()
+            .startsWith("ru")
+            ? russian
+            : english;
+    }
+
+    private applyQuickAddSeed(seed: QuickAddSeed): void {
+        this.front = seed.front;
+        this.back = seed.back;
+        this.cardType = seed.type;
+        this.selectedNoteTypeId = this.noteTypeIdForCardType(seed.type);
+        this.customFieldValues = {};
+        this.answerMode = "reveal";
+        this.saveDraft();
+    }
+
+    private captureCardState(): CardEditorSnapshot {
+        return {
+            front: this.front,
+            back: this.back,
+            deckPath: this.selectedDeck,
+            noteTypeId: this.selectedNoteTypeId,
+            cardType: this.cardType,
+            answerMode: this.answerMode,
+            tagsText: this.tagsText,
+            customFieldValues: { ...this.customFieldValues },
+        };
+    }
+
+    private sameCardState(left: CardEditorSnapshot, right: CardEditorSnapshot): boolean {
+        return JSON.stringify(left) === JSON.stringify(right);
+    }
+
+    private rememberCardState(snapshot = this.captureCardState()): void {
+        const previous = this.cardUndoStack[this.cardUndoStack.length - 1];
+        if (!previous || !this.sameCardState(previous, snapshot)) {
+            this.cardUndoStack.push(snapshot);
+            if (this.cardUndoStack.length > 40) this.cardUndoStack.shift();
+        }
+        this.cardRedoStack = [];
+    }
+
+    private restoreCardState(snapshot: CardEditorSnapshot): void {
+        this.front = snapshot.front;
+        this.back = snapshot.back;
+        this.selectedDeck = snapshot.deckPath;
+        this.selectedNoteTypeId = snapshot.noteTypeId;
+        this.cardType = snapshot.cardType;
+        this.answerMode = snapshot.answerMode;
+        this.tagsText = snapshot.tagsText;
+        this.customFieldValues = { ...snapshot.customFieldValues };
+        this.error = "";
+        this.saveDraft();
+        this.render();
+    }
+
+    private undoCardEdit(): void {
+        const previous = this.cardUndoStack.pop();
+        if (!previous) return;
+        this.cardRedoStack.push(this.captureCardState());
+        this.restoreCardState(previous);
+    }
+
+    private redoCardEdit(): void {
+        const next = this.cardRedoStack.pop();
+        if (!next) return;
+        this.cardUndoStack.push(this.captureCardState());
+        this.restoreCardState(next);
+    }
+
+    private stickyKey(): string {
+        return `msre-creator-sticky:${this.app.vault.getName()}`;
+    }
+
+    private lastNoteTypeKey(): string {
+        return `msre-last-note-type:${this.app.vault.getName()}`;
+    }
+
+    private loadStickyPreferences(): CreatorStickyPreferences {
+        try {
+            const value = JSON.parse(
+                localStorage.getItem(this.stickyKey()) ?? "null",
+            ) as Partial<CreatorStickyPreferences> | null;
+            return {
+                deck: value?.deck ?? true,
+                noteType: value?.noteType ?? true,
+                tags: value?.tags ?? false,
+                fieldIds: Array.isArray(value?.fieldIds)
+                    ? value.fieldIds.filter((id): id is string => typeof id === "string")
+                    : [],
+            };
+        } catch {
+            return { deck: true, noteType: true, tags: false, fieldIds: [] };
+        }
+    }
+
+    private saveStickyPreferences(): void {
+        localStorage.setItem(this.stickyKey(), JSON.stringify(this.stickyPreferences));
+    }
+
+    private toggleStickyField(fieldId: string): void {
+        const fields = new Set(this.stickyPreferences.fieldIds);
+        if (fields.has(fieldId)) fields.delete(fieldId);
+        else fields.add(fieldId);
+        this.stickyPreferences.fieldIds = [...fields];
+        this.saveStickyPreferences();
+        this.render();
+    }
+
+    private resetForNextCard(noteType?: NoteTypeDefinition): void {
+        if (!this.stickyPreferences.fieldIds.includes("front")) this.front = "";
+        if (!this.stickyPreferences.fieldIds.includes("back")) this.back = "";
+        if (!this.stickyPreferences.tags) this.tagsText = "";
+        if (!this.stickyPreferences.noteType) {
+            this.cardType = "basic";
+            this.selectedNoteTypeId = BASIC_NOTE_TYPE_ID;
+        }
+        if (!this.stickyPreferences.deck) this.selectedDeck = "";
+        if (noteType) {
+            this.customFieldValues = Object.fromEntries(
+                noteType.fields.map((field) => [
+                    field.id,
+                    this.stickyPreferences.fieldIds.includes(field.id)
+                        ? (this.customFieldValues[field.id] ?? "")
+                        : "",
+                ]),
+            );
+        }
+        const next = this.quickAddQueue.shift();
+        if (next) this.applyQuickAddSeed(next);
+        this.cardUndoStack = [];
+        this.cardRedoStack = [];
+        this.clearPendingMedia();
+        this.existingMedia = [];
+        this.saveDraft();
     }
 
     private draftKey(): string {
@@ -5312,6 +5811,7 @@ export class NativeCreatorView extends ItemView {
                 selectedNoteTypeId: this.selectedNoteTypeId,
                 answerMode: this.answerMode,
                 tagsText: this.tagsText,
+                customFieldValues: this.customFieldValues,
             }),
         );
     }
@@ -5322,6 +5822,16 @@ export class NativeCreatorView extends ItemView {
             const raw = localStorage.getItem(this.draftKey());
             if (!raw) {
                 this.selectedDeck ||= localStorage.getItem(this.lastDeckKey()) ?? "";
+                const lastType = localStorage.getItem(this.lastNoteTypeKey());
+                if (lastType && this.plugin.dataManager.collectionStore.getNoteType(lastType)) {
+                    this.selectedNoteTypeId = lastType;
+                    this.cardType =
+                        lastType === REVERSED_NOTE_TYPE_ID
+                            ? "reversed"
+                            : lastType === CLOZE_NOTE_TYPE_ID
+                              ? "cloze"
+                              : "basic";
+                }
                 return;
             }
             const draft = JSON.parse(raw) as {
@@ -5333,6 +5843,7 @@ export class NativeCreatorView extends ItemView {
                 cardVariants?: NativeCardType[];
                 answerMode?: "reveal" | "type";
                 tagsText?: string;
+                customFieldValues?: Record<string, string>;
             };
             this.front = draft.front ?? "";
             this.back = draft.back ?? "";
@@ -5347,6 +5858,7 @@ export class NativeCreatorView extends ItemView {
                 draft.selectedNoteTypeId ?? this.noteTypeIdForCardType(restoredType);
             this.answerMode = draft.answerMode ?? "reveal";
             this.tagsText = draft.tagsText ?? "";
+            this.customFieldValues = draft.customFieldValues ?? {};
             if (this.front || this.back) new Notice(t("DRAFT_RESTORED"));
         } catch {
             localStorage.removeItem(this.draftKey());
@@ -5370,9 +5882,21 @@ export class NativeCreatorView extends ItemView {
             },
         });
         input.value = this.tagsText;
+        input.addEventListener("focus", () => {
+            this.fieldEditStart = this.captureCardState();
+        });
         input.addEventListener("input", () => {
             this.tagsText = input.value;
             this.saveDraft();
+        });
+        input.addEventListener("blur", () => {
+            if (
+                this.fieldEditStart &&
+                !this.sameCardState(this.fieldEditStart, this.captureCardState())
+            ) {
+                this.rememberCardState(this.fieldEditStart);
+            }
+            this.fieldEditStart = null;
         });
     }
 
@@ -5388,6 +5912,7 @@ export class NativeCreatorView extends ItemView {
             decks: this.sortDecksByRecent(this.store.getDeckPaths()),
             current: this.selectedDeck,
             onChoose: (deckPath) => {
+                this.rememberCardState();
                 this.selectedDeck = deckPath;
                 this.rememberDeck(deckPath);
                 this.saveDraft();
@@ -5441,6 +5966,7 @@ export class NativeCreatorView extends ItemView {
                     )
                     .setChecked(noteType.id === this.selectedNoteTypeId)
                     .onClick(() => {
+                        this.rememberCardState();
                         if (noteType.id === IMAGE_OCCLUSION_NOTE_TYPE_ID) {
                             this.request = {
                                 mode: "image-occlusion",
@@ -5469,6 +5995,7 @@ export class NativeCreatorView extends ItemView {
                             this.customFieldValues = nextValues;
                         }
                         this.selectedNoteTypeId = noteType.id;
+                        localStorage.setItem(this.lastNoteTypeKey(), noteType.id);
                         if (noteType.id === BASIC_NOTE_TYPE_ID) this.cardType = "basic";
                         else if (noteType.id === REVERSED_NOTE_TYPE_ID) this.cardType = "reversed";
                         else if (noteType.id === CLOZE_NOTE_TYPE_ID) this.cardType = "cloze";
@@ -5496,7 +6023,7 @@ export class NativeCreatorView extends ItemView {
         if (noteType.kind === "cloze") {
             surface.createDiv({ cls: "sr-native-form-tip", text: t("CUSTOM_CLOZE_HELP") });
         }
-        let firstInput: HTMLInputElement | HTMLTextAreaElement | null = null;
+        let firstInput: HTMLElement | null = null;
         for (const field of [...noteType.fields].sort(
             (left, right) => left.ordinal - right.ordinal,
         )) {
@@ -5504,31 +6031,57 @@ export class NativeCreatorView extends ItemView {
                 surface,
                 field.required ? `${field.name} · ${t("REQUIRED_FIELD")}` : field.name,
             );
-            let input: HTMLInputElement | HTMLTextAreaElement;
             if (field.kind === "number") {
-                input = group.createEl("input", {
+                const input = group.createEl("input", {
                     cls: "sr-native-input",
                     attr: { type: "number", inputmode: "decimal", "aria-label": field.name },
                 });
-            } else {
-                input = group.createEl("textarea", {
-                    cls: "sr-native-textarea",
-                    attr: {
-                        rows: field.kind === "rich-text" || field.kind === "formula" ? "5" : "3",
-                        "aria-label": field.name,
-                    },
+                input.value = this.customFieldValues[field.id] ?? "";
+                input.addEventListener("input", () => {
+                    this.customFieldValues[field.id] = input.value;
+                    this.clearError();
+                    this.saveDraft();
                 });
+                firstInput ??= input;
+            } else {
+                const input = this.createRichTextEditor(
+                    group,
+                    this.customFieldValues[field.id] ?? "",
+                    field.name,
+                    field.name,
+                    `field:${field.id}`,
+                    (value) => {
+                        this.customFieldValues[field.id] = value;
+                        this.clearError();
+                    },
+                );
+                firstInput ??= input;
             }
-            input.value = this.customFieldValues[field.id] ?? "";
-            input.addEventListener("input", () => {
-                this.customFieldValues[field.id] = input.value;
-                this.clearError();
+        }
+
+        const primaryField = [...noteType.fields].sort(
+            (left, right) => left.ordinal - right.ordinal,
+        )[0];
+        const duplicateCount = primaryField
+            ? this.countMatchingFronts(this.customFieldValues[primaryField.id] ?? "")
+            : 0;
+        if (duplicateCount > 0) {
+            surface.createDiv({
+                cls: "sr-native-duplicate-status",
+                text: this.creatorText(
+                    `${duplicateCount} possible duplicate${duplicateCount === 1 ? "" : "s"}`,
+                    `Возможных дубликатов: ${duplicateCount}`,
+                ),
+                attr: { role: "status" },
             });
-            if (field.kind === "media") this.renderMediaControls(group, `field:${field.id}`);
-            firstInput ??= input;
         }
 
         this.renderTagsField(surface);
+        this.renderStickyControls(
+            surface,
+            noteType.fields.map((field) => field.id),
+        );
+        if (this.showCardPreview) this.renderStructuredCardPreview(surface, noteType);
 
         if (this.error) {
             surface.createDiv({
@@ -5540,7 +6093,14 @@ export class NativeCreatorView extends ItemView {
         const actions = surface.createDiv("sr-native-form-actions");
         if (!this.editingStructuredNote) {
             const saveAnother = new ButtonComponent(actions)
-                .setButtonText(t("SAVE_AND_ADD_ANOTHER"))
+                .setButtonText(
+                    this.quickAddQueue.length
+                        ? this.creatorText(
+                              `Save & next · ${this.quickAddQueue.length} left`,
+                              `Сохранить и дальше · осталось ${this.quickAddQueue.length}`,
+                          )
+                        : t("SAVE_AND_ADD_ANOTHER"),
+                )
                 .setDisabled(this.busy)
                 .onClick(() => void this.saveStructuredNote(noteType, true));
             saveAnother.buttonEl.addClass("sr-native-secondary-action");
@@ -5563,13 +6123,18 @@ export class NativeCreatorView extends ItemView {
         noteType: NoteTypeDefinition,
         addAnother: boolean,
     ): Promise<void> {
+        const hasAnyContent = noteType.fields.some(
+            (field) =>
+                Boolean(this.customFieldValues[field.id]?.trim()) ||
+                this.hasPendingMedia(`field:${field.id}`),
+        );
         const missingRequired = noteType.fields.some(
             (field) =>
                 field.required &&
                 !this.customFieldValues[field.id]?.trim() &&
                 !this.hasPendingMedia(`field:${field.id}`),
         );
-        if (missingRequired) {
+        if (!hasAnyContent || missingRequired) {
             this.error = t("REQUIRED_FIELDS_MISSING");
             this.render();
             return;
@@ -5599,10 +6164,10 @@ export class NativeCreatorView extends ItemView {
                 await this.store.createStructuredNote(draft);
             }
             this.rememberDeck(this.selectedDeck);
+            localStorage.setItem(this.lastNoteTypeKey(), this.selectedNoteTypeId);
             new Notice(this.editingStructuredNote ? t("CARD_UPDATED") : t("CARD_SAVED"));
             if (addAnother) {
-                this.customFieldValues = {};
-                this.existingMedia = [];
+                this.resetForNextCard(noteType);
                 this.busy = false;
                 this.render();
             } else {
@@ -5660,14 +6225,12 @@ export class NativeCreatorView extends ItemView {
             if (this.editingCard) await this.saveEditedCard(draft);
             else await this.store.createCards([draft]);
             this.rememberDeck(this.selectedDeck);
+            localStorage.setItem(this.lastNoteTypeKey(), this.selectedNoteTypeId);
             if (!this.editingCard) this.rememberLastCreatedCard(draft);
             new Notice(this.editingCard ? t("CARD_UPDATED") : t("CARD_SAVED"));
             this.clearDraft();
             if (addAnother) {
-                this.front = "";
-                this.back = "";
-                this.clearPendingMedia();
-                this.existingMedia = [];
+                this.resetForNextCard();
                 this.busy = false;
                 this.render();
             } else {

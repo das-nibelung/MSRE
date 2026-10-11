@@ -299,6 +299,31 @@ export class CommandManager {
     /**
      * add all the plugin commands
      */
+    private getQuickAddSource(editor: Editor): string {
+        const selection = editor.getSelection().trim();
+        if (selection) return selection;
+        const cursorLine = editor.getCursor().line;
+        const current = editor.getLine(cursorLine);
+        const heading = current.match(/^(#{1,6})\s+/);
+        let start = cursorLine;
+        let end = cursorLine;
+        if (heading) {
+            const level = heading[1].length;
+            while (end + 1 < editor.lineCount()) {
+                const next = editor.getLine(end + 1);
+                const nextHeading = next.match(/^(#{1,6})\s+/);
+                if (nextHeading && nextHeading[1].length <= level) break;
+                end++;
+            }
+        } else {
+            while (start > 0 && editor.getLine(start - 1).trim()) start--;
+            while (end + 1 < editor.lineCount() && editor.getLine(end + 1).trim()) end++;
+        }
+        return Array.from({ length: end - start + 1 }, (_, index) => editor.getLine(start + index))
+            .join("\n")
+            .trim();
+    }
+
     private addPluginCommands() {
         this.plugin.addCommand({
             id: "open-native-card-creator",
@@ -306,6 +331,15 @@ export class CommandManager {
             callback: async () => {
                 if (!this.plugin.isInitialized) return;
                 await this.uiManager.openNativeCardCreator();
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "quick-add-from-selection",
+            name: "Quick Add from selection or current block",
+            editorCallback: (editor: Editor) => {
+                const source = this.getQuickAddSource(editor);
+                if (source) void this.uiManager.openNativeQuickAdd(source);
             },
         });
 

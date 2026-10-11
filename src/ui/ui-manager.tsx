@@ -21,6 +21,7 @@ import SRPlugin from "src/main";
 import { RepItemState, ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
 import { CardCreationMode, createCardInEditor } from "src/ui/card-creation";
+import { deriveQuickAddSeeds } from "src/ui/native-creator/quick-add";
 import ContentManager from "src/ui/obsidian-ui-components/content-container/content-manager";
 import { SRTabView } from "src/ui/obsidian-ui-components/item-views/sr-tab-view";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
@@ -464,6 +465,11 @@ export class UIManager {
         await this.tabViewManager.openNativeCreator({ mode: "card", deckPath });
     }
 
+    public async openNativeQuickAdd(markdown: string, deckPath?: string): Promise<void> {
+        const initialSeeds = deriveQuickAddSeeds(markdown);
+        await this.tabViewManager.openNativeCreator({ mode: "card", deckPath, initialSeeds });
+    }
+
     public async openNativeMediaManager(): Promise<void> {
         await this.tabViewManager.openNativeCreator({ mode: "media" });
     }
@@ -684,6 +690,12 @@ export class UIManager {
         addCardAction("basic", t("CREATE_CARD"), "rectangle-horizontal");
         addCardAction("reversed", t("CREATE_REVERSED_CARD"), "repeat-2");
         if (editor.somethingSelected()) {
+            menu.addItem((item) => {
+                item.setTitle("Quick Add from selection")
+                    .setIcon("sparkles")
+                    .setSection("spaced-repetition")
+                    .onClick(() => void this.openNativeQuickAdd(editor.getSelection()));
+            });
             addCardAction("cloze", t("CREATE_CLOZE_CARD"), "text-cursor-input");
         }
     }
