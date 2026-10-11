@@ -63,6 +63,10 @@ export class PluginDataManager {
                   .map((area) => ({
                       id: area.id,
                       name: area.name.trim(),
+                      icon:
+                          typeof area.icon === "string" && area.icon.trim()
+                              ? area.icon.trim()
+                              : undefined,
                       deckPaths: Array.isArray(area.deckPaths)
                           ? [
                                 ...new Set(

@@ -990,6 +990,7 @@ describe("native card storage", () => {
         const exam = await store.createKnowledgeArea("Board exam", {
             parentId: medicine.id,
             kind: "project",
+            icon: "graduation-cap",
             goal: { targetDate: "2027-06-01", cardsPerDay: 40 },
         });
         await store.assignDeckToKnowledgeArea("Medicine/Cardiology", medicine.id);
@@ -997,6 +998,7 @@ describe("native card storage", () => {
         await store.updateKnowledgeArea(exam.id, {
             parentId: medicine.id,
             kind: "project",
+            icon: "target",
             goal: { targetDate: "2027-06-01", cardsPerDay: 40, minutesPerDay: 30 },
             pinned: true,
         });
@@ -1012,6 +1014,7 @@ describe("native card storage", () => {
                 id: exam.id,
                 parentId: medicine.id,
                 kind: "project",
+                icon: "target",
                 goal: {
                     targetDate: "2027-06-01",
                     cardsPerDay: 40,

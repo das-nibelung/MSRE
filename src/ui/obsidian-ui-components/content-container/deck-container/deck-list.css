@@ -123,6 +123,30 @@
         }
     }
 
+    & .sr-area-heading-back {
+        display: grid;
+        width: 40px;
+        min-width: 40px;
+        height: 40px;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 12px;
+        background: var(--background-modifier-hover);
+        box-shadow: none;
+        color: var(--text-normal);
+        touch-action: manipulation;
+
+        & svg {
+            width: 19px;
+            height: 19px;
+        }
+    }
+
+    & .sr-deck-organization.is-area-detail .sr-deck-organization-heading {
+        justify-content: flex-start;
+    }
+
     & .sr-add-area-button,
     & .sr-area-menu-button,
     & .sr-area-collapse-button,
@@ -272,6 +296,11 @@
         }
     }
 
+    & .sr-area-detail-navigation.is-actions-only {
+        justify-content: flex-end;
+        margin-bottom: var(--size-4-2);
+    }
+
     & .sr-area-detail-back {
         border: 0;
         background: transparent;
@@ -280,15 +309,35 @@
     }
 
     & .sr-area-detail-decks {
-        overflow: hidden;
-        border: 1px solid var(--background-modifier-border);
-        border-radius: calc(var(--radius-l) + 3px);
-        background: var(--background-secondary);
+        display: flex;
+        width: min(100%, 680px);
+        flex-direction: column;
+        gap: 8px;
+        overflow: visible;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
     }
 
     & .sr-area-detail-decks > .sr-tree-row + .sr-tree-row > .sr-tree-item-row,
     & .sr-area-detail-decks .tree-item-children > .sr-tree-row > .sr-tree-item-row {
         border-top: 1px solid var(--background-modifier-border);
+    }
+
+    & .sr-area-detail-decks .sr-tree-item-row {
+        padding-inline-start: var(--sr-deck-indent, 8px);
+        border: 1px solid var(--background-modifier-border) !important;
+        border-radius: 15px;
+        background: var(--background-secondary);
+    }
+
+    & .sr-area-detail-decks .tree-item-children {
+        display: flex;
+        margin: 0 !important;
+        padding: 0;
+        flex-direction: column;
+        gap: 8px;
+        border-inline-start: 0 !important;
     }
 
     & .sr-knowledge-area-body > .sr-tree-row + .sr-tree-row > .sr-tree-item-row,
@@ -743,8 +792,26 @@
     }
 
     & .tree-item-children {
-        margin-inline-start: 10px;
-        border-inline-start: 1px solid var(--background-modifier-border);
+        margin-inline-start: 0;
+        border-inline-start: 0;
+    }
+
+    & .sr-area-detail-decks {
+        width: 100%;
+    }
+
+    & .sr-area-detail-decks .sr-tree-item-row {
+        grid-template-columns: 36px minmax(0, 1fr) 38px 20px;
+        min-height: 58px;
+        padding-block: 6px;
+        padding-inline-end: 7px;
+    }
+
+    & .sr-area-detail-decks .sr-tree-item-row > .collapse-icon {
+        width: 36px;
+        min-width: 36px;
+        height: 40px;
+        min-height: 40px;
     }
 }
 

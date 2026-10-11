@@ -22,6 +22,8 @@ export interface ISerializedScheduleData {
 export interface KnowledgeArea {
     id: string;
     name: string;
+    /** Lucide icon name chosen in the native organizer. */
+    icon?: string;
     /** Visible deck paths, without the configured root flashcard tag. */
     deckPaths: string[];
     pinned: boolean;

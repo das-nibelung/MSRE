@@ -804,8 +804,11 @@ describe("Anki-style collection store", () => {
         await store.ensureDeckPath("Zoology");
         await store.ensureDeckPath("Anatomy");
         expect(store.getDecks().map((deck) => deck.name)).toEqual(["Anatomy", "Zoology"]);
-        await store.updateDeck("Anatomy", { description: "Body structures" });
+        await store.updateDeck("Anatomy", { description: "Body structures", icon: "heart-pulse" });
         expect(store.getDeck("Anatomy")?.optionsId).toBe(DEFAULT_DECK_OPTIONS_ID);
+        expect(store.getDeck("Anatomy")?.icon).toBe("heart-pulse");
+        await store.updateDeck("Anatomy", { icon: "" });
+        expect(store.getDeck("Anatomy")?.icon).toBeUndefined();
         await store.deleteDeckOptions(updated.id);
         expect(store.getDeckOptionsById(updated.id)).toBeNull();
     });

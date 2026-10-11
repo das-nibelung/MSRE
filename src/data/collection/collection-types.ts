@@ -209,6 +209,8 @@ export interface CollectionDeck {
     parentId: string | null;
     optionsId: string;
     description: string;
+    /** Lucide icon name used by the native deck browser. */
+    icon?: string;
     createdAt: number;
     updatedAt: number;
     deletedAt?: number;
