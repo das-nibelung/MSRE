@@ -183,6 +183,136 @@ export class DataPage extends SettingsPage {
                     );
             });
 
+        const aiGroup = new SettingGroup(this.containerEl).setHeading("AI co-author");
+        aiGroup
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Preferred connection")
+                    .setDesc(
+                        "Choose the default route. You always review generated cards before they change the draft.",
+                    )
+                    .addDropdown((dropdown) =>
+                        dropdown
+                            .addOptions({
+                                "direct-api": "Direct API",
+                                mcp: "MCP / Codex",
+                                codex: "Codex plugin",
+                            })
+                            .setValue(this.settingsManager.settings.aiPreferredProvider)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.aiPreferredProvider = value;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("API format")
+                    .setDesc(
+                        "Use Responses for OpenAI, or Chat Completions for compatible services.",
+                    )
+                    .addDropdown((dropdown) =>
+                        dropdown
+                            .addOptions({
+                                responses: "OpenAI Responses",
+                                "chat-completions": "Chat Completions compatible",
+                            })
+                            .setValue(this.settingsManager.settings.aiApiProtocol)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.aiApiProtocol = value as
+                                    "responses" | "chat-completions";
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("API endpoint")
+                    .setDesc("HTTPS is required; HTTP is accepted only for localhost.")
+                    .addText((text) =>
+                        text
+                            .setPlaceholder("https://api.openai.com/v1/responses")
+                            .setValue(this.settingsManager.settings.aiApiEndpoint)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.aiApiEndpoint = value.trim();
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Model")
+                    .setDesc("Enter the exact model supported by your provider.")
+                    .addText((text) =>
+                        text
+                            .setPlaceholder("Model ID")
+                            .setValue(this.settingsManager.settings.aiApiModel)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.aiApiModel = value.trim();
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                const hasKey = Boolean(this.plugin.ai.getApiKey());
+                setting
+                    .setName("API key on this device")
+                    .setDesc(
+                        "Stored only in this device's local Obsidian storage, never in cards or the vault queue.",
+                    )
+                    .addText((text) => {
+                        text.inputEl.type = "password";
+                        text.setPlaceholder(
+                            hasKey ? "Saved on this device" : "Optional for local APIs",
+                        );
+                        text.onChange((value) => this.plugin.ai.setApiKey(value));
+                    })
+                    .addExtraButton((button) =>
+                        button
+                            .setIcon("trash-2")
+                            .setTooltip("Forget API key")
+                            .onClick(() => {
+                                this.plugin.ai.setApiKey("");
+                                new Notice("AI API key removed from this device");
+                                this.display();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("MCP / Codex bridge")
+                    .setDesc(
+                        "Let a connected local MCP agent answer AI requests through the signed vault queue.",
+                    )
+                    .addToggle((toggle) =>
+                        toggle
+                            .setValue(this.settingsManager.settings.aiMcpEnabled)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.aiMcpEnabled = value;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("MCP response window")
+                    .setDesc("How long the AI panel waits for the connected agent.")
+                    .addText((text) => {
+                        text.inputEl.type = "number";
+                        text.inputEl.min = "15";
+                        text.inputEl.max = "600";
+                        text.setValue(
+                            String(this.settingsManager.settings.aiMcpWaitSeconds),
+                        ).onChange(async (value) => {
+                            this.settingsManager.settings.aiMcpWaitSeconds = Math.max(
+                                15,
+                                Math.min(600, Number.parseInt(value, 10) || 180),
+                            );
+                            await this.settingsManager.save();
+                        });
+                    });
+            });
+
         // TODO: Implement this when the other data stores are implemented
 
         const dataStorageGroup = new SettingGroup(this.containerEl).setHeading(

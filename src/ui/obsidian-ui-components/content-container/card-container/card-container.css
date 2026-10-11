@@ -87,9 +87,27 @@
 
     & img,
     & video {
+        display: block;
+        width: auto;
+        max-width: 100%;
         max-height: 44cqh;
+        margin-inline: auto;
         border-radius: calc(var(--sr-card-radius) - 10px);
         object-fit: contain;
+    }
+
+    & .image-embed,
+    & .media-embed {
+        display: flex;
+        width: 100%;
+        max-width: 100%;
+        justify-content: center;
+    }
+
+    & p:has(> .image-embed:only-child),
+    & p:has(> img:only-child) {
+        width: 100%;
+        text-align: center;
     }
 
     & img.sr-zoomable-image {

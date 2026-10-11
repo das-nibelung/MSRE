@@ -78,9 +78,11 @@ import {
     StructuredNoteDraft,
 } from "src/data/native-card-store";
 import { KnowledgeArea } from "src/data/plugin-data";
+import { AiCardDraft } from "src/intelligence/ai-types";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { DeckPickerModal } from "src/ui/deck-picker-modal";
+import { AiAssistantModal } from "src/ui/native-creator/ai-assistant-modal";
 import {
     cloneOcclusionMasks,
     getOcclusionCardGroups,
@@ -571,6 +573,12 @@ export class NativeCreatorView extends ItemView {
             previewToggle.buttonEl.addClass("sr-native-icon-button");
             previewToggle.buttonEl.toggleClass("is-active", this.showCardPreview);
 
+            const ai = new ButtonComponent(tools)
+                .setIcon("sparkles")
+                .setTooltip(this.creatorText("AI co-author", "AI-соавтор"))
+                .onClick(() => void this.openAiAssistant());
+            ai.buttonEl.addClass("sr-native-icon-button", "sr-native-ai-trigger");
+
             const save = new ButtonComponent(top)
                 .setButtonText(
                     this.busy
@@ -930,6 +938,80 @@ export class NativeCreatorView extends ItemView {
             .onClick(() => void this.saveCard(false));
 
         if (!Platform.isMobile) window.setTimeout(() => frontInput.focus(), 0);
+    }
+
+    private async openAiAssistant(): Promise<void> {
+        const noteType = this.getSelectedNoteType();
+        const orderedFields = [...noteType.fields].sort(
+            (left, right) => left.ordinal - right.ordinal,
+        );
+        const structuredText = orderedFields
+            .map((field) => {
+                const value = this.customFieldValues[field.id]?.trim();
+                return value ? `${field.name}: ${value}` : "";
+            })
+            .filter(Boolean)
+            .join("\n\n");
+        let sourceText = structuredText || [this.front, this.back].filter(Boolean).join("\n\n");
+        if (!sourceText) {
+            const activeFile = this.app.workspace.getActiveFile();
+            if (activeFile) {
+                try {
+                    sourceText = (await this.app.vault.cachedRead(activeFile)).slice(0, 24_000);
+                } catch {
+                    sourceText = "";
+                }
+            }
+        }
+        new AiAssistantModal(this.app, this.plugin, this.plugin.ai, {
+            sourceText,
+            currentCard:
+                this.front || this.back
+                    ? {
+                          front: this.front,
+                          back: this.back,
+                          type: this.cardType,
+                          tags: this.getTags(),
+                          deckPath: this.selectedDeck,
+                      }
+                    : undefined,
+            onApply: (cards) => this.applyAiCards(cards),
+        }).open();
+    }
+
+    private applyAiCards(cards: AiCardDraft[]): void {
+        const [first, ...remaining] = cards;
+        if (!first) return;
+        this.rememberCardState();
+        const noteType = this.getSelectedNoteType();
+        if (!noteType.id.startsWith("builtin-")) {
+            const fields = [...noteType.fields].sort((left, right) => left.ordinal - right.ordinal);
+            if (fields[0]) this.customFieldValues[fields[0].id] = first.front;
+            if (fields[1]) this.customFieldValues[fields[1].id] = first.back;
+        } else {
+            this.front = first.front;
+            this.back = first.back;
+            this.cardType = first.type;
+            this.selectedNoteTypeId = this.noteTypeIdForCardType(first.type);
+        }
+        if (first.tags?.length) {
+            this.tagsText = [...new Set([...this.getTags(), ...first.tags])].join(", ");
+        }
+        if (first.deckPath && this.store.getDeckPaths().includes(first.deckPath)) {
+            this.selectedDeck = first.deckPath;
+            this.rememberDeck(first.deckPath);
+        }
+        this.quickAddQueue.unshift(
+            ...remaining.map((card) => ({
+                front: card.front,
+                back: card.back,
+                type: card.type,
+                sourceLabel: this.creatorText("AI proposal", "Предложение AI"),
+            })),
+        );
+        this.error = "";
+        this.saveDraft();
+        this.render();
     }
 
     private getNativeCardQualityReport(): CardQualityReport {

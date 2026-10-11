@@ -11,6 +11,7 @@ import { DebugLoggerInstance } from "src/data/debug-logger";
 import { PluginDataError, PluginDataManager } from "src/data/plugin-data-manager";
 import { SRSettings } from "src/data/settings";
 import { SettingsManager } from "src/data/settings-manager";
+import { AiAssistantService } from "src/intelligence/ai-assistant";
 import { LocaleManagerInstance } from "src/lang/locale-manager";
 import { NextNoteReviewHandler } from "src/note/next-note-review-handler";
 import { NoteReviewQueue } from "src/note/note-review-queue";
@@ -27,6 +28,7 @@ export default class SRPlugin extends Plugin {
     private _commandManager: CommandManager | null = null;
     private _reminderManager: ReminderManager | null = null;
     private _api: PersonalSpacedRepetitionApi | null = null;
+    private _ai: AiAssistantService | null = null;
     public isInitialized: boolean = false;
 
     async onload(): Promise<void> {
@@ -43,6 +45,7 @@ export default class SRPlugin extends Plugin {
             );
 
             this.dataManager = new DataManager(this, pluginDataManager, settingsManager);
+            this._ai = new AiAssistantService(this);
             this._api = new PersonalSpacedRepetitionApi(this);
             const uiManager = new UIManager(this, settingsManager);
             this.uiManager = uiManager;
@@ -125,6 +128,11 @@ export default class SRPlugin extends Plugin {
     get api(): PersonalSpacedRepetitionApi {
         if (this._api === null) throw new Error("Public API not initialized!!!");
         return this._api;
+    }
+
+    get ai(): AiAssistantService {
+        if (this._ai === null) throw new Error("AI assistant not initialized!!!");
+        return this._ai;
     }
 
     isApiLoaded(): boolean {
