@@ -1588,7 +1588,7 @@ export class CollectionStore {
 
     async updateDeck(
         deckPath: string,
-        changes: { description?: string; optionsId?: string },
+        changes: { description?: string; optionsId?: string; icon?: string },
     ): Promise<CollectionDeck> {
         await this.initialize();
         const deck = this.ensureDeckPathInMemory(deckPath, this.now());
@@ -1598,6 +1598,7 @@ export class CollectionStore {
             deck.optionsId = options.id;
         }
         if (changes.description !== undefined) deck.description = changes.description.trim();
+        if (changes.icon !== undefined) deck.icon = changes.icon.trim() || undefined;
         deck.updatedAt = this.now();
         await this.persistCollection();
         return cloneJson(deck);

@@ -23,6 +23,7 @@ export default class DeckListComponent {
     private content: HTMLDivElement;
     private overview: HTMLDivElement;
     private organization: HTMLDivElement;
+    private areaBackButton: HTMLButtonElement;
     private areaTitle: HTMLHeadingElement;
     private areaSummary: HTMLSpanElement;
     private treeContainer: HTMLDivElement;
@@ -68,6 +69,16 @@ export default class DeckListComponent {
 
         this.organization = this.content.createDiv("sr-deck-organization");
         const heading = this.organization.createDiv("sr-deck-organization-heading");
+        this.areaBackButton = heading.createEl("button", {
+            cls: "sr-area-heading-back sr-is-hidden",
+            attr: { type: "button", "aria-label": t("KNOWLEDGE_AREAS") },
+        });
+        setIcon(this.areaBackButton.createSpan(), "arrow-left");
+        this.areaBackButton.addEventListener("click", () => {
+            this.activeAreaKey = "";
+            this.searchQuery = "";
+            this.redrawCurrent();
+        });
         const headingCopy = heading.createDiv();
         this.areaTitle = headingCopy.createEl("h2", { text: t("KNOWLEDGE_AREAS") });
         this.areaSummary = headingCopy.createSpan();
@@ -101,6 +112,7 @@ export default class DeckListComponent {
             : null;
         if (this.activeAreaKey && !activeGroup) this.activeAreaKey = "";
         this.organization.toggleClass("is-area-detail", Boolean(activeGroup));
+        this.areaBackButton.toggleClass("sr-is-hidden", !activeGroup);
         this.areaTitle.setText(activeGroup?.name ?? t("KNOWLEDGE_AREAS"));
         this.areaSummary.setText(
             activeGroup
@@ -218,7 +230,8 @@ export default class DeckListComponent {
         const icon = header.createDiv("sr-knowledge-area-icon");
         setIcon(
             icon,
-            group.pinned ? "pin" : group.area?.kind === "project" ? "target" : "library-big",
+            group.area?.icon ??
+                (group.pinned ? "pin" : group.area?.kind === "project" ? "target" : "library-big"),
         );
         const copy = header.createDiv("sr-knowledge-area-copy");
         copy.createEl("h3", { text: group.name });
@@ -267,15 +280,7 @@ export default class DeckListComponent {
         settings: SRSettings,
     ): void {
         const navigation = this.treeContainer.createDiv("sr-area-detail-navigation");
-        const back = new ButtonComponent(navigation)
-            .setIcon("arrow-left")
-            .setButtonText(t("KNOWLEDGE_AREAS"))
-            .onClick(() => {
-                this.activeAreaKey = "";
-                this.searchQuery = "";
-                this.redrawCurrent();
-            });
-        back.buttonEl.addClass("sr-area-detail-back");
+        navigation.addClass("is-actions-only");
         if (group.area) {
             new ButtonComponent(navigation)
                 .setIcon("plus")
@@ -310,6 +315,10 @@ export default class DeckListComponent {
         const stats = sequencer.getDeckStats(deck.getTopicPath());
         const hasChildren = deck.subdecks.length > 0;
         const row = parent.createDiv("sr-tree-row tree-item sr-tree-item-container");
+        row.setCssProps({
+            "--sr-deck-depth": String(depth),
+            "--sr-deck-indent": `${8 + Math.min(depth, 4) * 10}px`,
+        });
         row.addClass(depth === 0 ? "sr-area-deck" : "sr-nested-deck");
         const rowSelf = row.createDiv("tree-item-self tag-pane-tag sr-tree-item-row");
         const children = row.createDiv("tree-item-children");
@@ -339,7 +348,9 @@ export default class DeckListComponent {
 
         const inner = rowSelf.createDiv("tree-item-inner");
         const deckIcon = inner.createDiv("sr-deck-row-icon");
-        setIcon(deckIcon, hasChildren ? "folders" : "folder");
+        const deckPath = this.getVisibleDeckPath(deck);
+        const configuredIcon = this.plugin.dataManager.collectionStore.getDeck(deckPath)?.icon;
+        setIcon(deckIcon, configuredIcon ?? (hasChildren ? "folders" : "folder"));
         const text = inner.createDiv("tag-pane-tag-text");
         text.createSpan({ cls: "tag-pane-tag-self sr-deck-row-title", text: deck.deckName });
         text.createDiv({
@@ -349,7 +360,6 @@ export default class DeckListComponent {
 
         const statsEl = rowSelf.createDiv("tree-item-flair-outer sr-tree-stats-container");
         this.createStats(statsEl, stats);
-        const deckPath = this.getVisibleDeckPath(deck);
         const menuButton = new ButtonComponent(rowSelf)
             .setIcon("ellipsis")
             .setTooltip(t("MORE_ACTIONS"))

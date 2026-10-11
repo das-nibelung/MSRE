@@ -91,6 +91,78 @@
         border-radius: calc(var(--sr-card-radius) - 10px);
         object-fit: contain;
     }
+
+    & img.sr-zoomable-image {
+        cursor: zoom-in;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+    }
+}
+
+.sr-image-zoom-overlay {
+    position: absolute;
+    z-index: 1000;
+    inset: 0;
+    display: grid;
+    overflow: hidden;
+    place-items: center;
+    background: rgb(0 0 0 / 94%);
+    touch-action: none;
+    user-select: none;
+}
+
+.sr-image-zoom-viewport {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    overflow: hidden;
+    place-items: center;
+    cursor: zoom-in;
+    touch-action: none;
+}
+
+.sr-image-zoom-overlay.is-zoomed .sr-image-zoom-viewport {
+    cursor: grab;
+}
+
+.sr-image-zoom-viewport img {
+    width: auto;
+    max-width: 96%;
+    height: auto;
+    max-height: 92%;
+    object-fit: contain;
+    transform-origin: center;
+    transition: transform 80ms linear;
+    will-change: transform;
+    pointer-events: none;
+}
+
+.sr-image-zoom-controls {
+    position: absolute;
+    z-index: 2;
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(18px, env(safe-area-inset-bottom));
+    left: max(14px, env(safe-area-inset-left));
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    pointer-events: none;
+}
+
+.sr-image-zoom-controls button {
+    display: grid;
+    width: 46px;
+    min-width: 46px;
+    height: 46px;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgb(255 255 255 / 14%);
+    border-radius: 14px;
+    background: rgb(34 34 36 / 88%);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
+    color: white;
+    pointer-events: auto;
+    backdrop-filter: blur(16px);
 }
 
 .sr-typed-answer-composer {

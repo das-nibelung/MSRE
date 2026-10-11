@@ -99,6 +99,7 @@ export class CardContainer {
     } | null = null;
     private workspaceGestureShieldEnabled = false;
     private gestureActionPending = false;
+    private imageViewerCleanup: (() => void) | null = null;
 
     constructor(
         app: App,
@@ -224,6 +225,7 @@ export class CardContainer {
             this.pendingResumeTimeout = null;
         }
         this.cardState = CardState.Closed;
+        this.imageViewerCleanup?.();
         this.disableWorkspaceGestureShield();
         activeDocument.removeEventListener("keydown", this._keydownHandler);
         this.view.addClass("sr-is-hidden");
@@ -243,6 +245,7 @@ export class CardContainer {
     }
 
     public async drawCardFront(sessionData: SessionData, settings: SRSettings) {
+        this.imageViewerCleanup?.();
         this.settings = settings;
         this.clearGestureState();
         this.answerValue = "";
@@ -322,6 +325,7 @@ export class CardContainer {
         );
         this.applyTemplateSurfaceAppearance(cardFace, sessionData, "question");
         this.bindTemplateActions(cardFace);
+        this.bindImageZoom(cardFace);
         this.autoPlayMedia(cardFace);
 
         const answerContext = this.getAnswerContext(sessionData);
@@ -689,6 +693,7 @@ export class CardContainer {
         settings: SRSettings,
         determineButtonSchedule: (response: ReviewResponse) => RepItemScheduleInfo | null,
     ) {
+        this.imageViewerCleanup?.();
         this.clearGestureState();
         this.activeReviewMode = reviewMode;
         this.setCustomHotKeyState(settings.useCustomHotkeys);
@@ -730,6 +735,7 @@ export class CardContainer {
         );
         this.applyTemplateSurfaceAppearance(answerFace, sessionData, "answer");
         this.bindTemplateActions(answerFace);
+        this.bindImageZoom(answerFace);
         this.autoPlayMedia(answerFace);
 
         if (this.answerContext) {
@@ -974,6 +980,132 @@ export class CardContainer {
         }
     }
 
+    private bindImageZoom(root: HTMLElement): void {
+        for (const image of root.querySelectorAll<HTMLImageElement>("img")) {
+            image.addClass("sr-zoomable-image");
+            image.setAttribute("role", "button");
+            image.setAttribute("tabindex", "0");
+            image.setAttribute("aria-label", image.alt || "Open image viewer");
+            const open = (event: Event): void => {
+                event.preventDefault();
+                event.stopPropagation();
+                this.openImageViewer(image);
+            };
+            image.addEventListener("click", open);
+            image.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" || event.key === " ") open(event);
+            });
+        }
+    }
+
+    private openImageViewer(source: HTMLImageElement): void {
+        this.imageViewerCleanup?.();
+        const overlay = this.view.createDiv("sr-image-zoom-overlay");
+        overlay.setAttribute("role", "dialog");
+        overlay.setAttribute("aria-modal", "true");
+        overlay.setAttribute("aria-label", source.alt || "Image viewer");
+        const viewport = overlay.createDiv("sr-image-zoom-viewport");
+        const image = viewport.createEl("img", {
+            attr: { src: source.currentSrc || source.src, alt: source.alt || "" },
+        });
+        const controls = overlay.createDiv("sr-image-zoom-controls");
+        let scale = 1;
+        let offsetX = 0;
+        let offsetY = 0;
+        const pointers = new Map<number, { x: number; y: number }>();
+        let previousDistance = 0;
+        let previousCenter = { x: 0, y: 0 };
+        const apply = (): void => {
+            image.setCssProps({
+                transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(${scale})`,
+            });
+            overlay.toggleClass("is-zoomed", scale > 1.01);
+        };
+        const setScale = (next: number): void => {
+            scale = Math.max(1, Math.min(6, next));
+            if (scale === 1) {
+                offsetX = 0;
+                offsetY = 0;
+            }
+            apply();
+        };
+        const close = (): void => {
+            activeDocument.removeEventListener("keydown", onKeyDown, true);
+            overlay.remove();
+            this.imageViewerCleanup = null;
+        };
+        const addControl = (icon: string, label: string, action: () => void): void => {
+            const button = new ButtonComponent(controls)
+                .setIcon(icon)
+                .setTooltip(label)
+                .onClick(action);
+            button.buttonEl.setAttribute("aria-label", label);
+        };
+        addControl("minus", "Zoom out", () => setScale(scale - 0.5));
+        addControl("maximize-2", "Reset zoom", () => setScale(1));
+        addControl("plus", "Zoom in", () => setScale(scale + 0.5));
+        addControl("x", "Close", close);
+        const onKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === "Escape") close();
+            else if (event.key === "+" || event.key === "=") setScale(scale + 0.5);
+            else if (event.key === "-") setScale(scale - 0.5);
+        };
+        activeDocument.addEventListener("keydown", onKeyDown, true);
+        this.imageViewerCleanup = close;
+        overlay.addEventListener("click", (event) => {
+            if (event.target === overlay) close();
+        });
+        viewport.addEventListener("wheel", (event) => {
+            event.preventDefault();
+            setScale(scale + (event.deltaY < 0 ? 0.3 : -0.3));
+        });
+        viewport.addEventListener("pointerdown", (event) => {
+            event.preventDefault();
+            viewport.setPointerCapture(event.pointerId);
+            pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+            if (pointers.size === 2) {
+                const [first, second] = [...pointers.values()];
+                previousDistance = Math.hypot(second.x - first.x, second.y - first.y);
+                previousCenter = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+            }
+        });
+        viewport.addEventListener("pointermove", (event) => {
+            const previous = pointers.get(event.pointerId);
+            if (!previous) return;
+            pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+            if (pointers.size === 1 && scale > 1) {
+                offsetX += event.clientX - previous.x;
+                offsetY += event.clientY - previous.y;
+                apply();
+                return;
+            }
+            if (pointers.size === 2) {
+                const [first, second] = [...pointers.values()];
+                const distance = Math.hypot(second.x - first.x, second.y - first.y);
+                const center = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+                if (previousDistance > 0)
+                    scale = Math.max(1, Math.min(6, scale * (distance / previousDistance)));
+                offsetX += center.x - previousCenter.x;
+                offsetY += center.y - previousCenter.y;
+                previousDistance = distance;
+                previousCenter = center;
+                apply();
+            }
+        });
+        const release = (event: PointerEvent): void => {
+            pointers.delete(event.pointerId);
+            previousDistance = 0;
+            if (pointers.size === 1) {
+                const [remaining] = [...pointers.values()];
+                previousCenter = remaining;
+            }
+        };
+        viewport.addEventListener("pointerup", release);
+        viewport.addEventListener("pointercancel", release);
+        apply();
+        controls.querySelector<HTMLButtonElement>("button:last-child")?.focus();
+    }
+
     private autoPlayMedia(root: HTMLElement): void {
         if (!this.settings.autoPlayCardMedia || this.settings.accessibleReviewMode) return;
         const media = root.querySelector<HTMLMediaElement>("audio, video");
@@ -1018,7 +1150,9 @@ export class CardContainer {
         if (
             !(target instanceof Element) ||
             !this.content.contains(target) ||
-            target.closest("a, button, input, textarea, select, [contenteditable='true']") !== null
+            target.closest(
+                "a, button, input, textarea, select, img, [contenteditable='true'], .sr-image-zoom-overlay",
+            ) !== null
         ) {
             this.gestureStart = null;
             return;
@@ -1201,8 +1335,9 @@ export class CardContainer {
             !(target instanceof Node) ||
             !this.content.contains(target) ||
             (target instanceof Element &&
-                target.closest("a, button, input, textarea, select, [contenteditable='true']") !==
-                    null)
+                target.closest(
+                    "a, button, input, textarea, select, img, [contenteditable='true'], .sr-image-zoom-overlay",
+                ) !== null)
         ) {
             this.workspaceTouchStart = null;
             return;
@@ -1230,7 +1365,9 @@ export class CardContainer {
     private isGestureTarget(target: Node): boolean {
         return !(
             target instanceof Element &&
-            target.closest("a, button, input, textarea, select, [contenteditable='true']") !== null
+            target.closest(
+                "a, button, input, textarea, select, img, [contenteditable='true'], .sr-image-zoom-overlay",
+            ) !== null
         );
     }
 

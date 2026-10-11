@@ -510,6 +510,7 @@ export class NativeCardStore {
             parentId?: string | null;
             kind?: "area" | "project";
             goal?: KnowledgeArea["goal"];
+            icon?: string;
         } = {},
     ): Promise<KnowledgeArea> {
         const normalizedName = name.trim().replace(/\s+/g, " ");
@@ -535,6 +536,7 @@ export class NativeCardStore {
                     ? options.parentId
                     : null,
             kind: options.kind ?? "area",
+            icon: options.icon?.trim() || undefined,
             goal: options.goal,
             archivedAt: null,
         };
@@ -559,7 +561,9 @@ export class NativeCardStore {
 
     async updateKnowledgeArea(
         id: string,
-        patch: Partial<Pick<KnowledgeArea, "parentId" | "kind" | "goal" | "archivedAt" | "pinned">>,
+        patch: Partial<
+            Pick<KnowledgeArea, "parentId" | "kind" | "goal" | "archivedAt" | "pinned" | "icon">
+        >,
     ): Promise<KnowledgeArea> {
         const area = this.requireKnowledgeArea(id);
         if (patch.parentId !== undefined) {
@@ -572,6 +576,7 @@ export class NativeCardStore {
         if (patch.goal !== undefined) area.goal = patch.goal;
         if (patch.archivedAt !== undefined) area.archivedAt = patch.archivedAt;
         if (patch.pinned !== undefined) area.pinned = patch.pinned;
+        if (patch.icon !== undefined) area.icon = patch.icon.trim() || undefined;
         await this.plugin.dataManager.savePluginData();
         return area;
     }

@@ -152,6 +152,27 @@ interface CardEditorSnapshot {
 
 type OcclusionTool = OcclusionShape | "pan";
 
+const ORGANIZER_ICONS = [
+    "folder",
+    "folders",
+    "library-big",
+    "book-open",
+    "brain",
+    "graduation-cap",
+    "heart-pulse",
+    "flask-conical",
+    "sigma",
+    "languages",
+    "code-2",
+    "scale",
+    "music",
+    "palette",
+    "dumbbell",
+    "briefcase-business",
+    "target",
+    "star",
+] as const;
+
 export interface NativeCreatorRequest {
     mode: NativeCreatorMode;
     deckPath?: string;
@@ -166,6 +187,7 @@ export class NativeCreatorView extends ItemView {
     private request: NativeCreatorRequest = { mode: "card" };
     private readonly store: NativeCardStore;
     private selectedDeck = "";
+    private deckIcon = "folder";
     private cardType: NativeCardType = "basic";
     private answerMode: "reveal" | "type" = "reveal";
     private front = "";
@@ -175,6 +197,7 @@ export class NativeCreatorView extends ItemView {
     private editingCard: Card | null = null;
     private editingAreaId: string | null = null;
     private areaName = "";
+    private areaIcon = "library-big";
     private areaScheduling: NonNullable<KnowledgeArea["scheduling"]> = {};
     private areaParentId: string | null = null;
     private areaKind: "area" | "project" = "area";
@@ -239,6 +262,8 @@ export class NativeCreatorView extends ItemView {
     private showCardPreview = false;
     private cardPreviewSurface: "front" | "back" = "front";
     private noteTypeEditorSection: "fields" | "templates" | "preview" = "fields";
+    private selectedTemplateId: string | null = null;
+    private templateEditorSurface: TemplateSurface = "question";
     private occlusionBatchFiles: File[] = [];
     private occlusionBatchTotal = 0;
 
@@ -344,9 +369,13 @@ export class NativeCreatorView extends ItemView {
         const editingArea = this.editingAreaId
             ? this.store.getKnowledgeAreas().find((area) => area.id === this.editingAreaId)
             : undefined;
+        this.areaIcon =
+            editingArea?.icon ?? (editingArea?.kind === "project" ? "target" : "library-big");
         this.areaParentId = editingArea?.parentId ?? request.targetAreaId ?? null;
         this.areaKind = editingArea?.kind ?? "area";
         this.areaGoal = { ...(editingArea?.goal ?? {}) };
+        const configuredDeck = this.plugin.dataManager.collectionStore.getDeck(this.selectedDeck);
+        this.deckIcon = configuredDeck?.icon ?? "folder";
         if (request.mode === "deck-options") this.loadDeckOptionsDraft();
         if (this.editingCard) {
             const sourcePath = this.editingCard.storageInfo?.notePath ?? "";
@@ -542,6 +571,7 @@ export class NativeCreatorView extends ItemView {
         }
 
         const surface = page.createDiv("sr-native-creator-surface");
+        surface.addClass(`sr-native-${this.request.mode}-surface`);
         if (this.request.mode === "image-occlusion") this.renderImageOcclusionForm(surface);
         else if (this.request.mode === "media") this.renderMediaManager(surface);
         else if (this.request.mode === "transfer") this.renderTransferManager(surface);
@@ -2963,6 +2993,40 @@ export class NativeCreatorView extends ItemView {
         ).open();
     }
 
+    private renderOrganizerIconPicker(
+        parent: HTMLElement,
+        selected: string,
+        onChange: (icon: string) => void,
+    ): void {
+        const picker = parent.createEl("details", { cls: "sr-native-icon-picker" });
+        const summary = picker.createEl("summary");
+        const current = summary.createSpan("sr-native-icon-picker-current");
+        setIcon(current, selected);
+        const copy = summary.createDiv();
+        copy.createEl("strong", { text: this.creatorText("Icon", "Иконка") });
+        copy.createSpan({
+            text: this.creatorText("Choose a visual marker", "Выберите визуальный маркер"),
+        });
+        const grid = picker.createDiv("sr-native-icon-grid");
+        for (const iconName of ORGANIZER_ICONS) {
+            const button = grid.createEl("button", {
+                cls: iconName === selected ? "is-selected" : "",
+                attr: {
+                    type: "button",
+                    title: iconName,
+                    "aria-label": iconName,
+                    "aria-pressed": String(iconName === selected),
+                },
+            });
+            setIcon(button, iconName);
+            button.addEventListener("click", () => {
+                onChange(iconName);
+                picker.open = false;
+                this.render();
+            });
+        }
+    }
+
     private renderDeckForm(surface: HTMLElement): void {
         const nameGroup = this.createFieldGroup(surface, t("DECK_NAME"), t("DECK_NAME_HELP"));
         const input = nameGroup.createEl("input", {
@@ -2983,9 +3047,13 @@ export class NativeCreatorView extends ItemView {
             if (event.key === "Enter") void this.saveDeck();
         });
 
+        this.renderOrganizerIconPicker(surface, this.deckIcon, (icon) => {
+            this.deckIcon = icon;
+        });
+
         const preview = surface.createDiv("sr-native-deck-preview");
         const previewIcon = preview.createDiv("sr-native-deck-preview-icon");
-        setIcon(previewIcon, "layers-3");
+        setIcon(previewIcon, this.deckIcon);
         const previewCopy = preview.createDiv();
         previewCopy.createSpan({ text: t("DECK_WILL_APPEAR_AS") });
         const previewName = previewCopy.createEl("strong", {
@@ -3022,6 +3090,7 @@ export class NativeCreatorView extends ItemView {
         this.selectedDeckOptionsId = options.id;
         this.deckOptionsDraft = { ...options };
         this.deckDescription = deck?.description ?? "";
+        this.deckIcon = deck?.icon ?? "folder";
     }
 
     private renderDeckOptionsForm(surface: HTMLElement): void {
@@ -3085,6 +3154,10 @@ export class NativeCreatorView extends ItemView {
         description.value = this.deckDescription;
         description.addEventListener("input", () => {
             this.deckDescription = description.value;
+        });
+
+        this.renderOrganizerIconPicker(surface, this.deckIcon, (icon) => {
+            this.deckIcon = icon;
         });
 
         const limits = surface.createDiv("sr-native-options-section");
@@ -3391,24 +3464,27 @@ export class NativeCreatorView extends ItemView {
             if (event.key === "Enter") void this.saveKnowledgeArea();
         });
 
-        const organization = surface.createDiv("sr-native-options-section");
-        organization.createEl("h2", { text: this.creatorText("Organization", "Организация") });
-        organization.createEl("p", {
-            text: this.creatorText(
-                "Nest areas and use projects for knowledge with a concrete outcome.",
-                "Вкладывайте области друг в друга, а проекты используйте для конкретной цели.",
-            ),
+        this.renderOrganizerIconPicker(surface, this.areaIcon, (icon) => {
+            this.areaIcon = icon;
         });
+
+        const organization = surface.createDiv("sr-native-area-core");
         this.createChoiceControl(organization, this.creatorText("Kind", "Тип"), [
             {
                 label: this.creatorText("Area", "Область"),
                 active: this.areaKind === "area",
-                action: () => (this.areaKind = "area"),
+                action: () => {
+                    this.areaKind = "area";
+                    if (this.areaIcon === "target") this.areaIcon = "library-big";
+                },
             },
             {
                 label: this.creatorText("Project", "Проект"),
                 active: this.areaKind === "project",
-                action: () => (this.areaKind = "project"),
+                action: () => {
+                    this.areaKind = "project";
+                    if (this.areaIcon === "library-big") this.areaIcon = "target";
+                },
             },
         ]);
         const parentGroup = this.createFieldGroup(
@@ -3435,9 +3511,20 @@ export class NativeCreatorView extends ItemView {
         parent.value = this.areaParentId ?? "";
         parent.addEventListener("change", () => (this.areaParentId = parent.value || null));
 
-        const goal = surface.createDiv("sr-native-options-section");
-        goal.createEl("h2", { text: this.creatorText("Study goal", "Учебная цель") });
-        const goalGrid = goal.createDiv("sr-native-options-grid");
+        const goal = surface.createEl("details", { cls: "sr-native-disclosure" });
+        goal.open = this.areaKind === "project";
+        const goalSummary = goal.createEl("summary");
+        const goalSummaryIcon = goalSummary.createSpan();
+        setIcon(goalSummaryIcon, "target");
+        const goalSummaryCopy = goalSummary.createDiv();
+        goalSummaryCopy.createEl("strong", {
+            text: this.creatorText("Study goal", "Учебная цель"),
+        });
+        goalSummaryCopy.createSpan({
+            text: this.creatorText("Deadline and daily workload", "Срок и ежедневная нагрузка"),
+        });
+        const goalBody = goal.createDiv("sr-native-disclosure-body");
+        const goalGrid = goalBody.createDiv("sr-native-options-grid");
         const targetDate = this.createFieldGroup(
             goalGrid,
             this.creatorText("Target date", "Срок"),
@@ -3472,12 +3559,22 @@ export class NativeCreatorView extends ItemView {
             (value) => (this.areaGoal.targetRetention = value / 100),
         );
 
-        const scheduler = surface.createDiv("sr-native-options-section");
-        scheduler.createEl("h2", { text: "Scheduler override" });
-        scheduler.createEl("p", {
-            text: "Optional settings here override deck presets for every deck in this knowledge area.",
+        const scheduler = surface.createEl("details", { cls: "sr-native-disclosure" });
+        const schedulerSummary = scheduler.createEl("summary");
+        const schedulerSummaryIcon = schedulerSummary.createSpan();
+        setIcon(schedulerSummaryIcon, "sliders-horizontal");
+        const schedulerSummaryCopy = schedulerSummary.createDiv();
+        schedulerSummaryCopy.createEl("strong", {
+            text: this.creatorText("Scheduling", "Планирование"),
         });
-        const grid = scheduler.createDiv("sr-native-options-grid");
+        schedulerSummaryCopy.createSpan({
+            text: this.creatorText(
+                "Optional settings for every deck in this area",
+                "Необязательные настройки для всех колод области",
+            ),
+        });
+        const schedulerBody = scheduler.createDiv("sr-native-disclosure-body");
+        const grid = schedulerBody.createDiv("sr-native-options-grid");
         this.createNumberControl(
             grid,
             "Retention, %",
@@ -3530,7 +3627,7 @@ export class NativeCreatorView extends ItemView {
             1440,
             (value) => (this.areaScheduling.minutesPerDay = value),
         );
-        this.createChoiceControl(scheduler, "Leech action", [
+        this.createChoiceControl(schedulerBody, "Leech action", [
             {
                 label: "Tag",
                 active: (this.areaScheduling.leechAction ?? "tag") === "tag",
@@ -3542,7 +3639,7 @@ export class NativeCreatorView extends ItemView {
                 action: () => (this.areaScheduling.leechAction = "suspend"),
             },
         ]);
-        this.createChoiceControl(scheduler, "Load balancing", [
+        this.createChoiceControl(schedulerBody, "Load balancing", [
             {
                 label: "Off",
                 active: this.areaScheduling.loadBalance === false,
@@ -3554,7 +3651,7 @@ export class NativeCreatorView extends ItemView {
                 action: () => (this.areaScheduling.loadBalance = true),
             },
         ]);
-        this.createChoiceControl(scheduler, "Bury siblings", [
+        this.createChoiceControl(schedulerBody, "Bury siblings", [
             {
                 label: "Global",
                 active: (this.areaScheduling.burySiblings ?? "inherit") === "inherit",
@@ -3581,18 +3678,6 @@ export class NativeCreatorView extends ItemView {
                 action: () => (this.areaScheduling.burySiblings = "all"),
             },
         ]);
-
-        const preview = surface.createDiv("sr-native-deck-preview sr-native-area-preview");
-        const previewIcon = preview.createDiv("sr-native-deck-preview-icon");
-        setIcon(previewIcon, "library-big");
-        const previewCopy = preview.createDiv();
-        previewCopy.createSpan({ text: t("KNOWLEDGE_AREAS") });
-        const previewName = previewCopy.createEl("strong", {
-            text: this.areaName.trim() || t("NEW_KNOWLEDGE_AREA"),
-        });
-        input.addEventListener("input", () => {
-            previewName.setText(input.value.trim() || t("NEW_KNOWLEDGE_AREA"));
-        });
 
         if (this.error) {
             surface.createDiv({
@@ -3886,7 +3971,26 @@ export class NativeCreatorView extends ItemView {
         const list = section.createDiv("sr-note-type-definition-list");
         draft.fields.forEach((field, index) => {
             const row = list.createDiv("sr-note-field-row");
-            row.createSpan({ cls: "sr-note-definition-index", text: String(index + 1) });
+            row.draggable = true;
+            row.addEventListener("dragstart", (event) => {
+                event.dataTransfer?.setData("text/plain", field.id);
+                row.addClass("is-dragging");
+            });
+            row.addEventListener("dragend", () => row.removeClass("is-dragging"));
+            row.addEventListener("dragover", (event) => event.preventDefault());
+            row.addEventListener("drop", (event) => {
+                event.preventDefault();
+                const from = draft.fields.findIndex(
+                    (candidate) => candidate.id === event.dataTransfer?.getData("text/plain"),
+                );
+                if (from < 0 || from === index) return;
+                const [moved] = draft.fields.splice(from, 1);
+                draft.fields.splice(index, 0, moved);
+                draft.fields.forEach((candidate, ordinal) => (candidate.ordinal = ordinal));
+                this.render();
+            });
+            const handle = row.createSpan({ cls: "sr-note-definition-index" });
+            setIcon(handle, "grip-vertical");
             const name = row.createEl("input", {
                 cls: "sr-native-input",
                 attr: { type: "text", "aria-label": t("FIELD_NAME") },
@@ -3932,7 +4036,23 @@ export class NativeCreatorView extends ItemView {
             checkbox.checked = field.required;
             checkbox.addEventListener("change", () => (field.required = checkbox.checked));
             required.createSpan({ text: t("REQUIRED_FIELD") });
-            new ButtonComponent(row)
+            const fieldActions = row.createDiv("sr-note-field-actions");
+            for (const [icon, delta, label] of [
+                ["chevron-up", -1, t("MOVE_UP")],
+                ["chevron-down", 1, t("MOVE_DOWN")],
+            ] as const) {
+                new ButtonComponent(fieldActions)
+                    .setIcon(icon)
+                    .setTooltip(label)
+                    .setDisabled(index + delta < 0 || index + delta >= draft.fields.length)
+                    .onClick(() => {
+                        const [moved] = draft.fields.splice(index, 1);
+                        draft.fields.splice(index + delta, 0, moved);
+                        draft.fields.forEach((candidate, ordinal) => (candidate.ordinal = ordinal));
+                        this.render();
+                    });
+            }
+            new ButtonComponent(fieldActions)
                 .setIcon("trash-2")
                 .setTooltip(t("REMOVE_FIELD"))
                 .setDisabled(draft.fields.length === 1)
@@ -3989,12 +4109,48 @@ export class NativeCreatorView extends ItemView {
             .setIcon("plus")
             .setTooltip(t("ADD_TEMPLATE"))
             .onClick(() => {
-                draft.templates.push(this.createEmptyTemplate(draft.templates.length));
+                const template = this.createEmptyTemplate(draft.templates.length);
+                draft.templates.push(template);
+                this.selectedTemplateId = template.id;
                 this.render();
             });
 
-        const list = section.createDiv("sr-note-template-list");
+        const selectedTemplate =
+            draft.templates.find((template) => template.id === this.selectedTemplateId) ??
+            draft.templates[0];
+        this.selectedTemplateId = selectedTemplate?.id ?? null;
+        const selector = section.createDiv("sr-template-builder-selector");
         draft.templates.forEach((template, index) => {
+            const button = selector.createEl("button", {
+                attr: {
+                    type: "button",
+                    "aria-pressed": String(template.id === selectedTemplate?.id),
+                },
+            });
+            button.toggleClass("is-active", template.id === selectedTemplate?.id);
+            button.createSpan({ cls: "sr-template-builder-number", text: String(index + 1) });
+            const copy = button.createSpan("sr-template-builder-selector-copy");
+            copy.createEl("strong", {
+                text: template.name || this.creatorText("New template", "Новый шаблон"),
+            });
+            copy.createEl("small", {
+                text:
+                    (template.generator ?? draft.kind) === "cloze"
+                        ? t("TEMPLATE_GENERATOR_CLOZE")
+                        : (template.generator ?? draft.kind) === "image-occlusion"
+                          ? t("TEMPLATE_GENERATOR_OCCLUSION")
+                          : t("TEMPLATE_GENERATOR_STANDARD"),
+            });
+            button.addEventListener("click", () => {
+                this.selectedTemplateId = template.id;
+                this.render();
+            });
+        });
+
+        const workbench = section.createDiv("sr-template-builder-workbench");
+        const list = workbench.createDiv("sr-note-template-list");
+        draft.templates.forEach((template, index) => {
+            if (template.id !== selectedTemplate?.id) return;
             const card = list.createDiv("sr-note-template-card");
             const top = card.createDiv("sr-note-template-card-top");
             top.createSpan({ cls: "sr-note-definition-index", text: String(index + 1) });
@@ -4018,6 +4174,7 @@ export class NativeCreatorView extends ItemView {
                 .setDisabled(draft.templates.length === 1)
                 .onClick(() => {
                     draft.templates.splice(index, 1);
+                    this.selectedTemplateId = draft.templates[Math.max(0, index - 1)]?.id ?? null;
                     this.render();
                 });
 
@@ -4157,6 +4314,11 @@ export class NativeCreatorView extends ItemView {
                 this.renderTemplatePreview(preview, draft, template);
             }
         });
+
+        if (selectedTemplate && !includePreview) {
+            const preview = workbench.createDiv("sr-template-builder-live");
+            this.renderTemplatePreview(preview, draft, selectedTemplate);
+        }
 
         this.renderNoteTypeStyleEditor(parent, draft);
     }
@@ -4557,7 +4719,24 @@ export class NativeCreatorView extends ItemView {
     ): void {
         const editor = parent.createDiv("sr-visual-template-editor");
         editor.createEl("p", { cls: "sr-template-editor-help", text: t("VISUAL_EDITOR_HELP") });
+        const surfaceTabs = editor.createDiv("sr-visual-surface-tabs");
         for (const surface of ["question", "answer", "browser"] as const) {
+            const tab = surfaceTabs.createEl("button", {
+                text: this.templateSurfaceLabel(surface),
+                attr: {
+                    type: "button",
+                    "aria-pressed": String(this.templateEditorSurface === surface),
+                },
+            });
+            tab.toggleClass("is-active", this.templateEditorSurface === surface);
+            tab.addEventListener("click", () => {
+                this.templateEditorSurface = surface;
+                this.templatePreviewSurface = surface;
+                this.render();
+            });
+        }
+        for (const surface of ["question", "answer", "browser"] as const) {
+            if (surface !== this.templateEditorSurface) continue;
             const panel = editor.createDiv(`sr-visual-surface is-${surface}`);
             const header = panel.createDiv("sr-visual-surface-header");
             const copy = header.createDiv();
@@ -5170,7 +5349,11 @@ export class NativeCreatorView extends ItemView {
         const preview = element
             .closest(".sr-note-template-card")
             ?.querySelector<HTMLElement>(".sr-note-template-preview");
+        const livePreview = element
+            .closest(".sr-template-builder-workbench")
+            ?.querySelector<HTMLElement>(".sr-template-builder-live");
         if (preview) this.renderTemplatePreview(preview, draft, template);
+        if (livePreview) this.renderTemplatePreview(livePreview, draft, template);
     }
 
     private getTemplatePreviewFields(draft: NoteTypeEditorDraft): Record<string, string> {
@@ -6534,6 +6717,9 @@ export class NativeCreatorView extends ItemView {
         this.render();
         try {
             this.selectedDeck = await this.store.createDeck(this.selectedDeck);
+            await this.plugin.dataManager.collectionStore.updateDeck(this.selectedDeck, {
+                icon: this.deckIcon,
+            });
             this.rememberDeck(this.selectedDeck);
             if (this.request.targetAreaId) {
                 const topLevelDeck = this.selectedDeck.split("/")[0];
@@ -6568,6 +6754,7 @@ export class NativeCreatorView extends ItemView {
             await collection.updateDeck(this.selectedDeck, {
                 description: this.deckDescription,
                 optionsId: saved.id,
+                icon: this.deckIcon,
             });
             this.selectedDeckOptionsId = saved.id;
             this.deckOptionsDraft = saved;
@@ -6601,6 +6788,7 @@ export class NativeCreatorView extends ItemView {
                     parentId: this.areaParentId,
                     kind: this.areaKind,
                     goal: this.areaGoal,
+                    icon: this.areaIcon,
                 });
                 new Notice(t("KNOWLEDGE_AREA_UPDATED"));
             } else {
@@ -6608,6 +6796,7 @@ export class NativeCreatorView extends ItemView {
                     parentId: this.areaParentId,
                     kind: this.areaKind,
                     goal: this.areaGoal,
+                    icon: this.areaIcon,
                 });
                 await this.store.setKnowledgeAreaScheduling(area.id, this.areaScheduling);
                 new Notice(t("KNOWLEDGE_AREA_CREATED"));
