@@ -126,6 +126,7 @@
     & .sr-add-area-button,
     & .sr-area-menu-button,
     & .sr-area-collapse-button,
+    & .sr-area-open-button,
     & .sr-deck-menu-button {
         display: flex;
         width: 40px;
@@ -200,6 +201,14 @@
         min-height: 68px;
         padding: 10px 12px;
         background: color-mix(in srgb, var(--background-primary) 38%, transparent);
+        cursor: pointer;
+        transition: background-color 140ms ease;
+
+        &:hover,
+        &:focus-visible {
+            background: var(--background-modifier-hover);
+            outline: none;
+        }
     }
 
     & .sr-knowledge-area-icon {
@@ -247,6 +256,39 @@
 
     & .sr-area-collapse-button svg {
         transition: transform 160ms ease;
+    }
+
+    & .sr-area-detail-navigation {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--size-4-3);
+        margin-bottom: var(--size-4-4);
+
+        & button {
+            min-height: 42px;
+            gap: 7px;
+            border-radius: 13px;
+        }
+    }
+
+    & .sr-area-detail-back {
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        color: var(--text-muted);
+    }
+
+    & .sr-area-detail-decks {
+        overflow: hidden;
+        border: 1px solid var(--background-modifier-border);
+        border-radius: calc(var(--radius-l) + 3px);
+        background: var(--background-secondary);
+    }
+
+    & .sr-area-detail-decks > .sr-tree-row + .sr-tree-row > .sr-tree-item-row,
+    & .sr-area-detail-decks .tree-item-children > .sr-tree-row > .sr-tree-item-row {
+        border-top: 1px solid var(--background-modifier-border);
     }
 
     & .sr-knowledge-area-body > .sr-tree-row + .sr-tree-row > .sr-tree-item-row,

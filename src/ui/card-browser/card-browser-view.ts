@@ -317,6 +317,8 @@ class ChoiceModal extends Modal {
 }
 
 class CardInspectorModal extends Modal {
+    private previewSurface: "question" | "answer" = "question";
+
     constructor(
         app: App,
         private readonly plugin: SRPlugin,
@@ -352,9 +354,36 @@ class CardInspectorModal extends Modal {
                 this.close();
                 this.onEdit();
             });
+        const previewNavigation = this.contentEl.createDiv("sr-card-inspector-navigation");
         const preview = this.contentEl.createDiv("sr-card-inspector-preview");
-        this.renderSurface(preview, uiText("Question", "Вопрос"), this.record.front);
-        this.renderSurface(preview, uiText("Answer", "Ответ"), this.record.back);
+        const renderPreview = (): void => {
+            preview.empty();
+            previewNavigation
+                .querySelectorAll("button")
+                .forEach((button) =>
+                    button.toggleClass("is-active", button.dataset.surface === this.previewSurface),
+                );
+            const isQuestion = this.previewSurface === "question";
+            this.renderSurface(
+                preview,
+                isQuestion ? uiText("Question", "Вопрос") : uiText("Answer", "Ответ"),
+                isQuestion ? this.record.front : this.record.back,
+            );
+        };
+        for (const [surface, label] of [
+            ["question", uiText("Question", "Вопрос")],
+            ["answer", uiText("Answer", "Ответ")],
+        ] as const) {
+            const button = previewNavigation.createEl("button", {
+                text: label,
+                attr: { type: "button", "data-surface": surface },
+            });
+            button.addEventListener("click", () => {
+                this.previewSurface = surface;
+                renderPreview();
+            });
+        }
+        renderPreview();
         const stats = this.contentEl.createDiv("sr-card-inspector-stats");
         const values: Array<[string, string]> = [
             [uiText("Reviews", "Повторения"), String(this.record.reps ?? 0)],

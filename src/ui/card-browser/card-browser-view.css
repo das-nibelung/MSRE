@@ -741,17 +741,52 @@
 }
 
 .sr-card-inspector-preview {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    display: block;
+    overflow: hidden;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 16px;
 }
 
 .sr-card-inspector-surface {
-    min-height: 170px;
-    padding: 16px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 16px;
+    min-height: 220px;
+    padding: 18px;
+    border: 0;
+    border-radius: 0;
+    background: color-mix(in srgb, var(--background-secondary) 68%, transparent);
+}
+
+.sr-card-inspector-navigation {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 3px;
+    padding: 3px;
+    border-radius: 12px;
     background: var(--background-secondary);
+}
+
+.sr-card-inspector-navigation button {
+    min-height: 38px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-muted);
+}
+
+.sr-card-inspector-navigation button.is-active {
+    background: var(--background-primary);
+    color: var(--text-normal);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 14%);
+}
+
+.sr-card-inspector-content img,
+.sr-card-inspector-content video {
+    display: block;
+    width: auto;
+    max-width: 100%;
+    max-height: min(52vh, 560px);
+    margin-inline: auto;
+    object-fit: contain;
 }
 
 .sr-card-inspector-label {
@@ -852,14 +887,26 @@
     }
 
     .sr-card-browser-insights {
-        grid-template-columns: repeat(4, minmax(72px, 1fr));
+        display: flex;
+        margin-inline: -12px;
+        padding-inline: 12px;
         overflow-x: auto;
+        scroll-padding-inline: 12px;
+        scroll-snap-type: x proximity;
         scrollbar-width: none;
     }
 
+    .sr-card-browser-insights::-webkit-scrollbar {
+        display: none;
+    }
+
     .sr-card-browser-insight {
+        width: 112px;
+        min-width: 112px;
+        flex: 0 0 112px;
         min-height: 48px;
         padding: 6px 10px;
+        scroll-snap-align: start;
     }
 
     .sr-card-browser-filter {
@@ -983,17 +1030,18 @@
     }
 
     .sr-card-inspector .modal {
-        width: calc(100vw - 20px);
-        max-height: calc(100vh - 40px);
+        width: calc(100vw - 16px);
+        max-height: calc(100dvh - 24px);
         border-radius: 20px;
     }
 
-    .sr-card-inspector-preview {
-        grid-template-columns: 1fr;
+    .sr-card-inspector .modal-content {
+        gap: 10px;
     }
 
     .sr-card-inspector-surface {
-        min-height: 130px;
+        min-height: min(56dvh, 520px);
+        padding: 14px;
     }
 
     .sr-card-inspector-stats {

@@ -201,7 +201,10 @@ export class CardContainer {
         this.settings = settings;
         await this.drawCardFront(sessionData, settings);
 
-        if (!settings.accessibleReviewMode) this.enableWorkspaceGestureShield();
+        if (!settings.accessibleReviewMode) {
+            this.collapseMobileWorkspaceDrawers();
+            this.enableWorkspaceGestureShield();
+        }
         this.view.toggleClass("sr-accessible-review", settings.accessibleReviewMode);
         this.view.removeClass("sr-is-hidden");
         activeDocument.addEventListener("keydown", this._keydownHandler);
@@ -1198,9 +1201,8 @@ export class CardContainer {
             !(target instanceof Node) ||
             !this.content.contains(target) ||
             (target instanceof Element &&
-                target.closest(
-                    "a, button, input, textarea, select, [contenteditable='true'], .internal-embed",
-                ) !== null)
+                target.closest("a, button, input, textarea, select, [contenteditable='true']") !==
+                    null)
         ) {
             this.workspaceTouchStart = null;
             return;
@@ -1221,15 +1223,14 @@ export class CardContainer {
             axis: "pending",
             card,
         };
-        event.stopPropagation();
+        this.collapseMobileWorkspaceDrawers();
+        event.stopImmediatePropagation();
     };
 
     private isGestureTarget(target: Node): boolean {
         return !(
             target instanceof Element &&
-            target.closest(
-                "a, button, input, textarea, select, [contenteditable='true'], .internal-embed",
-            ) !== null
+            target.closest("a, button, input, textarea, select, [contenteditable='true']") !== null
         );
     }
 
@@ -1250,7 +1251,7 @@ export class CardContainer {
             }
         }
         if (start.axis === "vertical-scroll") {
-            event.stopPropagation();
+            event.stopImmediatePropagation();
             return;
         }
 
@@ -1264,13 +1265,13 @@ export class CardContainer {
             start.lastTime = event.timeStamp;
             this.updateTouchGesture(start, deltaX, deltaY);
         }
-        event.stopPropagation();
+        event.stopImmediatePropagation();
     };
 
     private onWorkspaceTouchEnd = (event: TouchEvent): void => {
         const start = this.workspaceTouchStart;
         if (start === null) return;
-        event.stopPropagation();
+        event.stopImmediatePropagation();
         this.workspaceTouchStart = null;
         const touch = [...event.changedTouches].find(
             (item) => item.identifier === start.identifier,
@@ -1392,6 +1393,12 @@ export class CardContainer {
         if (action === "good") return ReviewResponse.Good;
         if (action === "easy") return ReviewResponse.Easy;
         return null;
+    }
+
+    private collapseMobileWorkspaceDrawers(): void {
+        if (!(Platform.isMobile || EmulatedPlatform().isMobile)) return;
+        this.app.workspace.leftSplit.collapse();
+        this.app.workspace.rightSplit.collapse();
     }
 
     private async animateGesture(

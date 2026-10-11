@@ -212,6 +212,7 @@ export class NativeCreatorView extends ItemView {
     private draftRestored = false;
     private templatePreviewDevice: "phone" | "desktop" = "phone";
     private templatePreviewTheme: "light" | "dark" = "dark";
+    private templatePreviewSurface: TemplateSurface = "question";
     private templatePreviewValues: Record<string, string> = {};
     private transferPackage: AnkiPackage | null = null;
     private transferFileName = "";
@@ -236,6 +237,8 @@ export class NativeCreatorView extends ItemView {
     private cardRedoStack: CardEditorSnapshot[] = [];
     private fieldEditStart: CardEditorSnapshot | null = null;
     private showCardPreview = false;
+    private cardPreviewSurface: "front" | "back" = "front";
+    private noteTypeEditorSection: "fields" | "templates" | "preview" = "fields";
     private occlusionBatchFiles: File[] = [];
     private occlusionBatchTotal = 0;
 
@@ -502,6 +505,28 @@ export class NativeCreatorView extends ItemView {
         }
 
         if (this.request.mode === "card") {
+            const tools = top.createDiv("sr-native-top-tools");
+            for (const [icon, label, disabled, action] of [
+                ["undo-2", t("UNDO"), this.cardUndoStack.length === 0, () => this.undoCardEdit()],
+                ["redo-2", t("REDO"), this.cardRedoStack.length === 0, () => this.redoCardEdit()],
+            ] as const) {
+                const button = new ButtonComponent(tools)
+                    .setIcon(icon)
+                    .setTooltip(label)
+                    .setDisabled(disabled)
+                    .onClick(action);
+                button.buttonEl.addClass("sr-native-icon-button");
+            }
+            const previewToggle = new ButtonComponent(tools)
+                .setIcon("panel-top")
+                .setTooltip(this.creatorText("Preview card", "Предпросмотр карточки"))
+                .onClick(() => {
+                    this.showCardPreview = !this.showCardPreview;
+                    this.render();
+                });
+            previewToggle.buttonEl.addClass("sr-native-icon-button");
+            previewToggle.buttonEl.toggleClass("is-active", this.showCardPreview);
+
             const save = new ButtonComponent(top)
                 .setButtonText(
                     this.busy
@@ -597,27 +622,6 @@ export class NativeCreatorView extends ItemView {
                 ),
             });
         }
-        const utilityActions = utility.createDiv("sr-native-card-utility-actions");
-        for (const [icon, label, disabled, action] of [
-            ["undo-2", t("UNDO"), this.cardUndoStack.length === 0, () => this.undoCardEdit()],
-            ["redo-2", t("REDO"), this.cardRedoStack.length === 0, () => this.redoCardEdit()],
-        ] as const) {
-            const button = new ButtonComponent(utilityActions)
-                .setIcon(icon)
-                .setTooltip(label)
-                .setDisabled(disabled)
-                .onClick(action);
-            button.buttonEl.addClass("sr-native-icon-button");
-        }
-        const previewToggle = new ButtonComponent(utilityActions)
-            .setIcon("panel-top")
-            .setTooltip(this.creatorText("Preview card", "Предпросмотр карточки"))
-            .onClick(() => {
-                this.showCardPreview = !this.showCardPreview;
-                this.render();
-            });
-        previewToggle.buttonEl.addClass("sr-native-icon-button");
-        previewToggle.buttonEl.toggleClass("is-active", this.showCardPreview);
 
         const meta = surface.createDiv("sr-native-card-meta");
         const deckGroup = this.createFieldGroup(meta, t("DECK"));
@@ -831,30 +835,33 @@ export class NativeCreatorView extends ItemView {
         heading.createSpan({
             text: this.creatorText("Card preview", "Предпросмотр карточки"),
         });
-        heading.createSpan({
-            cls: "sr-native-full-preview-mode",
-            text: this.answerMode === "type" ? t("ANSWER_MODE_TYPE") : t("ANSWER_MODE_REVEAL"),
-        });
-        for (const [label, value] of [
-            [t("CARD_FRONT"), this.front],
-            [t("CARD_BACK"), this.back],
+        const switcher = heading.createDiv("sr-native-preview-switcher");
+        for (const [surface, label] of [
+            ["front", t("CARD_FRONT")],
+            ["back", t("CARD_BACK")],
         ] as const) {
-            const face = preview.createDiv("sr-native-full-preview-face");
-            face.createSpan({ text: label });
-            const body = face.createDiv("sr-native-full-preview-body");
-            if (!value.trim()) {
-                body.createEl("em", {
-                    text: this.creatorText("Empty field", "Пустое поле"),
-                });
-            } else {
-                void MarkdownRenderer.render(
-                    this.app,
-                    value,
-                    body,
-                    this.editingCard?.question.note.filePath ?? "",
-                    this,
-                );
-            }
+            const button = switcher.createEl("button", { text: label, attr: { type: "button" } });
+            button.toggleClass("is-active", this.cardPreviewSurface === surface);
+            button.addEventListener("click", () => {
+                this.cardPreviewSurface = surface;
+                this.render();
+            });
+        }
+        const value = this.cardPreviewSurface === "front" ? this.front : this.back;
+        const face = preview.createDiv("sr-native-full-preview-face");
+        const body = face.createDiv("sr-native-full-preview-body");
+        if (!value.trim()) {
+            body.createEl("em", {
+                text: this.creatorText("Empty field", "Пустое поле"),
+            });
+        } else {
+            void MarkdownRenderer.render(
+                this.app,
+                value,
+                body,
+                this.editingCard?.question.note.filePath ?? "",
+                this,
+            );
         }
     }
 
@@ -3784,6 +3791,7 @@ export class NativeCreatorView extends ItemView {
     }
 
     private renderNoteTypeEditor(parent: HTMLElement, draft: NoteTypeEditorDraft): void {
+        parent.addClass("sr-note-type-editor-surface");
         const editorHeader = parent.createDiv("sr-note-type-editor-header");
         new ButtonComponent(editorHeader)
             .setIcon("arrow-left")
@@ -3793,9 +3801,9 @@ export class NativeCreatorView extends ItemView {
                 this.error = "";
                 this.render();
             });
-        const editorTitle = editorHeader.createDiv();
-        editorTitle.createEl("h2", { text: t("EDIT_NOTE_TYPE") });
-        editorTitle.createEl("p", { text: t("NOTE_TYPE_EDITOR_HELP") });
+        editorHeader.createEl("strong", {
+            text: this.creatorText("All note types", "Все типы заметок"),
+        });
 
         const nameGroup = this.createFieldGroup(parent, t("NOTE_TYPE_NAME"));
         const nameInput = nameGroup.createEl("input", {
@@ -3812,8 +3820,28 @@ export class NativeCreatorView extends ItemView {
             this.clearError();
         });
 
-        this.renderFieldDefinitions(parent, draft);
-        this.renderTemplateDefinitions(parent, draft);
+        const navigation = parent.createDiv("sr-note-type-editor-navigation");
+        for (const [section, label, count] of [
+            ["fields", this.creatorText("Fields", "Поля"), draft.fields.length],
+            ["templates", this.creatorText("Templates", "Шаблоны"), draft.templates.length],
+            ["preview", this.creatorText("Preview", "Предпросмотр"), null],
+        ] as const) {
+            const button = navigation.createEl("button", { attr: { type: "button" } });
+            button.createSpan({ text: label });
+            if (count !== null) button.createEl("small", { text: String(count) });
+            button.toggleClass("is-active", this.noteTypeEditorSection === section);
+            button.setAttribute("aria-pressed", String(this.noteTypeEditorSection === section));
+            button.addEventListener("click", () => {
+                this.noteTypeEditorSection = section;
+                this.render();
+            });
+        }
+
+        const workspace = parent.createDiv("sr-note-type-editor-workspace");
+        if (this.noteTypeEditorSection === "fields") this.renderFieldDefinitions(workspace, draft);
+        else if (this.noteTypeEditorSection === "templates")
+            this.renderTemplateDefinitions(workspace, draft, false);
+        else this.renderNoteTypePreview(workspace, draft);
 
         if (this.error) {
             parent.createDiv({
@@ -3947,7 +3975,11 @@ export class NativeCreatorView extends ItemView {
         });
     }
 
-    private renderTemplateDefinitions(parent: HTMLElement, draft: NoteTypeEditorDraft): void {
+    private renderTemplateDefinitions(
+        parent: HTMLElement,
+        draft: NoteTypeEditorDraft,
+        includePreview = true,
+    ): void {
         const section = parent.createDiv("sr-note-type-section");
         const heading = section.createDiv("sr-note-type-section-heading");
         const headingCopy = heading.createDiv();
@@ -4120,11 +4152,53 @@ export class NativeCreatorView extends ItemView {
                 });
             deckButton.buttonEl.addClass("sr-note-template-deck-button");
 
-            const preview = card.createDiv("sr-note-template-preview");
-            this.renderTemplatePreview(preview, draft, template);
+            if (includePreview) {
+                const preview = card.createDiv("sr-note-template-preview");
+                this.renderTemplatePreview(preview, draft, template);
+            }
         });
 
         this.renderNoteTypeStyleEditor(parent, draft);
+    }
+
+    private renderNoteTypePreview(parent: HTMLElement, draft: NoteTypeEditorDraft): void {
+        const section = parent.createDiv("sr-note-type-section sr-note-type-preview-section");
+        const heading = section.createDiv("sr-note-type-section-heading");
+        const copy = heading.createDiv();
+        copy.createEl("h3", { text: t("LIVE_PREVIEW") });
+        copy.createEl("p", {
+            text: this.creatorText(
+                "Edit sample data and check the exact card before saving.",
+                "Измените тестовые данные и проверьте карточку перед сохранением.",
+            ),
+        });
+        const templates = draft.templates.filter((template) => template.enabled);
+        if (templates.length === 0) {
+            section.createEl("p", {
+                cls: "setting-item-description",
+                text: this.creatorText("No enabled templates.", "Нет включённых шаблонов."),
+            });
+            return;
+        }
+        const selector = section.createDiv("sr-note-preview-template-selector");
+        for (const template of templates) {
+            const targetId = template.id;
+            const button = selector.createEl("button", {
+                text: template.name,
+                attr: { type: "button" },
+            });
+            button.toggleClass("is-active", templates[0]?.id === targetId);
+            button.addEventListener("click", () => {
+                selector
+                    .querySelectorAll("button")
+                    .forEach((candidate) => candidate.removeClass("is-active"));
+                button.addClass("is-active");
+                previewHost.empty();
+                this.renderTemplatePreview(previewHost, draft, template);
+            });
+        }
+        const previewHost = section.createDiv("sr-note-template-preview is-standalone");
+        this.renderTemplatePreview(previewHost, draft, templates[0]);
     }
 
     private createTemplateSelect(
@@ -4991,6 +5065,23 @@ export class NativeCreatorView extends ItemView {
                 });
             button.buttonEl.toggleClass("is-active", this.templatePreviewTheme === value);
         }
+        const surfacePicker = parent.createDiv("sr-note-template-preview-surfaces");
+        for (const [surface, label] of [
+            ["question", t("CARD_TEMPLATE_QUESTION")],
+            ["answer", t("CARD_TEMPLATE_ANSWER")],
+            ["browser", t("CARD_TEMPLATE_BROWSER")],
+        ] as const) {
+            const button = surfacePicker.createEl("button", {
+                text: label,
+                attr: { type: "button" },
+            });
+            button.toggleClass("is-active", this.templatePreviewSurface === surface);
+            button.setAttribute("aria-pressed", String(this.templatePreviewSurface === surface));
+            button.addEventListener("click", () => {
+                this.templatePreviewSurface = surface;
+                this.renderTemplatePreview(parent, draft, template);
+            });
+        }
         const sampleFields = this.getTemplatePreviewFields(draft);
         for (const field of draft.fields) {
             sampleFields[field.name] = sampleFields[field.id] ?? field.name;
@@ -5003,7 +5094,7 @@ export class NativeCreatorView extends ItemView {
         const faces = parent.createDiv(
             `sr-note-template-preview-faces is-${this.templatePreviewDevice} theme-${this.templatePreviewTheme}`,
         );
-        for (const [surface, label, value] of [
+        const previewFaces = [
             ["question", t("CARD_TEMPLATE_QUESTION"), question],
             [
                 "answer",
@@ -5025,8 +5116,10 @@ export class NativeCreatorView extends ItemView {
                     question,
                 ),
             ],
-        ] as const) {
-            const face = faces.createDiv("sr-note-template-preview-face");
+        ] as const;
+        for (const [surface, label, value] of previewFaces) {
+            if (surface !== this.templatePreviewSurface) continue;
+            const face = faces.createDiv(`sr-note-template-preview-face is-${surface}`);
             face.createSpan({ text: label });
             const body = face.createDiv("sr-note-template-preview-body");
             body.dataset.templateCss = template.css ?? "";
@@ -5046,7 +5139,7 @@ export class NativeCreatorView extends ItemView {
         const samples = parent.createEl("details", { cls: "sr-template-preview-data" });
         samples.createEl("summary", { text: t("PREVIEW_DATA") });
         const grid = samples.createDiv("sr-template-preview-data-grid");
-        for (const field of draft.fields) {
+        draft.fields.forEach((field, fieldIndex) => {
             const control = grid.createEl("label");
             control.createSpan({ text: field.name });
             const input = control.createEl("input", {
@@ -5054,11 +5147,19 @@ export class NativeCreatorView extends ItemView {
                 attr: { type: "text" },
             });
             input.value = sampleFields[field.id] ?? "";
-            input.addEventListener("change", () => {
+            input.addEventListener("input", () => {
+                const caret = input.selectionStart ?? input.value.length;
                 this.templatePreviewValues[field.id] = input.value;
                 this.renderTemplatePreview(parent, draft, template);
+                const nextInput = parent.querySelectorAll<HTMLInputElement>(
+                    ".sr-template-preview-data-grid input",
+                )[fieldIndex];
+                if (nextInput) {
+                    nextInput.focus();
+                    nextInput.setSelectionRange(caret, caret);
+                }
             });
-        }
+        });
     }
 
     private refreshTemplatePreviewFrom(

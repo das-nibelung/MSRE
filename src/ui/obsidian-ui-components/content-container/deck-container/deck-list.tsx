@@ -23,9 +23,11 @@ export default class DeckListComponent {
     private content: HTMLDivElement;
     private overview: HTMLDivElement;
     private organization: HTMLDivElement;
+    private areaTitle: HTMLHeadingElement;
     private areaSummary: HTMLSpanElement;
     private treeContainer: HTMLDivElement;
     private searchQuery = "";
+    private activeAreaKey = "";
     private currentReviewSequencer: IFlashcardReviewSequencer | null = null;
     private currentSettings: SRSettings | null = null;
     private readonly store: NativeCardStore;
@@ -67,7 +69,7 @@ export default class DeckListComponent {
         this.organization = this.content.createDiv("sr-deck-organization");
         const heading = this.organization.createDiv("sr-deck-organization-heading");
         const headingCopy = heading.createDiv();
-        headingCopy.createEl("h2", { text: t("KNOWLEDGE_AREAS") });
+        this.areaTitle = headingCopy.createEl("h2", { text: t("KNOWLEDGE_AREAS") });
         this.areaSummary = headingCopy.createSpan();
         const addArea = new ButtonComponent(heading)
             .setIcon("plus")
@@ -92,20 +94,33 @@ export default class DeckListComponent {
 
         const root = reviewSequencer.originalDeckTree;
         const rootStats = reviewSequencer.getDeckStats(root.getTopicPath());
-        const groups = this.buildAreaGroups(root.subdecks).filter((group) =>
-            this.groupMatchesSearch(group),
-        );
+        const allGroups = this.buildAreaGroups(root.subdecks);
+        const groups = allGroups.filter((group) => this.groupMatchesSearch(group));
+        const activeGroup = this.activeAreaKey
+            ? allGroups.find((group) => (group.area?.id ?? "__unassigned") === this.activeAreaKey)
+            : null;
+        if (this.activeAreaKey && !activeGroup) this.activeAreaKey = "";
+        this.organization.toggleClass("is-area-detail", Boolean(activeGroup));
+        this.areaTitle.setText(activeGroup?.name ?? t("KNOWLEDGE_AREAS"));
         this.areaSummary.setText(
-            t("KNOWLEDGE_AREAS_SUMMARY", { count: this.store.getKnowledgeAreas().length }),
+            activeGroup
+                ? t("AREA_DECKS_SUMMARY", { count: activeGroup.decks.length })
+                : t("KNOWLEDGE_AREAS_SUMMARY", {
+                      count: this.store.getKnowledgeAreas().length,
+                  }),
         );
 
-        if (rootStats.totalCount === 0) this.overview.addClass("sr-is-hidden");
+        if (activeGroup || rootStats.totalCount === 0) this.overview.addClass("sr-is-hidden");
         else {
             this.overview.removeClass("sr-is-hidden");
             this.renderOverview(root, rootStats);
         }
 
-        for (const group of groups) this.renderKnowledgeArea(group, reviewSequencer, settings);
+        if (activeGroup) {
+            this.renderKnowledgeAreaPage(activeGroup, reviewSequencer, settings);
+            return;
+        }
+        for (const group of groups) this.renderKnowledgeArea(group);
         if (groups.length === 0) {
             if (this.searchQuery) this.renderSearchEmpty();
             else this.renderEmptyState(root.subdecks.length === 0);
@@ -193,11 +208,7 @@ export default class DeckListComponent {
         return deck.subdecks.some((child) => this.deckMatchesSearch(child));
     }
 
-    private renderKnowledgeArea(
-        group: KnowledgeAreaGroup,
-        sequencer: IFlashcardReviewSequencer,
-        settings: SRSettings,
-    ): void {
+    private renderKnowledgeArea(group: KnowledgeAreaGroup): void {
         const areaEl = this.treeContainer.createDiv("sr-knowledge-area-card");
         areaEl.toggleClass("is-pinned", group.pinned);
         areaEl.toggleClass("is-project", group.area?.kind === "project");
@@ -228,32 +239,62 @@ export default class DeckListComponent {
                 .onClick((event) => this.openAreaMenu(event, area));
             menuButton.buttonEl.addClass("sr-area-menu-button");
         }
-        let collapsed = false;
-        const collapse = new ButtonComponent(actions)
-            .setIcon("chevron-down")
+        const open = new ButtonComponent(actions)
+            .setIcon("chevron-right")
             .setTooltip(group.name)
-            .onClick(() => {
-                collapsed = !collapsed;
-                areaEl.toggleClass("is-collapsed", collapsed);
-                collapse.buttonEl.setAttribute("aria-expanded", String(!collapsed));
-            });
-        collapse.buttonEl.addClass("sr-area-collapse-button");
-        collapse.buttonEl.setAttribute("aria-expanded", "true");
+            .onClick(() => this.openKnowledgeArea(group));
+        open.buttonEl.addClass("sr-area-open-button");
+        header.setAttribute("role", "button");
+        header.setAttribute("tabindex", "0");
+        header.addEventListener("click", (event) => {
+            if (event.target instanceof Element && event.target.closest("button")) return;
+            this.openKnowledgeArea(group);
+        });
+        header.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") this.openKnowledgeArea(group);
+        });
+    }
 
-        const body = areaEl.createDiv("sr-knowledge-area-body");
-        if (group.decks.length === 0) {
+    private openKnowledgeArea(group: KnowledgeAreaGroup): void {
+        this.activeAreaKey = group.area?.id ?? "__unassigned";
+        this.searchQuery = "";
+        this.redrawCurrent();
+    }
+
+    private renderKnowledgeAreaPage(
+        group: KnowledgeAreaGroup,
+        sequencer: IFlashcardReviewSequencer,
+        settings: SRSettings,
+    ): void {
+        const navigation = this.treeContainer.createDiv("sr-area-detail-navigation");
+        const back = new ButtonComponent(navigation)
+            .setIcon("arrow-left")
+            .setButtonText(t("KNOWLEDGE_AREAS"))
+            .onClick(() => {
+                this.activeAreaKey = "";
+                this.searchQuery = "";
+                this.redrawCurrent();
+            });
+        back.buttonEl.addClass("sr-area-detail-back");
+        if (group.area) {
+            new ButtonComponent(navigation)
+                .setIcon("plus")
+                .setButtonText(t("NEW_DECK_IN_AREA"))
+                .onClick(() => this.createDeck(undefined, group.area?.id));
+        }
+
+        const body = this.treeContainer.createDiv("sr-area-detail-decks");
+        const decks = group.decks.filter(
+            (deck) => !this.searchQuery || this.deckMatchesSearch(deck),
+        );
+        if (decks.length === 0) {
             const empty = body.createDiv("sr-area-empty");
-            empty.createSpan({ text: t("AREA_EMPTY") });
-            if (group.area) {
-                const area = group.area;
-                new ButtonComponent(empty)
-                    .setButtonText(t("NEW_DECK_IN_AREA"))
-                    .onClick(() => this.createDeck(undefined, area.id));
-            }
+            empty.createSpan({
+                text: t("AREA_EMPTY"),
+            });
             return;
         }
-        for (const deck of group.decks) {
-            if (this.searchQuery && !this.deckMatchesSearch(deck)) continue;
+        for (const deck of decks) {
             this.createDeckTree(deck, body, sequencer, settings, group.area, 0);
         }
     }
