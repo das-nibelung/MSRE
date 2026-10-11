@@ -132,6 +132,44 @@ describe("Anki-style collection store", () => {
         expect(restored.getDeck("Medicine/Cardiology")).not.toBeNull();
     });
 
+    it("treats removed portable definitions as deleted materialized-view records", async () => {
+        const store = new CollectionStore(new MemoryStorage(), () => 300, idFactory);
+        const builtin = store.getNoteType("builtin-basic");
+        if (!builtin) throw new Error("missing built-in note type");
+        await store.saveNoteType({
+            ...builtin,
+            id: "custom-obsolete",
+            name: "Obsolete",
+            version: 1,
+            createdAt: 10,
+            deletedAt: undefined,
+        });
+        const options = await store.saveDeckOptions({
+            ...store.getDeckOptions()[0],
+            id: "options-obsolete",
+            name: "Obsolete preset",
+            createdAt: 10,
+            deletedAt: undefined,
+        });
+        await store.ensureDeckPath("Obsolete deck");
+        await store.updateDeck("Obsolete deck", { optionsId: options.id });
+
+        await store.importFileNativeCatalog({
+            schemaVersion: 1,
+            updatedAt: 0,
+            noteTypes: [{} as never],
+            deckOptions: [{} as never],
+            decks: [{} as never],
+            managedDecks: [],
+            knowledgeAreas: [],
+        });
+
+        expect(store.getNoteType("custom-obsolete")).toBeNull();
+        expect(store.getDeckOptionsById("options-obsolete")).toBeNull();
+        expect(store.getDeck("Obsolete deck")).toBeNull();
+        expect(store.getNoteType("builtin-basic")).not.toBeNull();
+    });
+
     it("backs up and load-balances FSRS cards when a personalized preset is applied", async () => {
         const storage = new MemoryStorage();
         const store = new CollectionStore(storage, () => Date.UTC(2026, 9, 11), idFactory);
