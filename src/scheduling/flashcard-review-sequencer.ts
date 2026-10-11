@@ -215,27 +215,26 @@ export class FlashcardReviewSequencer implements IFlashcardReviewSequencer {
 
     getDeckStats(topicPath: TopicPath): DeckStats {
         this.wakeDuePendingCards();
-        const totalCount: number = this._originalDeckTree
-            .getDeck(topicPath)
-            .getDistinctRepItemCount(RepItemState.AnyItem, true);
-        const remainingDeck: Deck = this.remainingDeckTree.getDeck(topicPath);
-        const newCount: number = remainingDeck.getDistinctRepItemCount(RepItemState.NewItem, true);
-        const dueCount: number = remainingDeck.getDistinctRepItemCount(RepItemState.DueItem, true);
+        const originalDeck = this._originalDeckTree.getDeck(topicPath);
+        const remainingDeck = this.remainingDeckTree.getDeck(topicPath);
+        const totalCount: number =
+            originalDeck?.getDistinctRepItemCount(RepItemState.AnyItem, true) ?? 0;
+        const newCount: number =
+            remainingDeck?.getDistinctRepItemCount(RepItemState.NewItem, true) ?? 0;
+        const dueCount: number =
+            remainingDeck?.getDistinctRepItemCount(RepItemState.DueItem, true) ?? 0;
 
         // Sry for the long variable names, but I needed all these distinct counts in the UI
-        const newCardsInQueueOfThisDeckCount = remainingDeck.getDistinctRepItemCount(
-            RepItemState.NewItem,
-            false,
-        );
-        const dueCardsInQueueOfThisDeckCount = remainingDeck.getDistinctRepItemCount(
-            RepItemState.DueItem,
-            false,
-        );
+        const newCardsInQueueOfThisDeckCount =
+            remainingDeck?.getDistinctRepItemCount(RepItemState.NewItem, false) ?? 0;
+        const dueCardsInQueueOfThisDeckCount =
+            remainingDeck?.getDistinctRepItemCount(RepItemState.DueItem, false) ?? 0;
         const cardsInQueueOfThisDeckCount =
             newCardsInQueueOfThisDeckCount + dueCardsInQueueOfThisDeckCount;
 
-        const subDecksInQueueOfThisDeckCount =
-            this.getSubDecksWithCardsInQueue(remainingDeck).length;
+        const subDecksInQueueOfThisDeckCount = remainingDeck
+            ? this.getSubDecksWithCardsInQueue(remainingDeck).length
+            : 0;
         const decksInQueueOfThisDeckCount =
             cardsInQueueOfThisDeckCount > 0
                 ? subDecksInQueueOfThisDeckCount + 1

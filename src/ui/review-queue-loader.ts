@@ -117,11 +117,13 @@ export function applyCardLifecycleToQueue(
     deckTree: Deck,
     isReviewable: (legacyStableId: string | null) => boolean,
 ): Deck {
-    const filtered = deckTree.copyWithRepItemFilter((item) =>
+    // Keep the complete hierarchy even when a deck has no cards available today. The deck
+    // library reads totals from the full tree and due/new counts from the remaining tree; if
+    // the latter drops an empty branch, looking up statistics for a future-only deck fails.
+    // Empty branches are also intentional for decks created through the native UI.
+    return deckTree.copyWithRepItemFilter((item) =>
         item instanceof Card ? isReviewable(item.stableId) : true,
     );
-    filtered.pruneEmptySubdecks();
-    return filtered;
 }
 
 /** Builds a temporary deck tree containing exactly the cards selected in the browser. */

@@ -1,6 +1,7 @@
 import moment from "moment";
 import { State } from "ts-fsrs";
 
+import { Card } from "src/data/data-structures/card/card";
 import { QuestionPostponementList } from "src/data/data-structures/card/questions/question-postponement-list";
 import { Deck, DeckTreeFilter } from "src/data/data-structures/deck/deck";
 import {
@@ -1203,6 +1204,25 @@ ${updatedQuestionText}`;
 });
 
 describe("getDeckStats", () => {
+    test("returns an empty queue for a branch missing from the remaining tree", () => {
+        const original = new Deck("root", null);
+        const futureOnly = original.getOrCreateDeck(new TopicPath(["flashcards", "Future only"]));
+        futureOnly.dueRepItems = [new Card()];
+        const remaining = original.copyWithRepItemFilter(() => false);
+        remaining.pruneEmptySubdecks();
+        const context = TestContext.Create(
+            orderDueFirstSequential,
+            FlashcardReviewMode.Review,
+            DEFAULT_SETTINGS,
+            "",
+        );
+        context.reviewSequencer.setDeckTree(original, remaining);
+
+        expect(
+            context.reviewSequencer.getDeckStats(new TopicPath(["flashcards", "Future only"])),
+        ).toEqual(new DeckStats(1, 0, 0, 0, 0, 0, 0, 0, 0));
+    });
+
     describe("Multi level deck with some new and due cards", () => {
         test("Initial multi level stats", async () => {
             const text: string = `#flashcards/sub-deck

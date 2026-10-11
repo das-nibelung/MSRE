@@ -1,7 +1,7 @@
 {
     "id": "personal-spaced-repetition",
     "name": "Personal Spaced Repetition",
-    "version": "1.15.4-personal.43",
+    "version": "1.15.4-personal.44",
     "minAppVersion": "1.2.8",
     "description": "A mobile-compatible spaced repetition workspace with native cards, media, and image occlusion.",
     "author": "das-nibelung; based on work by Stephen Mwangi and contributors",

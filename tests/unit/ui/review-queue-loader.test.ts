@@ -58,6 +58,15 @@ describe("persistent card lifecycle queue filter", () => {
             suspended,
         ]);
     });
+
+    it("preserves empty deck branches so future-only deck statistics remain readable", () => {
+        const root = new Deck("root", null);
+        root.getOrCreateDeck(new TopicPath(["flashcards", "Future only"]));
+
+        const filtered = applyCardLifecycleToQueue(root, () => false);
+
+        expect(filtered.getDeck(new TopicPath(["flashcards", "Future only"]))).not.toBeNull();
+    });
 });
 
 describe("custom study queue", () => {
