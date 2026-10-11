@@ -317,18 +317,19 @@ export default class DeckListComponent {
         const row = parent.createDiv("sr-tree-row tree-item sr-tree-item-container");
         row.setCssProps({
             "--sr-deck-depth": String(depth),
-            "--sr-deck-indent": `${8 + Math.min(depth, 4) * 10}px`,
+            "--sr-deck-indent": `${10 + Math.min(depth, 4) * 16}px`,
         });
         row.addClass(depth === 0 ? "sr-area-deck" : "sr-nested-deck");
         const rowSelf = row.createDiv("tree-item-self tag-pane-tag sr-tree-item-row");
+        rowSelf.toggleClass("has-children", hasChildren);
         const children = row.createDiv("tree-item-children");
         let collapsed = !(settings.initiallyExpandAllSubdecksInTree || this.searchQuery);
 
-        const collapseIcon = rowSelf.createDiv("tree-item-icon collapse-icon");
-        setIcon(collapseIcon, "chevron-down");
-        collapseIcon.toggleClass("is-collapsed", collapsed);
-        if (!hasChildren) collapseIcon.addClass("is-placeholder");
-        else {
+        const inner = rowSelf.createDiv("tree-item-inner");
+        if (hasChildren) {
+            const collapseIcon = inner.createDiv("tree-item-icon collapse-icon");
+            setIcon(collapseIcon, "chevron-down");
+            collapseIcon.toggleClass("is-collapsed", collapsed);
             collapseIcon.setAttribute("role", "button");
             collapseIcon.setAttribute("tabindex", "0");
             collapseIcon.setAttribute("aria-expanded", String(!collapsed));
@@ -346,7 +347,6 @@ export default class DeckListComponent {
             });
         }
 
-        const inner = rowSelf.createDiv("tree-item-inner");
         const deckIcon = inner.createDiv("sr-deck-row-icon");
         const deckPath = this.getVisibleDeckPath(deck);
         const configuredIcon = this.plugin.dataManager.collectionStore.getDeck(deckPath)?.icon;
@@ -358,8 +358,11 @@ export default class DeckListComponent {
             text: `${t("DUE")}: ${stats.dueCount} · ${t("NEW_CARDS")}: ${stats.newCount}`,
         });
 
-        const statsEl = rowSelf.createDiv("tree-item-flair-outer sr-tree-stats-container");
-        this.createStats(statsEl, stats);
+        const canReview = stats.dueCount > 0 || stats.newCount > 0;
+        if (canReview) {
+            const review = rowSelf.createDiv("sr-deck-row-review-icon");
+            setIcon(review, "play");
+        }
         const menuButton = new ButtonComponent(rowSelf)
             .setIcon("ellipsis")
             .setTooltip(t("MORE_ACTIONS"))
@@ -369,12 +372,7 @@ export default class DeckListComponent {
             });
         menuButton.buttonEl.addClass("sr-deck-menu-button");
 
-        const canReview = stats.dueCount > 0 || stats.newCount > 0;
-        const go = rowSelf.createDiv("sr-deck-row-go");
-        if (canReview) setIcon(go, "chevron-right");
-        else go.addClass("is-placeholder");
         rowSelf.toggleClass("is-clickable", canReview);
-        rowSelf.toggleClass("is-disabled", !canReview);
         if (canReview) {
             rowSelf.setAttribute("role", "button");
             rowSelf.setAttribute("tabindex", "0");

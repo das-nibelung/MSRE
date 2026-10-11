@@ -213,6 +213,12 @@
     box-shadow: none;
 }
 
+.sr-card-browser-toolbar-primary > .sr-card-browser-semantic-toggle.is-active {
+    border-color: color-mix(in srgb, var(--interactive-accent) 55%, transparent);
+    background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-secondary));
+    color: var(--interactive-accent);
+}
+
 .sr-card-browser-filter-row {
     gap: 7px;
     overflow-x: auto;
