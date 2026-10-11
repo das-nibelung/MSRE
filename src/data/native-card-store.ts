@@ -2,7 +2,11 @@ import { App, normalizePath, TFile } from "obsidian";
 
 import { canonicalAnswerMode } from "src/data/collection/answer-evaluator";
 import {
+    BACK_FIELD_ID,
+    EXTRA_FIELD_ID,
+    FRONT_FIELD_ID,
     IMAGE_OCCLUSION_NOTE_TYPE_ID,
+    noteTypeIdForNativeType,
     OCCLUSION_ASSETS_FIELD_ID,
     OCCLUSION_COMMENTS_FIELD_ID,
     OCCLUSION_EXTRA_FIELD_ID,
@@ -11,12 +15,23 @@ import {
     OCCLUSION_MODE_FIELD_ID,
     OCCLUSION_REFERENCE_FIELD_ID,
     OCCLUSION_SOURCE_FIELD_ID,
+    TEXT_FIELD_ID,
 } from "src/data/collection/builtin-note-types";
-import { CollectionNote, NoteTypeDefinition } from "src/data/collection/collection-types";
+import {
+    CardAnswerMode,
+    CollectionNote,
+    NoteTypeDefinition,
+} from "src/data/collection/collection-types";
 import { Card } from "src/data/data-structures/card/card";
 import { CardType } from "src/data/data-structures/card/questions/question";
 import { CardFrontBackUtil } from "src/data/data-structures/card/questions/question-type";
 import { Deck } from "src/data/data-structures/deck/deck";
+import {
+    FileNativeNoteRecord,
+    hashVisibleMarkdown,
+    readFileNativeDocument,
+    writeFileNativeDocument,
+} from "src/data/file-native/file-native-format";
 import { KnowledgeArea } from "src/data/plugin-data";
 import { SRSettings } from "src/data/settings";
 import SRPlugin from "src/main";
@@ -71,6 +86,18 @@ export interface ImageOcclusionNoteDraft {
     comments?: string;
     reference?: string;
     tags?: string[];
+}
+
+interface FileNativeRecordInput {
+    id: string;
+    noteTypeId: string;
+    fields: Record<string, string>;
+    answerMode?: CardAnswerMode;
+    tags?: string[];
+    deckPath: string;
+    questionId: string | null;
+    legacyQuestionIds?: Record<number, string>;
+    legacyStableIds?: Record<number, string>;
 }
 
 export function serializeImageOcclusionBody(
@@ -561,7 +588,7 @@ export class NativeCardStore {
             candidate.front = expanded[index].front;
             candidate.back = expanded[index].back;
         });
-        await this.plugin.dataManager.collectionStore.updateNativeNote({
+        const updatedNote = await this.plugin.dataManager.collectionStore.updateNativeNote({
             type: draft.type,
             front: draft.front.trim(),
             back: draft.back.trim(),
@@ -571,6 +598,23 @@ export class NativeCardStore {
             questionId,
             tags: draft.tags,
         });
+        const sourceFile = this.plugin.app.vault.getAbstractFileByPath(question.note.filePath);
+        if (sourceFile instanceof TFile) {
+            const contents = await this.plugin.app.vault.read(sourceFile);
+            const fields =
+                draft.type === "cloze"
+                    ? { [TEXT_FIELD_ID]: draft.front.trim(), [EXTRA_FIELD_ID]: draft.back.trim() }
+                    : { [FRONT_FIELD_ID]: draft.front.trim(), [BACK_FIELD_ID]: draft.back.trim() };
+            await this.writeFileNativeManifest(sourceFile, contents, {
+                id: updatedNote.id,
+                noteTypeId: noteTypeIdForNativeType(draft.type),
+                fields,
+                answerMode: draft.answerMode,
+                tags: draft.tags,
+                deckPath: normalizeManagedDeckPath(draft.deckPath),
+                questionId,
+            });
+        }
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
     }
@@ -590,9 +634,25 @@ export class NativeCardStore {
             if (!(file instanceof TFile)) continue;
             const contents = await this.plugin.app.vault.read(file);
             const matcher = new RegExp(`${escapedRoot}(?:/[\\p{L}\\p{N}_.-]+)*`, "u");
-            const updated = matcher.test(contents)
+            const updatedVisible = matcher.test(contents)
                 ? contents.replace(matcher, nextTag)
                 : `${nextTag}\n\n${contents}`;
+            const manifest = readFileNativeDocument(contents);
+            const selected = sources.filter((source) => source.sourcePath === sourcePath);
+            const notes = manifest?.notes.map((note) => {
+                const matches = selected.some(
+                    (source) => !source.questionId || source.questionId === note.questionId,
+                );
+                return matches
+                    ? {
+                          ...note,
+                          deckPath: normalizedDeck,
+                          bodyHash: hashVisibleMarkdown(updatedVisible),
+                          updatedAt: Date.now(),
+                      }
+                    : note;
+            });
+            const updated = notes ? writeFileNativeDocument(updatedVisible, notes) : updatedVisible;
             if (updated !== contents) await this.plugin.app.vault.modify(file, updated);
         }
         await this.plugin.dataManager.collectionStore.moveNotesBySource(sources, normalizedDeck);
@@ -602,6 +662,22 @@ export class NativeCardStore {
 
     async setCardTags(sources: NativeCardSource[], tags: string[]): Promise<void> {
         await this.plugin.dataManager.collectionStore.setNotesTagsBySource(sources, tags);
+        for (const sourcePath of new Set(sources.map((source) => source.sourcePath))) {
+            const file = this.plugin.app.vault.getAbstractFileByPath(sourcePath);
+            if (!(file instanceof TFile)) continue;
+            const contents = await this.plugin.app.vault.read(file);
+            const manifest = readFileNativeDocument(contents);
+            if (!manifest) continue;
+            const selected = sources.filter((source) => source.sourcePath === sourcePath);
+            const notes = manifest.notes.map((note) =>
+                selected.some(
+                    (source) => !source.questionId || source.questionId === note.questionId,
+                )
+                    ? { ...note, tags: [...tags], updatedAt: Date.now() }
+                    : note,
+            );
+            await this.plugin.app.vault.modify(file, writeFileNativeDocument(contents, notes));
+        }
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
     }
@@ -670,11 +746,29 @@ export class NativeCardStore {
 
         const noteId = this.plugin.dataManager.collectionStore.createId("note");
         const questionId = `^sr-data-id-${noteId}`;
-        const contents = serializeNativeCard(
+        const visibleContents = serializeNativeCard(
             { ...draft, deckPath: normalizedDeck },
             settings,
             questionId,
         );
+        const fields =
+            draft.type === "cloze"
+                ? { [TEXT_FIELD_ID]: draft.front.trim(), [EXTRA_FIELD_ID]: draft.back.trim() }
+                : { [FRONT_FIELD_ID]: draft.front.trim(), [BACK_FIELD_ID]: draft.back.trim() };
+        const contents = writeFileNativeDocument(visibleContents, [
+            this.createFileNativeRecord(
+                {
+                    id: noteId,
+                    noteTypeId: noteTypeIdForNativeType(draft.type),
+                    fields,
+                    answerMode: draft.answerMode,
+                    tags: draft.tags,
+                    deckPath: normalizedDeck,
+                    questionId,
+                },
+                visibleContents,
+            ),
+        ]);
         const file = await this.plugin.app.vault.create(path, contents);
         await this.plugin.dataManager.collectionStore.createNativeNote({
             id: noteId,
@@ -733,7 +827,23 @@ export class NativeCardStore {
             suffix++;
         }
 
-        const file = await this.plugin.app.vault.create(path, `${tag}\n\n${body}\n`);
+        const visibleContents = `${tag}\n\n${body}\n`;
+        const contents = writeFileNativeDocument(visibleContents, [
+            this.createFileNativeRecord(
+                {
+                    id: noteId,
+                    noteTypeId: noteType.id,
+                    fields: draft.fields,
+                    tags: draft.tags,
+                    deckPath: normalizedDeck,
+                    questionId: baseQuestionId,
+                    legacyQuestionIds,
+                    legacyStableIds,
+                },
+                visibleContents,
+            ),
+        ]);
+        const file = await this.plugin.app.vault.create(path, contents);
         await collection.createNote({
             id: noteId,
             noteTypeId: noteType.id,
@@ -776,20 +886,36 @@ export class NativeCardStore {
             path = normalizePath(`${deckFolder}/image-occlusion-${Date.now()}-${suffix}.md`);
             suffix++;
         }
-        const file = await this.plugin.app.vault.create(path, `${tag}\n\n${body}\n`);
+        const fields = {
+            [OCCLUSION_SOURCE_FIELD_ID]: draft.sourcePath,
+            [OCCLUSION_MASKS_FIELD_ID]: draft.masksJson,
+            [OCCLUSION_ASSETS_FIELD_ID]: JSON.stringify(draft.assets),
+            [OCCLUSION_MODE_FIELD_ID]: draft.mode,
+            [OCCLUSION_HEADER_FIELD_ID]: draft.header ?? "",
+            [OCCLUSION_EXTRA_FIELD_ID]: draft.extra ?? "",
+            [OCCLUSION_COMMENTS_FIELD_ID]: draft.comments ?? "",
+            [OCCLUSION_REFERENCE_FIELD_ID]: draft.reference ?? "",
+        };
+        const visibleContents = `${tag}\n\n${body}\n`;
+        const contents = writeFileNativeDocument(visibleContents, [
+            this.createFileNativeRecord(
+                {
+                    id: noteId,
+                    noteTypeId: IMAGE_OCCLUSION_NOTE_TYPE_ID,
+                    fields,
+                    tags: draft.tags,
+                    deckPath: normalizedDeck,
+                    questionId: baseQuestionId,
+                    legacyQuestionIds,
+                },
+                visibleContents,
+            ),
+        ]);
+        const file = await this.plugin.app.vault.create(path, contents);
         await collection.createNote({
             id: noteId,
             noteTypeId: IMAGE_OCCLUSION_NOTE_TYPE_ID,
-            fields: {
-                [OCCLUSION_SOURCE_FIELD_ID]: draft.sourcePath,
-                [OCCLUSION_MASKS_FIELD_ID]: draft.masksJson,
-                [OCCLUSION_ASSETS_FIELD_ID]: JSON.stringify(draft.assets),
-                [OCCLUSION_MODE_FIELD_ID]: draft.mode,
-                [OCCLUSION_HEADER_FIELD_ID]: draft.header ?? "",
-                [OCCLUSION_EXTRA_FIELD_ID]: draft.extra ?? "",
-                [OCCLUSION_COMMENTS_FIELD_ID]: draft.comments ?? "",
-                [OCCLUSION_REFERENCE_FIELD_ID]: draft.reference ?? "",
-            },
+            fields,
             tags: draft.tags,
             deckPath: normalizedDeck,
             source: { kind: "managed", path: file.path, questionId: baseQuestionId },
@@ -819,18 +945,28 @@ export class NativeCardStore {
         const settings = this.plugin.dataManager.data.settings;
         const rootTag = (settings.flashcardTags[0] ?? FALLBACK_ROOT_TAG).replace(/\/+$/g, "");
         const tag = normalizedDeck ? `${rootTag}/${normalizedDeck}` : rootTag;
-        await this.plugin.app.vault.modify(file, `${tag}\n\n${body}\n`);
+        const fields = {
+            [OCCLUSION_SOURCE_FIELD_ID]: draft.sourcePath,
+            [OCCLUSION_MASKS_FIELD_ID]: draft.masksJson,
+            [OCCLUSION_ASSETS_FIELD_ID]: JSON.stringify(draft.assets),
+            [OCCLUSION_MODE_FIELD_ID]: draft.mode,
+            [OCCLUSION_HEADER_FIELD_ID]: draft.header ?? "",
+            [OCCLUSION_EXTRA_FIELD_ID]: draft.extra ?? "",
+            [OCCLUSION_COMMENTS_FIELD_ID]: draft.comments ?? "",
+            [OCCLUSION_REFERENCE_FIELD_ID]: draft.reference ?? "",
+        };
+        const visibleContents = `${tag}\n\n${body}\n`;
+        await this.writeFileNativeManifest(file, visibleContents, {
+            id: note.id,
+            noteTypeId: IMAGE_OCCLUSION_NOTE_TYPE_ID,
+            fields,
+            tags: draft.tags,
+            deckPath: normalizedDeck,
+            questionId: baseQuestionId,
+            legacyQuestionIds,
+        });
         await this.plugin.dataManager.collectionStore.updateNote(note.id, {
-            fields: {
-                [OCCLUSION_SOURCE_FIELD_ID]: draft.sourcePath,
-                [OCCLUSION_MASKS_FIELD_ID]: draft.masksJson,
-                [OCCLUSION_ASSETS_FIELD_ID]: JSON.stringify(draft.assets),
-                [OCCLUSION_MODE_FIELD_ID]: draft.mode,
-                [OCCLUSION_HEADER_FIELD_ID]: draft.header ?? "",
-                [OCCLUSION_EXTRA_FIELD_ID]: draft.extra ?? "",
-                [OCCLUSION_COMMENTS_FIELD_ID]: draft.comments ?? "",
-                [OCCLUSION_REFERENCE_FIELD_ID]: draft.reference ?? "",
-            },
+            fields,
             tags: draft.tags,
             deckPath: normalizedDeck,
             source: { ...note.source, questionId: baseQuestionId },
@@ -860,7 +996,17 @@ export class NativeCardStore {
             settings,
             baseQuestionId,
         );
-        await this.plugin.app.vault.modify(file, `${tag}\n\n${body}\n`);
+        const visibleContents = `${tag}\n\n${body}\n`;
+        await this.writeFileNativeManifest(file, visibleContents, {
+            id: note.id,
+            noteTypeId: noteType.id,
+            fields: draft.fields,
+            tags: draft.tags,
+            deckPath: normalizedDeck,
+            questionId: baseQuestionId,
+            legacyQuestionIds,
+            legacyStableIds,
+        });
         if (note.noteTypeId !== noteType.id) {
             const previousType = collection.getNoteType(note.noteTypeId);
             const fieldMapping = Object.fromEntries(
@@ -927,7 +1073,18 @@ export class NativeCardStore {
                 settings,
                 baseQuestionId,
             );
-            await this.plugin.app.vault.modify(file, `${tag}\n\n${body}\n`);
+            const visibleContents = `${tag}\n\n${body}\n`;
+            await this.writeFileNativeManifest(file, visibleContents, {
+                id: note.id,
+                noteTypeId: note.noteTypeId,
+                fields: note.fields,
+                answerMode: note.answerMode,
+                tags: note.tags,
+                deckPath,
+                questionId: baseQuestionId,
+                legacyQuestionIds,
+                legacyStableIds,
+            });
             await collection.updateNote(note.id, {
                 fields: note.fields,
                 tags: note.tags,
@@ -954,6 +1111,41 @@ export class NativeCardStore {
                 await this.plugin.app.vault.createFolder(current);
             }
         }
+    }
+
+    private createFileNativeRecord(
+        input: FileNativeRecordInput,
+        visibleContents: string,
+        previous?: FileNativeNoteRecord,
+    ): FileNativeNoteRecord {
+        const now = Date.now();
+        return {
+            id: input.id,
+            noteTypeId: input.noteTypeId,
+            fields: { ...input.fields },
+            answerMode: input.answerMode,
+            tags: [...(input.tags ?? [])],
+            deckPath: normalizeManagedDeckPath(input.deckPath),
+            questionId: input.questionId,
+            legacyQuestionIds: input.legacyQuestionIds,
+            legacyStableIds: input.legacyStableIds,
+            bodyHash: hashVisibleMarkdown(visibleContents),
+            createdAt: previous?.createdAt ?? now,
+            updatedAt: now,
+        };
+    }
+
+    private async writeFileNativeManifest(
+        file: TFile,
+        visibleContents: string,
+        input: FileNativeRecordInput,
+    ): Promise<void> {
+        const current = await this.plugin.app.vault.read(file);
+        const manifest = readFileNativeDocument(current);
+        const previous = manifest?.notes.find((note) => note.id === input.id);
+        const next = this.createFileNativeRecord(input, visibleContents, previous);
+        const notes = [...(manifest?.notes ?? []).filter((note) => note.id !== input.id), next];
+        await this.plugin.app.vault.modify(file, writeFileNativeDocument(visibleContents, notes));
     }
 
     private async waitForMetadata(app: App, file: TFile): Promise<void> {

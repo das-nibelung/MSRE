@@ -38,6 +38,7 @@ import {
     ReviewLogData,
     ReviewLogEntry,
 } from "src/data/collection/collection-types";
+import { FileNativeCatalog, FileNativeNoteRecord } from "src/data/file-native/file-native-format";
 import { SRAlgorithmType } from "src/scheduling/algorithms/base/isr-algorithm";
 import { ISerializedFSRSScheduleData } from "src/scheduling/algorithms/fsrs/serialized-schedule-data";
 import { intervalForRetention } from "src/scheduling/fsrs/scheduler-analytics";
@@ -687,6 +688,7 @@ export class CollectionStore {
     private reviewLog: ReviewLogData = emptyReviewLog();
     private initialized = false;
     private writeQueue: Promise<void> = Promise.resolve();
+    private changeListener: (() => Promise<void> | void) | null = null;
 
     constructor(
         private readonly storage: CollectionStorage,
@@ -696,6 +698,10 @@ export class CollectionStore {
 
     createId(prefix: string): string {
         return this.idFactory(prefix);
+    }
+
+    setChangeListener(listener: (() => Promise<void> | void) | null): void {
+        this.changeListener = listener;
     }
 
     async initialize(): Promise<void> {
@@ -743,6 +749,94 @@ export class CollectionStore {
 
     getCollectionSnapshot(): CollectionData {
         return cloneJson(this.collection);
+    }
+
+    /**
+     * Hydrates portable definitions before file-native notes are reconciled. The collection file
+     * remains a fast materialized view; definitions in library.sr.md survive cache deletion.
+     */
+    async importFileNativeCatalog(catalog: FileNativeCatalog): Promise<void> {
+        await this.initialize();
+        const timestamp = catalog.updatedAt || this.now();
+        const noteTypeIds = new Set(catalog.noteTypes.map((item) => item.id));
+        const optionsIds = new Set(catalog.deckOptions.map((item) => item.id));
+        const deckIds = new Set(catalog.decks.map((item) => item.id));
+        for (const noteType of Object.values(this.collection.noteTypes)) {
+            if (!noteType.id.startsWith("builtin-") && !noteTypeIds.has(noteType.id)) {
+                noteType.deletedAt = timestamp;
+                noteType.updatedAt = timestamp;
+            }
+        }
+        for (const options of Object.values(this.collection.deckOptions)) {
+            if (options.id !== DEFAULT_DECK_OPTIONS_ID && !optionsIds.has(options.id)) {
+                options.deletedAt = timestamp;
+                options.updatedAt = timestamp;
+            }
+        }
+        for (const deck of Object.values(this.collection.decks)) {
+            if (deck.id !== DEFAULT_DECK_ID && !deckIds.has(deck.id)) {
+                deck.deletedAt = timestamp;
+                deck.updatedAt = timestamp;
+            }
+        }
+        for (const noteType of catalog.noteTypes) {
+            if (!noteType?.id) continue;
+            this.collection.noteTypes[noteType.id] = cloneJson(noteType);
+        }
+        for (const options of catalog.deckOptions) {
+            if (!options?.id) continue;
+            this.collection.deckOptions[options.id] = cloneJson(options);
+        }
+        for (const deck of catalog.decks) {
+            if (!deck?.id) continue;
+            this.collection.decks[deck.id] = cloneJson(deck);
+        }
+        await this.persistCollection();
+    }
+
+    /** Rebuilds the editable note/card model from manifests embedded in Markdown files. */
+    async reconcileFileNativeNotes(
+        records: Array<{ path: string; note: FileNativeNoteRecord }>,
+    ): Promise<number> {
+        await this.initialize();
+        if (records.length === 0) return 0;
+        const timestamp = this.now();
+        let changed = 0;
+        for (const { path, note: input } of records) {
+            const noteType = this.collection.noteTypes[input.noteTypeId];
+            if (!noteType || noteType.deletedAt) continue;
+            const existing = this.collection.notes[input.id];
+            const note: CollectionNote = existing ?? {
+                id: input.id,
+                noteTypeId: input.noteTypeId,
+                fields: {},
+                tags: [],
+                source: { kind: "managed", path, questionId: input.questionId },
+                createdAt: input.createdAt || timestamp,
+                updatedAt: timestamp,
+            };
+            note.noteTypeId = input.noteTypeId;
+            note.fields = { ...input.fields };
+            note.answerMode = input.answerMode;
+            note.tags = normalizeTags(input.tags ?? []);
+            note.source = { kind: "managed", path, questionId: input.questionId };
+            note.updatedAt = Math.max(input.updatedAt || 0, timestamp);
+            delete note.deletedAt;
+            this.collection.notes[note.id] = note;
+            const deck = this.ensureDeckPathInMemory(input.deckPath, timestamp);
+            this.replaceGeneratedCards(
+                note,
+                noteType,
+                deck,
+                input.questionId ?? `^sr-data-id-${note.id}`,
+                timestamp,
+                input.legacyQuestionIds,
+                input.legacyStableIds,
+            );
+            changed++;
+        }
+        if (changed > 0) await this.persistCollection();
+        return changed;
     }
 
     getReviewLogSnapshot(): ReviewLogData {
@@ -2083,6 +2177,7 @@ export class CollectionStore {
             this.collection.revision++;
             this.collection.updatedAt = this.now();
             await this.storage.writeCollection(formatCollection(this.collection));
+            await this.changeListener?.();
         });
         this.writeQueue = operation.catch((error) =>
             console.warn("MSRE: collection write failed", error),

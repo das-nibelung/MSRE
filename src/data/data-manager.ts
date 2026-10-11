@@ -22,6 +22,16 @@ import {
 import { QuestionPostponementList } from "src/data/data-structures/card/questions/question-postponement-list";
 import { TopicPath } from "src/data/data-structures/deck/topic-path";
 import { ISRNoteTFile, SRNoteTFile } from "src/data/data-structures/file/note-file";
+import {
+    FILE_NATIVE_CATALOG_PATH,
+    FILE_NATIVE_SCHEMA_VERSION,
+    FileNativeCatalog,
+    FileNativeNoteRecord,
+    hashVisibleMarkdown,
+    readFileNativeDocument,
+    writeFileNativeDocument,
+} from "src/data/file-native/file-native-format";
+import { FileNativeStore } from "src/data/file-native/file-native-store";
 import { PluginData } from "src/data/plugin-data";
 import { PluginDataManager } from "src/data/plugin-data-manager";
 import { SettingsUtil, SRSettings } from "src/data/settings";
@@ -52,9 +62,11 @@ export class DataManager {
     private cardIndex: IncrementalCardIndex;
     private scheduleLedger: ScheduleLedger | null = null;
     public readonly collectionStore: CollectionStore;
+    private readonly fileNativeStore: FileNativeStore;
     private hasLoadedVault = false;
     private lastSyncContext: string | null = null;
     private requiresFullScan = false;
+    private hydratingFileNative = false;
 
     constructor(
         plugin: SRPlugin,
@@ -72,6 +84,7 @@ export class DataManager {
             plugin.getObsidianRtlSetting(),
         );
         this.collectionStore = new CollectionStore(new VaultCollectionStorage(plugin.app.vault));
+        this.fileNativeStore = new FileNativeStore(plugin.app.vault);
         this.registerCardIndexEvents();
     }
 
@@ -130,6 +143,10 @@ export class DataManager {
         onOsrVaultDataChanged: () => Promise<void>,
     ): Promise<void> {
         await this.collectionStore.initialize();
+        await this.hydrateFileNativeState();
+        this.collectionStore.setChangeListener(() =>
+            this.hydratingFileNative ? undefined : this.persistFileNativeCatalog(),
+        );
         const questionPostponementList: QuestionPostponementList = new QuestionPostponementList(
             this.pluginDataManager,
             this.settingsManager.settings,
@@ -163,6 +180,10 @@ export class DataManager {
     private registerCardIndexEvents(): void {
         this.plugin.registerEvent(
             this.plugin.app.vault.on("modify", (file) => {
+                if (file instanceof TFile && file.path === FILE_NATIVE_CATALOG_PATH) {
+                    void this.hydrateFileNativeCatalog();
+                    return;
+                }
                 if (file instanceof TFile && this.isCollectionDataPath(file.path)) {
                     void this.collectionStore.reload();
                     return;
@@ -176,13 +197,17 @@ export class DataManager {
                     file.extension === "md" &&
                     file.path !== SCHEDULE_LEDGER_PATH
                 ) {
-                    void this.collectionStore.deleteNoteBySource(file.path);
+                    void this.reconcileFileNativeFile(file);
                     void this.cardIndex.invalidate(file.path);
                 }
             }),
         );
         this.plugin.registerEvent(
             this.plugin.app.vault.on("create", (file) => {
+                if (file instanceof TFile && file.path === FILE_NATIVE_CATALOG_PATH) {
+                    void this.hydrateFileNativeCatalog();
+                    return;
+                }
                 if (file instanceof TFile && this.isCollectionDataPath(file.path)) {
                     void this.collectionStore.reload();
                     return;
@@ -196,14 +221,21 @@ export class DataManager {
                     file.extension === "md" &&
                     file.path !== SCHEDULE_LEDGER_PATH
                 ) {
+                    void this.reconcileFileNativeFile(file);
                     void this.cardIndex.invalidate(file.path);
                 }
             }),
         );
         this.plugin.registerEvent(
             this.plugin.app.vault.on("delete", (file) => {
+                if (file instanceof TFile && file.path === FILE_NATIVE_CATALOG_PATH) {
+                    this.fileNativeStore.resetCatalogCache();
+                    void this.persistFileNativeCatalog();
+                    return;
+                }
                 if (file instanceof TFile && this.isCollectionDataPath(file.path)) {
                     this.collectionStore.reset();
+                    void this.hydrateFileNativeState();
                     return;
                 }
                 if (file instanceof TFile && file.path === SCHEDULE_LEDGER_PATH) {
@@ -215,6 +247,7 @@ export class DataManager {
                     file.extension === "md" &&
                     file.path !== SCHEDULE_LEDGER_PATH
                 ) {
+                    void this.collectionStore.deleteNoteBySource(file.path);
                     void this.cardIndex.invalidate(file.path);
                 } else if (!(file instanceof TFile)) {
                     this.requiresFullScan = true;
@@ -223,7 +256,13 @@ export class DataManager {
         );
         this.plugin.registerEvent(
             this.plugin.app.vault.on("rename", (file, oldPath) => {
-                if (this.isCollectionDataPath(oldPath)) this.collectionStore.reset();
+                if (oldPath === FILE_NATIVE_CATALOG_PATH) {
+                    this.fileNativeStore.resetCatalogCache();
+                    void this.persistFileNativeCatalog();
+                } else if (this.isCollectionDataPath(oldPath)) {
+                    this.collectionStore.reset();
+                    void this.hydrateFileNativeState();
+                }
                 if (file instanceof TFile && this.isCollectionDataPath(file.path)) {
                     void this.collectionStore.reload();
                     return;
@@ -262,7 +301,131 @@ export class DataManager {
     }
 
     private isCollectionDataPath(path: string): boolean {
-        return path === COLLECTION_PATH || path === REVIEW_LOG_PATH;
+        return (
+            path === COLLECTION_PATH ||
+            path === REVIEW_LOG_PATH ||
+            path === FILE_NATIVE_CATALOG_PATH
+        );
+    }
+
+    private async hydrateFileNativeState(): Promise<void> {
+        const catalog = await this.fileNativeStore.readCatalog();
+        if (catalog) await this.applyFileNativeCatalog(catalog);
+        else await this.persistFileNativeCatalog();
+
+        await this.migrateManagedNotesToFileManifests();
+        const documents = await this.fileNativeStore.readAllDocuments();
+        const records = documents.flatMap(({ path, manifest }) =>
+            manifest.notes.map((note) => ({ path, note })),
+        );
+        await this.collectionStore.reconcileFileNativeNotes(records);
+    }
+
+    /** One-time, lossless migration of pre-stage-8 managed notes into their own Markdown files. */
+    private async migrateManagedNotesToFileManifests(): Promise<void> {
+        const snapshot = this.collectionStore.getCollectionSnapshot();
+        const cards = Object.values(snapshot.cards).filter((card) => !card.deletedAt);
+        for (const note of Object.values(snapshot.notes)) {
+            if (note.deletedAt || note.source.kind !== "managed") continue;
+            const file = this.plugin.app.vault.getAbstractFileByPath(note.source.path);
+            if (!(file instanceof TFile)) continue;
+            const contents = await this.plugin.app.vault.read(file);
+            const manifest = readFileNativeDocument(contents);
+            if (manifest?.notes.some((record) => record.id === note.id)) continue;
+            const noteCards = cards
+                .filter((card) => card.noteId === note.id)
+                .sort((left, right) => left.ordinal - right.ordinal);
+            const deckPath = noteCards[0]?.deckPath ?? "";
+            const baseQuestionId = note.source.questionId;
+            const legacyStableIds = Object.fromEntries(
+                noteCards
+                    .filter((card) => card.legacyStableId)
+                    .map((card) => [card.ordinal, card.legacyStableId]),
+            );
+            const legacyQuestionIds = Object.fromEntries(
+                noteCards.map((card) => [
+                    card.ordinal,
+                    noteCards.length > 1 && baseQuestionId
+                        ? `${baseQuestionId}-${card.ordinal + 1}`
+                        : (baseQuestionId ?? `^sr-data-id-${note.id}`),
+                ]),
+            );
+            const record: FileNativeNoteRecord = {
+                id: note.id,
+                noteTypeId: note.noteTypeId,
+                fields: { ...note.fields },
+                answerMode: note.answerMode,
+                tags: [...note.tags],
+                deckPath,
+                questionId: baseQuestionId,
+                legacyQuestionIds,
+                legacyStableIds,
+                bodyHash: hashVisibleMarkdown(contents),
+                createdAt: note.createdAt,
+                updatedAt: note.updatedAt,
+            };
+            await this.plugin.app.vault.modify(
+                file,
+                writeFileNativeDocument(contents, [...(manifest?.notes ?? []), record]),
+            );
+        }
+    }
+
+    private async hydrateFileNativeCatalog(): Promise<void> {
+        const catalog = await this.fileNativeStore.readCatalog();
+        if (catalog) await this.applyFileNativeCatalog(catalog);
+    }
+
+    private async applyFileNativeCatalog(catalog: FileNativeCatalog): Promise<void> {
+        this.hydratingFileNative = true;
+        try {
+            await this.collectionStore.importFileNativeCatalog(catalog);
+            this.data.managedDecks = [...new Set(catalog.managedDecks)];
+            this.data.knowledgeAreas = catalog.knowledgeAreas.map((area) => ({
+                ...area,
+                deckPaths: [...area.deckPaths],
+            }));
+            await this.pluginDataManager.savePluginData();
+        } finally {
+            this.hydratingFileNative = false;
+        }
+    }
+
+    private async reconcileFileNativeFile(file: TFile): Promise<void> {
+        const manifest = await this.fileNativeStore.readDocument(file);
+        if (!manifest) {
+            await this.collectionStore.deleteNoteBySource(file.path);
+            return;
+        }
+        await this.collectionStore.reconcileFileNativeNotes(
+            manifest.notes.map((note) => ({ path: file.path, note })),
+        );
+    }
+
+    async persistFileNativeCatalog(): Promise<void> {
+        if (!this.pluginDataManager.isLoaded) return;
+        const snapshot = this.collectionStore.getCollectionSnapshot();
+        const noteTypes = Object.values(snapshot.noteTypes).filter((item) => !item.deletedAt);
+        const deckOptions = Object.values(snapshot.deckOptions).filter((item) => !item.deletedAt);
+        const decks = Object.values(snapshot.decks).filter((item) => !item.deletedAt);
+        const updatedAt = Math.max(
+            0,
+            ...noteTypes.map((item) => item.updatedAt),
+            ...deckOptions.map((item) => item.updatedAt),
+            ...decks.map((item) => item.updatedAt),
+        );
+        await this.fileNativeStore.writeCatalog({
+            schemaVersion: FILE_NATIVE_SCHEMA_VERSION,
+            updatedAt,
+            noteTypes,
+            deckOptions,
+            decks,
+            managedDecks: [...this.data.managedDecks],
+            knowledgeAreas: this.data.knowledgeAreas.map((area) => ({
+                ...area,
+                deckPaths: [...area.deckPaths],
+            })),
+        });
     }
 
     async loadVault(): Promise<void> {
@@ -515,6 +678,7 @@ export class DataManager {
     async savePluginData(): Promise<void> {
         try {
             await this.pluginDataManager.savePluginData();
+            await this.persistFileNativeCatalog();
         } catch (error) {
             console.warn("DataManager: Error saving plugin data", error);
         }

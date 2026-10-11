@@ -85,6 +85,25 @@ written into the vault, so it does not create sync conflicts between desktop
 and mobile devices. If IndexedDB is unavailable, the plugin falls back to an
 in-memory index for the current session.
 
+## File-native library
+
+Native-editor cards now keep their stable note ID, note type, editable fields,
+tags, deck, answer mode, and generated-card identities in a portable manifest
+inside the same Markdown file. The manifest is an HTML comment, so it does not
+change reading view or card rendering and it travels with the note when it is
+moved or synchronized.
+
+`Spaced Repetition/library.sr.md` is the portable catalog for note types, card
+templates, deck presets, decks, and knowledge areas. The collection file and
+IndexedDB index are materialized views: if either is deleted, the plugin rebuilds
+the editable collection from the catalog, card manifests, review history, and
+schedule ledger. Existing native cards are upgraded automatically on first load;
+ordinary hand-written Markdown cards continue to work without any manifest.
+
+This keeps the Obsidian model intact: the complete library can be inspected,
+versioned, backed up, and restored as normal vault files. No opaque database is
+required to preserve the meaning of a card.
+
 ## Upstream project
 
 The original project, documentation, and contributor history are available at

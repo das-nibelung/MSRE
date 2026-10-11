@@ -8,6 +8,7 @@ import {
     migrateCollection,
     parseCollection,
 } from "src/data/collection/collection-store";
+import { FileNativeNoteRecord } from "src/data/file-native/file-native-format";
 import { ISerializedScheduleEntry } from "src/data/plugin-data";
 import { SRAlgorithmType } from "src/scheduling/algorithms/base/isr-algorithm";
 
@@ -59,6 +60,76 @@ describe("Anki-style collection store", () => {
 
     beforeEach(() => {
         nextId = 0;
+    });
+
+    it("reconstructs an editable note and generated cards from a Markdown manifest", async () => {
+        const storage = new MemoryStorage();
+        const store = new CollectionStore(storage, () => 100, idFactory);
+        const record: FileNativeNoteRecord = {
+            id: "note-from-file",
+            noteTypeId: "builtin-basic",
+            fields: { front: "Question", back: "Answer" },
+            answerMode: "type",
+            tags: ["portable"],
+            deckPath: "Medicine",
+            questionId: "^sr-data-id-note-from-file",
+            bodyHash: "abcd1234",
+            createdAt: 10,
+            updatedAt: 20,
+        };
+
+        expect(
+            await store.reconcileFileNativeNotes([
+                { path: "Spaced Repetition/Cards/Medicine/question.md", note: record },
+            ]),
+        ).toBe(1);
+
+        const snapshot = store.getCollectionSnapshot();
+        expect(snapshot.notes[record.id]).toMatchObject({
+            id: record.id,
+            fields: record.fields,
+            answerMode: "type",
+            source: {
+                kind: "managed",
+                path: "Spaced Repetition/Cards/Medicine/question.md",
+                questionId: record.questionId,
+            },
+        });
+        expect(Object.values(snapshot.cards)).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ noteId: record.id, deckPath: "Medicine" }),
+            ]),
+        );
+    });
+
+    it("restores custom note types and deck definitions from the portable catalog", async () => {
+        const source = new CollectionStore(new MemoryStorage(), () => 100, idFactory);
+        const builtin = source.getNoteType("builtin-basic");
+        if (!builtin) throw new Error("missing built-in note type");
+        await source.saveNoteType({
+            ...builtin,
+            id: "custom-medicine",
+            name: "Clinical case",
+            version: 1,
+            createdAt: 10,
+            deletedAt: undefined,
+        });
+        await source.ensureDeckPath("Medicine/Cardiology");
+        const snapshot = source.getCollectionSnapshot();
+
+        const restored = new CollectionStore(new MemoryStorage(), () => 200, idFactory);
+        await restored.importFileNativeCatalog({
+            schemaVersion: 1,
+            updatedAt: 100,
+            noteTypes: Object.values(snapshot.noteTypes).filter((item) => !item.deletedAt),
+            deckOptions: Object.values(snapshot.deckOptions).filter((item) => !item.deletedAt),
+            decks: Object.values(snapshot.decks).filter((item) => !item.deletedAt),
+            managedDecks: ["Medicine/Cardiology"],
+            knowledgeAreas: [],
+        });
+
+        expect(restored.getNoteType("custom-medicine")?.name).toBe("Clinical case");
+        expect(restored.getDeck("Medicine/Cardiology")).not.toBeNull();
     });
 
     it("backs up and load-balances FSRS cards when a personalized preset is applied", async () => {
