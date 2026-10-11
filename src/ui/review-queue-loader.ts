@@ -22,6 +22,7 @@ import {
     FlashcardReviewSequencer,
     IFlashcardReviewSequencer,
 } from "src/scheduling/flashcard-review-sequencer";
+import { globalDateProvider } from "src/utils/dates";
 import { globalRandomNumberProvider } from "src/utils/numbers";
 
 function stripRootPath(path: string[], rootPath: string[]): string {
@@ -40,9 +41,10 @@ function shuffleCards<T>(cards: T[]): T[] {
 
 export interface CustomStudyOptions {
     targetDeckPath: string[];
-    scope: "due" | "new" | "all";
+    scope: "due" | "new" | "all" | "overdue" | "ahead";
     limit: number;
     order: "due-first" | "random";
+    aheadDays?: number;
 }
 
 /** Creates a temporary, deck-scoped queue without changing card schedules. */
@@ -57,6 +59,17 @@ export function applyCustomStudyOptionsToQueue(deckTree: Deck, options: CustomSt
               ? RepItemState.DueItem
               : RepItemState.AnyItem;
     let candidates = [...new Set(target.getFlattenedRepItemArray(state, true))];
+    if (options.scope === "overdue" || options.scope === "ahead") {
+        const now = globalDateProvider.now;
+        const horizon = now.clone().add(Math.max(1, options.aheadDays ?? 7), "days");
+        candidates = candidates.filter((item) => {
+            if (!(item instanceof Card) || !item.hasSchedule) return false;
+            return options.scope === "overdue"
+                ? item.scheduleInfo.dueDate.isBefore(now, "day")
+                : item.scheduleInfo.dueDate.isAfter(now) &&
+                      item.scheduleInfo.dueDate.isSameOrBefore(horizon);
+        });
+    }
     if (options.scope === "all" && options.order === "due-first") {
         candidates = [
             ...new Set(target.getFlattenedRepItemArray(RepItemState.DueItem, true)),
@@ -250,7 +263,7 @@ export class ReviewQueueLoader {
             this.plugin.dataManager.osrCore.questionPostponementList,
             this.plugin.dataManager.osrCore.dueDateFlashcardHistogram,
             (card) => ({
-                desiredRetention: this.getOptionsForCard(card).desiredRetention,
+                ...this.getSchedulingOptionsForCard(card),
             }),
         );
 
@@ -298,5 +311,25 @@ export class ReviewQueueLoader {
         return this.plugin.dataManager.collectionStore.getDeckOptionsForPath(
             stripRootPath(topicPath, rootPath),
         );
+    }
+
+    private getSchedulingOptionsForCard(card: Card) {
+        const base = this.getOptionsForCard(card);
+        const rootTag = this.plugin.dataManager.data.settings.flashcardTags[0] ?? "#flashcards";
+        const rootPath = rootTag.replace(/^#/, "").split("/").filter(Boolean);
+        const topicPath = card.question.topicPathList.list[0]?.path ?? [];
+        const deckPath = stripRootPath(topicPath, rootPath);
+        const area = this.plugin.dataManager.data.knowledgeAreas.find((candidate) =>
+            candidate.deckPaths.some(
+                (path) => deckPath === path || deckPath.startsWith(`${path}/`),
+            ),
+        );
+        return {
+            desiredRetention: area?.scheduling?.desiredRetention ?? base.desiredRetention,
+            fsrsWeights: area?.scheduling?.fsrsWeights ?? base.fsrsWeights,
+            learningSteps: area?.scheduling?.learningSteps ?? base.learningSteps,
+            relearningSteps: area?.scheduling?.relearningSteps ?? base.relearningSteps,
+            loadBalance: area?.scheduling?.loadBalance ?? base.loadBalance,
+        };
     }
 }

@@ -11,6 +11,7 @@ export class CustomStudyModal extends Modal {
         scope: "due",
         limit: 50,
         order: "due-first",
+        aheadDays: 7,
     };
 
     constructor(
@@ -39,6 +40,8 @@ export class CustomStudyModal extends Modal {
             ["due", t("CUSTOM_STUDY_DUE")],
             ["new", t("CUSTOM_STUDY_NEW")],
             ["all", t("CUSTOM_STUDY_ALL")],
+            ["overdue", "Overdue"],
+            ["ahead", "Review ahead"],
         ] as const) {
             const button = new ButtonComponent(scopePicker).setButtonText(label).onClick(() => {
                 this.draft.scope = value;
@@ -66,6 +69,16 @@ export class CustomStudyModal extends Modal {
         order.createEl("option", { value: "random", text: t("ORDER_RANDOM") });
         order.addEventListener("change", () => {
             this.draft.order = order.value as CustomStudyDraft["order"];
+        });
+
+        const aheadGroup = controls.createDiv("sr-custom-study-control");
+        aheadGroup.createEl("label", { text: "Ahead window (days)" });
+        const ahead = aheadGroup.createEl("input", {
+            attr: { type: "number", min: "1", max: "365", inputmode: "numeric" },
+        });
+        ahead.value = String(this.draft.aheadDays);
+        ahead.addEventListener("input", () => {
+            this.draft.aheadDays = Math.min(365, Math.max(1, Number(ahead.value) || 1));
         });
 
         const actions = this.contentEl.createDiv("sr-custom-study-actions");

@@ -435,6 +435,20 @@ export class NativeCardStore {
         return this.plugin.dataManager.data.knowledgeAreas.map((area) => ({
             ...area,
             deckPaths: [...area.deckPaths],
+            scheduling: area.scheduling
+                ? {
+                      ...area.scheduling,
+                      learningSteps: area.scheduling.learningSteps
+                          ? [...area.scheduling.learningSteps]
+                          : undefined,
+                      relearningSteps: area.scheduling.relearningSteps
+                          ? [...area.scheduling.relearningSteps]
+                          : undefined,
+                      fsrsWeights: area.scheduling.fsrsWeights
+                          ? [...area.scheduling.fsrsWeights]
+                          : area.scheduling.fsrsWeights,
+                  }
+                : undefined,
         }));
     }
 
@@ -469,6 +483,14 @@ export class NativeCardStore {
 
     async setKnowledgeAreaPinned(id: string, pinned: boolean): Promise<void> {
         this.requireKnowledgeArea(id).pinned = pinned;
+        await this.plugin.dataManager.savePluginData();
+    }
+
+    async setKnowledgeAreaScheduling(
+        id: string,
+        scheduling: KnowledgeArea["scheduling"],
+    ): Promise<void> {
+        this.requireKnowledgeArea(id).scheduling = scheduling;
         await this.plugin.dataManager.savePluginData();
     }
 

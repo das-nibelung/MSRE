@@ -1,6 +1,6 @@
 import { ISerializedScheduleEntry } from "src/data/plugin-data";
 
-export const COLLECTION_SCHEMA_VERSION = 9;
+export const COLLECTION_SCHEMA_VERSION = 10;
 export const REVIEW_LOG_SCHEMA_VERSION = 1;
 
 export type NoteTypeKind = "standard" | "cloze" | "image-occlusion";
@@ -166,6 +166,23 @@ export interface DeckOptionsDefinition {
     reviewsPerDay: number;
     desiredRetention: number;
     newCardOrder: "sequential" | "random";
+    /** Optional personalized FSRS weights. Null keeps the library defaults. */
+    fsrsWeights?: number[] | null;
+    /** Short-term steps in minutes. Empty arrays let FSRS choose the interval directly. */
+    learningSteps?: number[];
+    relearningSteps?: number[];
+    leechThreshold?: number;
+    leechAction?: "tag" | "suspend";
+    loadBalance?: boolean;
+    reviewAheadDays?: number;
+    /** Last calibration result shown in the scheduler lab. */
+    optimization?: {
+        optimizedAt: number;
+        sampleSize: number;
+        logLoss: number;
+        rmse: number;
+        stabilityScale: number;
+    } | null;
     createdAt: number;
     updatedAt: number;
     deletedAt?: number;
@@ -387,4 +404,6 @@ export interface RecordReviewInput extends LegacyCardInput {
     mode?: "review" | "cram";
     previousSchedule: ISerializedScheduleEntry | null;
     nextSchedule: ISerializedScheduleEntry | null;
+    leechThreshold?: number;
+    leechAction?: "tag" | "suspend";
 }

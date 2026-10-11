@@ -73,6 +73,29 @@ export class PluginDataManager {
                             ]
                           : [],
                       pinned: area.pinned === true,
+                      scheduling:
+                          area.scheduling && typeof area.scheduling === "object"
+                              ? {
+                                    ...area.scheduling,
+                                    desiredRetention:
+                                        typeof area.scheduling.desiredRetention === "number"
+                                            ? Math.max(
+                                                  0.7,
+                                                  Math.min(0.99, area.scheduling.desiredRetention),
+                                              )
+                                            : undefined,
+                                    learningSteps: Array.isArray(area.scheduling.learningSteps)
+                                        ? area.scheduling.learningSteps
+                                              .map(Number)
+                                              .filter((value) => value > 0)
+                                        : undefined,
+                                    relearningSteps: Array.isArray(area.scheduling.relearningSteps)
+                                        ? area.scheduling.relearningSteps
+                                              .map(Number)
+                                              .filter((value) => value > 0)
+                                        : undefined,
+                                }
+                              : undefined,
                   }))
                   .filter((area) => area.name.length > 0)
             : [];

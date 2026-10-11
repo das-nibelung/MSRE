@@ -63,6 +63,7 @@ import {
     normalizeManagedDeckPath,
     renderNoteTypeTemplate,
 } from "src/data/native-card-store";
+import { KnowledgeArea } from "src/data/plugin-data";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { DeckPickerModal } from "src/ui/deck-picker-modal";
@@ -134,6 +135,7 @@ export class NativeCreatorView extends ItemView {
     private editingCard: Card | null = null;
     private editingAreaId: string | null = null;
     private areaName = "";
+    private areaScheduling: NonNullable<KnowledgeArea["scheduling"]> = {};
     private noteTypeDraft: NoteTypeEditorDraft | null = null;
     private selectedNoteTypeId = BASIC_NOTE_TYPE_ID;
     private customFieldValues: Record<string, string> = {};
@@ -232,6 +234,12 @@ export class NativeCreatorView extends ItemView {
             ? (this.store.getKnowledgeAreas().find((area) => area.id === this.editingAreaId)
                   ?.name ?? "")
             : "";
+        this.areaScheduling = this.editingAreaId
+            ? {
+                  ...(this.store.getKnowledgeAreas().find((area) => area.id === this.editingAreaId)
+                      ?.scheduling ?? {}),
+              }
+            : {};
         if (request.mode === "deck-options") this.loadDeckOptionsDraft();
         if (this.editingCard) {
             const sourcePath = this.editingCard.storageInfo?.notePath ?? "";
@@ -2237,6 +2245,65 @@ export class NativeCreatorView extends ItemView {
             button.buttonEl.setAttribute("aria-pressed", String(draft.newCardOrder === value));
         }
 
+        const learning = surface.createDiv("sr-native-options-section");
+        learning.createEl("h2", { text: "Learning & relearning" });
+        learning.createEl("p", {
+            text: "Short steps run before FSRS places a card into long-term review.",
+        });
+        const stepGrid = learning.createDiv("sr-native-options-grid");
+        this.createStepsControl(
+            stepGrid,
+            "Learning steps",
+            draft.learningSteps ?? [1, 10],
+            (value) => {
+                draft.learningSteps = value;
+            },
+        );
+        this.createStepsControl(
+            stepGrid,
+            "Relearning steps",
+            draft.relearningSteps ?? [10],
+            (value) => {
+                draft.relearningSteps = value;
+            },
+        );
+
+        const safeguards = surface.createDiv("sr-native-options-section");
+        safeguards.createEl("h2", { text: "Workload safeguards" });
+        const safeguardGrid = safeguards.createDiv("sr-native-options-grid");
+        this.createNumberControl(
+            safeguardGrid,
+            "Leech threshold",
+            draft.leechThreshold ?? 8,
+            1,
+            99,
+            (value) => (draft.leechThreshold = value),
+        );
+        this.createNumberControl(
+            safeguardGrid,
+            "Review ahead (days)",
+            draft.reviewAheadDays ?? 0,
+            0,
+            365,
+            (value) => (draft.reviewAheadDays = value),
+        );
+        this.createChoiceControl(safeguards, "Leech action", [
+            {
+                label: "Tag",
+                active: draft.leechAction === "tag",
+                action: () => (draft.leechAction = "tag"),
+            },
+            {
+                label: "Suspend",
+                active: draft.leechAction === "suspend",
+                action: () => (draft.leechAction = "suspend"),
+            },
+        ]);
+        this.createChoiceControl(safeguards, "Load balancing", [
+            { label: "Off", active: !draft.loadBalance, action: () => (draft.loadBalance = false) },
+            { label: "On", active: draft.loadBalance, action: () => (draft.loadBalance = true) },
+        ]);
+
         if (this.error) {
             surface.createDiv({
                 cls: "sr-native-form-error",
@@ -2278,6 +2345,47 @@ export class NativeCreatorView extends ItemView {
             onChange(Number.isFinite(next) ? Math.round(next) : min);
             this.clearError();
         });
+    }
+
+    private createStepsControl(
+        parent: HTMLElement,
+        label: string,
+        value: number[],
+        onChange: (value: number[]) => void,
+    ): void {
+        const wrapper = parent.createDiv("sr-native-number-control");
+        wrapper.createEl("label", { text: label });
+        const input = wrapper.createEl("input", {
+            cls: "sr-native-input",
+            attr: { type: "text", inputmode: "numeric", placeholder: "1, 10", "aria-label": label },
+        });
+        input.value = value.join(", ");
+        input.addEventListener("change", () => {
+            const steps = input.value
+                .split(/[ ,;]+/)
+                .map(Number)
+                .filter((step) => Number.isFinite(step) && step > 0)
+                .map(Math.round);
+            onChange(steps);
+            input.value = steps.join(", ");
+        });
+    }
+
+    private createChoiceControl(
+        parent: HTMLElement,
+        label: string,
+        choices: Array<{ label: string; active: boolean; action: () => void }>,
+    ): void {
+        const group = parent.createDiv("sr-native-choice-control");
+        group.createEl("span", { text: label });
+        const buttons = group.createDiv("sr-native-order-switcher");
+        for (const choice of choices) {
+            const button = new ButtonComponent(buttons).setButtonText(choice.label).onClick(() => {
+                choice.action();
+                this.render();
+            });
+            button.buttonEl.toggleClass("is-active", choice.active);
+        }
     }
 
     private openDeckOptionsMenu(event: MouseEvent): void {
@@ -2336,6 +2444,73 @@ export class NativeCreatorView extends ItemView {
         input.addEventListener("keydown", (event) => {
             if (event.key === "Enter") void this.saveKnowledgeArea();
         });
+
+        const scheduler = surface.createDiv("sr-native-options-section");
+        scheduler.createEl("h2", { text: "Scheduler override" });
+        scheduler.createEl("p", {
+            text: "Optional settings here override deck presets for every deck in this knowledge area.",
+        });
+        const grid = scheduler.createDiv("sr-native-options-grid");
+        this.createNumberControl(
+            grid,
+            "Retention, %",
+            Math.round((this.areaScheduling.desiredRetention ?? 0.9) * 100),
+            70,
+            99,
+            (value) => (this.areaScheduling.desiredRetention = value / 100),
+        );
+        this.createNumberControl(
+            grid,
+            "Leech threshold",
+            this.areaScheduling.leechThreshold ?? 8,
+            1,
+            99,
+            (value) => (this.areaScheduling.leechThreshold = value),
+        );
+        this.createStepsControl(
+            grid,
+            "Learning steps",
+            this.areaScheduling.learningSteps ?? [1, 10],
+            (value) => (this.areaScheduling.learningSteps = value),
+        );
+        this.createStepsControl(
+            grid,
+            "Relearning steps",
+            this.areaScheduling.relearningSteps ?? [10],
+            (value) => (this.areaScheduling.relearningSteps = value),
+        );
+        this.createNumberControl(
+            grid,
+            "Review ahead (days)",
+            this.areaScheduling.reviewAheadDays ?? 0,
+            0,
+            365,
+            (value) => (this.areaScheduling.reviewAheadDays = value),
+        );
+        this.createChoiceControl(scheduler, "Leech action", [
+            {
+                label: "Tag",
+                active: (this.areaScheduling.leechAction ?? "tag") === "tag",
+                action: () => (this.areaScheduling.leechAction = "tag"),
+            },
+            {
+                label: "Suspend",
+                active: this.areaScheduling.leechAction === "suspend",
+                action: () => (this.areaScheduling.leechAction = "suspend"),
+            },
+        ]);
+        this.createChoiceControl(scheduler, "Load balancing", [
+            {
+                label: "Off",
+                active: this.areaScheduling.loadBalance === false,
+                action: () => (this.areaScheduling.loadBalance = false),
+            },
+            {
+                label: "On",
+                active: this.areaScheduling.loadBalance !== false,
+                action: () => (this.areaScheduling.loadBalance = true),
+            },
+        ]);
 
         const preview = surface.createDiv("sr-native-deck-preview sr-native-area-preview");
         const previewIcon = preview.createDiv("sr-native-deck-preview-icon");
@@ -4995,9 +5170,14 @@ export class NativeCreatorView extends ItemView {
         try {
             if (this.editingAreaId) {
                 await this.store.renameKnowledgeArea(this.editingAreaId, this.areaName);
+                await this.store.setKnowledgeAreaScheduling(
+                    this.editingAreaId,
+                    this.areaScheduling,
+                );
                 new Notice(t("KNOWLEDGE_AREA_UPDATED"));
             } else {
-                await this.store.createKnowledgeArea(this.areaName);
+                const area = await this.store.createKnowledgeArea(this.areaName);
+                await this.store.setKnowledgeAreaScheduling(area.id, this.areaScheduling);
                 new Notice(t("KNOWLEDGE_AREA_CREATED"));
             }
             await this.plugin.dataManager.sync();

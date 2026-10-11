@@ -12,6 +12,10 @@ export enum SRAlgorithmType {
 
 export interface CardSchedulingOptions {
     desiredRetention: number;
+    fsrsWeights?: number[] | null;
+    learningSteps?: number[];
+    relearningSteps?: number[];
+    loadBalance?: boolean;
 }
 
 export interface ISRAlgorithm {

@@ -38,6 +38,9 @@ import {
     ReviewLogData,
     ReviewLogEntry,
 } from "src/data/collection/collection-types";
+import { SRAlgorithmType } from "src/scheduling/algorithms/base/isr-algorithm";
+import { ISerializedFSRSScheduleData } from "src/scheduling/algorithms/fsrs/serialized-schedule-data";
+import { intervalForRetention } from "src/scheduling/fsrs/scheduler-analytics";
 
 export const COLLECTION_FOLDER = "Spaced Repetition";
 export const COLLECTION_PATH = `${COLLECTION_FOLDER}/collection-data.sr.md`;
@@ -137,6 +140,14 @@ function emptyCollection(): CollectionData {
         reviewsPerDay: 200,
         desiredRetention: 0.9,
         newCardOrder: "sequential",
+        fsrsWeights: null,
+        learningSteps: [1, 10],
+        relearningSteps: [10],
+        leechThreshold: 8,
+        leechAction: "tag",
+        loadBalance: true,
+        reviewAheadDays: 0,
+        optimization: null,
         createdAt: 0,
         updatedAt: 0,
     };
@@ -159,6 +170,40 @@ function emptyCollection(): CollectionData {
         notes: {},
         cards: {},
         conflicts: {},
+    };
+}
+
+function normalizeDeckOptions(
+    options: DeckOptionsDefinition,
+    fallback: DeckOptionsDefinition,
+): DeckOptionsDefinition {
+    const sanitizeSteps = (value: unknown, defaults: number[]): number[] =>
+        Array.isArray(value)
+            ? value
+                  .map(Number)
+                  .filter((step) => Number.isFinite(step) && step > 0)
+                  .map((step) => Math.round(step))
+            : [...defaults];
+    return {
+        ...fallback,
+        ...options,
+        fsrsWeights:
+            Array.isArray(options.fsrsWeights) && options.fsrsWeights.length > 0
+                ? options.fsrsWeights.map(Number).filter(Number.isFinite)
+                : null,
+        learningSteps: sanitizeSteps(options.learningSteps, fallback.learningSteps ?? [1, 10]),
+        relearningSteps: sanitizeSteps(options.relearningSteps, fallback.relearningSteps ?? [10]),
+        leechThreshold: Math.max(1, Math.round(Number(options.leechThreshold) || 8)),
+        leechAction: options.leechAction === "suspend" ? "suspend" : "tag",
+        loadBalance: options.loadBalance !== false,
+        reviewAheadDays: Math.max(
+            0,
+            Math.min(365, Math.round(Number(options.reviewAheadDays) || 0)),
+        ),
+        optimization:
+            options.optimization && typeof options.optimization === "object"
+                ? options.optimization
+                : null,
     };
 }
 
@@ -350,10 +395,15 @@ export function migrateCollection(value: unknown): CollectionData {
         revision: typeof raw.revision === "number" ? raw.revision : 0,
         updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : 0,
         noteTypes,
-        deckOptions: {
-            ...base.deckOptions,
-            ...asRecord<DeckOptionsDefinition>(raw.deckOptions),
-        },
+        deckOptions: Object.fromEntries(
+            Object.entries({
+                ...base.deckOptions,
+                ...asRecord<DeckOptionsDefinition>(raw.deckOptions),
+            }).map(([id, options]) => [
+                id,
+                normalizeDeckOptions(options, base.deckOptions[DEFAULT_DECK_OPTIONS_ID]),
+            ]),
+        ),
         decks: { ...base.decks, ...asRecord<CollectionDeck>(raw.decks) },
         notes,
         cards: Object.fromEntries(
@@ -697,6 +747,55 @@ export class CollectionStore {
 
     getReviewLogSnapshot(): ReviewLogData {
         return cloneJson(this.reviewLog);
+    }
+
+    /** Recomputes FSRS due dates atomically after creating a recoverable snapshot. */
+    /* istanbul ignore next -- exercised through the stateful collection-store integration test. */
+    async rescheduleFsrsCards(options: {
+        deckPaths?: string[];
+        desiredRetention: number;
+        stabilityScale?: number;
+        loadBalance?: boolean;
+    }): Promise<number> {
+        await this.initialize();
+        await this.writeBackupSnapshot("before-fsrs-reschedule", this.collection, this.reviewLog);
+        const now = this.now();
+        const scale = Math.max(0.25, Math.min(4, options.stabilityScale ?? 1));
+        const load = new Map<string, number>();
+        let updated = 0;
+        const inScope = (deckPath: string) =>
+            !options.deckPaths?.length ||
+            options.deckPaths.some((path) => deckPath === path || deckPath.startsWith(`${path}/`));
+        for (const card of Object.values(this.collection.cards)) {
+            if (card.deletedAt || card.state !== "active" || !inScope(card.deckPath)) continue;
+            if (!card.schedule || card.schedule.algorithm !== SRAlgorithmType.FSRS) continue;
+            const schedule = card.schedule.scheduleData as ISerializedFSRSScheduleData;
+            const lastReview = Date.parse(schedule.lastReview);
+            if (!Number.isFinite(lastReview) || !Number.isFinite(schedule.stability)) continue;
+            schedule.stability = Math.max(0.001, schedule.stability * scale);
+            schedule.interval = intervalForRetention(
+                schedule.stability,
+                Math.max(0.7, Math.min(0.99, options.desiredRetention)),
+            );
+            let due = lastReview + schedule.interval * 86_400_000;
+            if (options.loadBalance) {
+                const candidates = [-2, -1, 0, 1, 2]
+                    .map((offset) => Math.max(now, due + offset * 86_400_000))
+                    .sort((left, right) => {
+                        const leftKey = new Date(left).toISOString().slice(0, 10);
+                        const rightKey = new Date(right).toISOString().slice(0, 10);
+                        return (load.get(leftKey) ?? 0) - (load.get(rightKey) ?? 0);
+                    });
+                due = candidates[0];
+            }
+            const key = new Date(due).toISOString().slice(0, 10);
+            load.set(key, (load.get(key) ?? 0) + 1);
+            schedule.dueDate = new Date(due).toISOString();
+            card.updatedAt = now;
+            updated++;
+        }
+        if (updated > 0) await this.persistCollection();
+        return updated;
     }
 
     async createBackup(reason = "manual"): Promise<CollectionBackupDescriptor | null> {
@@ -1229,14 +1328,23 @@ export class CollectionStore {
         if (definition.desiredRetention < 0.7 || definition.desiredRetention > 0.99) {
             throw new Error("invalid-desired-retention");
         }
+        if (definition.learningSteps?.some((step) => !Number.isFinite(step) || step <= 0)) {
+            throw new Error("invalid-learning-steps");
+        }
+        if (definition.relearningSteps?.some((step) => !Number.isFinite(step) || step <= 0)) {
+            throw new Error("invalid-relearning-steps");
+        }
         const timestamp = this.now();
         const existing = this.collection.deckOptions[definition.id];
-        const options: DeckOptionsDefinition = {
-            ...definition,
-            name: definition.name.trim(),
-            createdAt: existing?.createdAt ?? definition.createdAt ?? timestamp,
-            updatedAt: timestamp,
-        };
+        const options: DeckOptionsDefinition = normalizeDeckOptions(
+            {
+                ...definition,
+                name: definition.name.trim(),
+                createdAt: existing?.createdAt ?? definition.createdAt ?? timestamp,
+                updatedAt: timestamp,
+            },
+            this.collection.deckOptions[DEFAULT_DECK_OPTIONS_ID],
+        );
         this.collection.deckOptions[options.id] = options;
         await this.persistCollection();
         return cloneJson(options);
@@ -1589,9 +1697,23 @@ export class CollectionStore {
             nextSchedule: input.nextSchedule,
         };
         card.schedule = input.nextSchedule;
-        card.queue = input.nextSchedule ? "review" : "new";
+        if (!input.nextSchedule) card.queue = "new";
+        else if (input.nextSchedule.algorithm === SRAlgorithmType.FSRS) {
+            const state = (input.nextSchedule.scheduleData as ISerializedFSRSScheduleData).state;
+            card.queue =
+                Number(state) === 1 ? "learning" : Number(state) === 3 ? "relearning" : "review";
+        } else card.queue = "review";
         card.reps++;
         if (input.rating === 1 && input.previousSchedule) card.lapses++;
+        const deckOptions =
+            this.collection.deckOptions[
+                this.collection.decks[card.deckId]?.optionsId ?? DEFAULT_DECK_OPTIONS_ID
+            ];
+        if (card.lapses >= (input.leechThreshold ?? deckOptions?.leechThreshold ?? 8)) {
+            if ((input.leechAction ?? deckOptions?.leechAction ?? "tag") === "suspend")
+                card.state = "suspended";
+            else if (!note.tags.includes("leech")) note.tags.push("leech");
+        }
         card.lastReviewAt = reviewedAt;
         card.updatedAt = reviewedAt;
         if (changed) note.updatedAt = reviewedAt;

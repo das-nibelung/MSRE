@@ -13,18 +13,13 @@ export interface EmulatedPlatform {
  *
  * @returns {EmulatedPlatform} An object containing boolean properties for the emulated platform.
  */
-export default function EmulatedPlatform(): EmulatedPlatform {
+export default function EmulatedPlatform(debugMode = DEBUG_MODE_ENABLED): EmulatedPlatform {
+    const hasClass = (name: string) => activeDocument.body.classList.contains(name);
     return {
-        isDesktop: DEBUG_MODE_ENABLED && !activeDocument.body.hasClass("emulate-mobile"),
-        isMobile: DEBUG_MODE_ENABLED && activeDocument.body.hasClass("emulate-mobile"),
-        isPhone:
-            DEBUG_MODE_ENABLED &&
-            activeDocument.body.hasClass("emulate-mobile") &&
-            activeDocument.body.hasClass("is-phone"),
-        isTablet:
-            DEBUG_MODE_ENABLED &&
-            activeDocument.body.hasClass("emulate-mobile") &&
-            activeDocument.body.hasClass("is-tablet"),
-        isEmulated: DEBUG_MODE_ENABLED && activeDocument.body.hasClass("emulate-mobile"),
+        isDesktop: debugMode && !hasClass("emulate-mobile"),
+        isMobile: debugMode && hasClass("emulate-mobile"),
+        isPhone: debugMode && hasClass("emulate-mobile") && hasClass("is-phone"),
+        isTablet: debugMode && hasClass("emulate-mobile") && hasClass("is-tablet"),
+        isEmulated: debugMode && hasClass("emulate-mobile"),
     };
 }

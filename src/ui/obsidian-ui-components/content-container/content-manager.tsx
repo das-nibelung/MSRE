@@ -633,6 +633,14 @@ export default class ContentManager {
         await this.reviewSequencer.processReview(response);
         if (snapshot !== null) {
             try {
+                const deckPath = snapshot.chosenDeckPath.path.join("/");
+                const deckOptions =
+                    this.dataManager.collectionStore.getDeckOptionsForPath(deckPath);
+                const area = this.dataManager.data.knowledgeAreas.find((candidate) =>
+                    candidate.deckPaths.some(
+                        (path) => deckPath === path || deckPath.startsWith(`${path}/`),
+                    ),
+                );
                 snapshot.reviewLogId = await this.dataManager.collectionStore.recordReview({
                     sourcePath:
                         currentCard?.storageInfo?.notePath ?? this.sessionData.currentNote.filePath,
@@ -641,13 +649,15 @@ export default class ContentManager {
                         this.sessionData.currentQuestion.questionText.obsidianBlockId ??
                         null,
                     ordinal: currentCard?.cardIdx ?? 0,
-                    deckPath: snapshot.chosenDeckPath.path.join("/"),
+                    deckPath,
                     front: currentCard?.front ?? "",
                     back: currentCard?.back ?? "",
                     rating: this.reviewResponseToRating(response),
                     mode: this.reviewMode === FlashcardReviewMode.Cram ? "cram" : "review",
                     previousSchedule,
                     nextSchedule: currentCard?.scheduleInfo?.serializeSchedule() ?? null,
+                    leechThreshold: area?.scheduling?.leechThreshold ?? deckOptions.leechThreshold,
+                    leechAction: area?.scheduling?.leechAction ?? deckOptions.leechAction,
                 });
             } catch (error) {
                 console.warn("MSRE: Unable to record review history", error);

@@ -36,6 +36,7 @@ export class SrsAlgorithmFsrs implements ISRAlgorithm {
     private scheduler: FSRS;
     private readonly settings: SRSettings;
     private activeDesiredRetention: number;
+    private activeProfile = "";
 
     constructor(settings: SRSettings) {
         this.settings = settings;
@@ -45,12 +46,11 @@ export class SrsAlgorithmFsrs implements ISRAlgorithm {
     }
 
     configureCardScheduling(options: CardSchedulingOptions): void {
-        if (options.desiredRetention === this.activeDesiredRetention) return;
+        const profile = JSON.stringify(options);
+        if (profile === this.activeProfile) return;
+        this.activeProfile = profile;
         this.activeDesiredRetention = options.desiredRetention;
-        this.scheduler = fsrs({
-            ...buildFsrsParameters(this.settings),
-            ["request_retention"]: options.desiredRetention,
-        });
+        this.scheduler = fsrs(buildFsrsParameters(this.settings, options));
     }
 
     noteOnLoadedNote(path: string, note: Note, noteEase: number): void {

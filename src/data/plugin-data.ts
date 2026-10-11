@@ -25,6 +25,17 @@ export interface KnowledgeArea {
     /** Visible deck paths, without the configured root flashcard tag. */
     deckPaths: string[];
     pinned: boolean;
+    /** Area-wide overrides applied after the selected deck preset. */
+    scheduling?: {
+        desiredRetention?: number;
+        learningSteps?: number[];
+        relearningSteps?: number[];
+        leechThreshold?: number;
+        leechAction?: "tag" | "suspend";
+        loadBalance?: boolean;
+        reviewAheadDays?: number;
+        fsrsWeights?: number[] | null;
+    };
 }
 
 export interface SavedCardQuery {

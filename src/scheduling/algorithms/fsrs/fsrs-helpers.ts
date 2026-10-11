@@ -16,11 +16,30 @@ const LEGACY_MAX_EASE = 370;
  * @param {SRSettings} settings - The settings object.
  * @returns {Partial<FSRSParameters>} - The FSRS parameters object.
  */
-export function buildFsrsParameters(settings: SRSettings): Partial<FSRSParameters> {
+export function buildFsrsParameters(
+    settings: SRSettings,
+    overrides: {
+        desiredRetention?: number;
+        fsrsWeights?: number[] | null;
+        learningSteps?: number[];
+        relearningSteps?: number[];
+        loadBalance?: boolean;
+    } = {},
+): Partial<FSRSParameters> {
+    const toSteps = (steps: number[] | undefined): `${number}m`[] | undefined =>
+        steps?.map((minutes): `${number}m` => `${Math.max(1, Math.round(minutes))}m`);
     return {
-        ["request_retention"]: settings.fsrsDesiredRetention,
+        ["request_retention"]: overrides.desiredRetention ?? settings.fsrsDesiredRetention,
         ["maximum_interval"]: settings.maximumInterval,
         ["enable_short_term"]: true,
+        ["enable_fuzz"]: overrides.loadBalance ?? settings.loadBalance,
+        ...(overrides.fsrsWeights?.length ? { w: overrides.fsrsWeights } : {}),
+        ...(overrides.learningSteps
+            ? { ["learning_steps"]: toSteps(overrides.learningSteps) }
+            : {}),
+        ...(overrides.relearningSteps
+            ? { ["relearning_steps"]: toSteps(overrides.relearningSteps) }
+            : {}),
     };
 }
 

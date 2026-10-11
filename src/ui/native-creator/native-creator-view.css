@@ -2550,3 +2550,15 @@
         grid-column: 1 / 3;
     }
 }
+.sr-native-choice-control {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.is-mobile .sr-native-choice-control {
+    align-items: stretch;
+    flex-direction: column;
+}
