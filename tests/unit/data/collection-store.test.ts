@@ -1,5 +1,4 @@
 import { IMAGE_OCCLUSION_NOTE_TYPE_ID } from "src/data/collection/builtin-note-types";
-import { ISerializedScheduleEntry } from "src/data/plugin-data";
 import {
     CollectionStorage,
     CollectionStore,
@@ -9,6 +8,7 @@ import {
     migrateCollection,
     parseCollection,
 } from "src/data/collection/collection-store";
+import { ISerializedScheduleEntry } from "src/data/plugin-data";
 import { SRAlgorithmType } from "src/scheduling/algorithms/base/isr-algorithm";
 
 class MemoryStorage implements CollectionStorage {
@@ -285,7 +285,7 @@ describe("Anki-style collection store", () => {
                     ordinal: 0,
                     questionFormat: "{{cloze:statement}}",
                     answerFormat: "{{cloze:statement}}<hr>{{source}}",
-                    deckOverride: null as string | null,
+                    deckOverride: null,
                     enabled: true,
                 },
             ],
@@ -500,7 +500,7 @@ describe("Anki-style collection store", () => {
                     ordinal: 0,
                     questionFormat: "{{Term}}",
                     answerFormat: "{{Meaning}}",
-                    deckOverride: null as string | null,
+                    deckOverride: null,
                     enabled: true,
                 },
                 {
