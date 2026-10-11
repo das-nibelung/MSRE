@@ -37,6 +37,7 @@ import {
     normalizeManagedDeckPath,
     StructuredNoteDraft,
 } from "src/data/native-card-store";
+import { AiProvider, AiProviderDescriptor } from "src/intelligence/ai-types";
 import SRPlugin from "src/main";
 
 const CAPABILITIES: readonly AutomationOperationKind[] = [
@@ -171,6 +172,14 @@ export class PersonalSpacedRepetitionApi implements MsrePublicApi {
 
     notifyReviewRecorded(reviewId: string): void {
         this.emit("review-recorded", { reviewId });
+    }
+
+    registerAiProvider(provider: AiProvider): () => void {
+        return this.plugin.ai.registerProvider(provider);
+    }
+
+    async listAiProviders(): Promise<AiProviderDescriptor[]> {
+        return await this.plugin.ai.listProviders();
     }
 
     private async run<K extends AutomationOperationKind>(

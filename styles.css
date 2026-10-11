@@ -301,9 +301,25 @@
   }
   & img,
   video {
+    display: block;
+    width: auto;
+    max-width: 100%;
     max-height: 44cqh;
+    margin-inline: auto;
     border-radius: calc(var(--sr-card-radius) - 10px);
     object-fit: contain;
+  }
+  .image-embed,
+  .media-embed {
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    justify-content: center;
+  }
+  & p:has(> .image-embed:only-child),
+  p:has(> img:only-child) {
+    width: 100%;
+    text-align: center;
   }
   & img.sr-zoomable-image {
     cursor: zoom-in;
@@ -7103,6 +7119,236 @@ th.gridjs-th:last-child {
   }
   .sr-native-form-actions button {
     width: 100%;
+  }
+}
+.sr-native-ai-trigger {
+  color: var(--interactive-accent);
+}
+.sr-ai-assistant-modal {
+  width: min(680px, calc(100vw - 24px));
+  max-height: min(820px, calc(100dvh - 32px));
+  overflow: hidden;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--interactive-accent) 22%,
+      var(--background-modifier-border)
+    );
+  border-radius: 24px;
+  background: var(--background-primary);
+}
+.sr-ai-assistant-modal .modal-content {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  padding: 26px;
+}
+.sr-ai-assistant-header {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+.sr-ai-assistant-mark {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  color: var(--interactive-accent);
+}
+.sr-ai-assistant-mark svg {
+  width: 21px;
+  height: 21px;
+}
+.sr-ai-assistant-header h2 {
+  margin: 1px 0 4px;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+.sr-ai-assistant-header p,
+.sr-ai-connection p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  line-height: 1.42;
+}
+.sr-ai-task-rail {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+.sr-ai-task-rail::-webkit-scrollbar {
+  display: none;
+}
+.sr-ai-task-rail button {
+  display: inline-flex;
+  min-height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+}
+.sr-ai-task-rail button span:first-child,
+.sr-ai-task-rail button span:first-child svg {
+  width: 16px;
+  height: 16px;
+}
+.sr-ai-task-rail button.is-active {
+  border-color: color-mix(in srgb, var(--interactive-accent) 54%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+  color: var(--interactive-accent);
+}
+.sr-ai-connection,
+.sr-ai-context {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.sr-ai-connection > label,
+.sr-ai-context > label {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+}
+.sr-ai-connection select {
+  width: 100%;
+  min-height: 46px;
+  padding-inline: 13px 36px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 13px;
+  background-color: var(--background-secondary);
+  box-shadow: none;
+}
+.sr-ai-context textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 150px;
+  padding: 13px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 14px;
+  background: var(--background-primary-alt);
+  box-shadow: none;
+  color: var(--text-normal);
+  font-size: 15px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.sr-ai-context textarea:focus {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
+.sr-ai-context small {
+  color: var(--text-faint);
+  line-height: 1.35;
+}
+.sr-ai-error {
+  padding: 11px 13px;
+  border-left: 3px solid var(--text-error);
+  background: color-mix(in srgb, var(--text-error) 8%, transparent);
+  color: var(--text-error);
+  font-size: var(--font-ui-small);
+}
+.sr-ai-result {
+  display: flex;
+  flex-direction: column;
+  border-block: 1px solid var(--background-modifier-border);
+}
+.sr-ai-result-header {
+  display: flex;
+  padding: 11px 2px;
+  flex-direction: column;
+  gap: 2px;
+}
+.sr-ai-result-header span {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.sr-ai-result-card {
+  display: grid;
+  padding: 13px 2px;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  border-top: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+}
+.sr-ai-result-card input {
+  margin-top: 3px;
+}
+.sr-ai-result-card strong,
+.sr-ai-result-card p,
+.sr-ai-result-card small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.sr-ai-result-card p {
+  margin: 5px 0;
+  color: var(--text-muted);
+}
+.sr-ai-result-card small {
+  color: var(--text-faint);
+}
+.sr-ai-result-meta {
+  display: flex;
+  margin-bottom: 5px;
+  gap: 6px;
+}
+.sr-ai-result-meta span {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.sr-ai-actions {
+  position: sticky;
+  bottom: -26px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0 -26px -26px;
+  padding: 14px 26px calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--background-modifier-border);
+  background: color-mix(in srgb, var(--background-primary) 92%, transparent);
+  backdrop-filter: blur(18px);
+}
+.sr-ai-actions button {
+  min-height: 44px;
+  border-radius: 13px;
+}
+@media (max-width: 600px) {
+  .sr-ai-assistant-modal {
+    width: calc(100vw - 12px);
+    max-height: calc(100dvh - 16px);
+    border-radius: 22px 22px 0 0;
+  }
+  .sr-ai-assistant-modal .modal-content {
+    padding: 20px 16px;
+  }
+  .sr-ai-assistant-header {
+    padding-right: 34px;
+  }
+  .sr-ai-context textarea {
+    min-height: 132px;
+  }
+  .sr-ai-actions {
+    bottom: -20px;
+    margin: 0 -16px -20px;
+    padding-inline: 16px;
+  }
+  .sr-ai-actions button {
+    flex: 1 1 0;
   }
 }
 .sr-card-quality {

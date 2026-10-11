@@ -3,6 +3,7 @@ import {
     CollectionIntegrityReport,
     CollectionNote,
 } from "src/data/collection/collection-types";
+import { AiProvider, AiProviderDescriptor } from "src/intelligence/ai-types";
 
 export const MSRE_PUBLIC_API_VERSION = 1;
 
@@ -135,6 +136,8 @@ export interface MsrePublicApi {
     getStatistics(source?: AutomationSource): Promise<PublicStatistics>;
     checkIntegrity(source?: AutomationSource): Promise<CollectionIntegrityReport>;
     importCards(payload: ImportCardsPayload, source?: AutomationSource): Promise<unknown>;
+    registerAiProvider(provider: AiProvider): () => void;
+    listAiProviders(): Promise<AiProviderDescriptor[]>;
     execute<K extends AutomationOperationKind>(
         operation: K,
         payload: AutomationOperationPayloadMap[K],

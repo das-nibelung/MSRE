@@ -27,6 +27,8 @@ export default {
         "src/lang/locale-manager.ts",
         "src/command-manager.ts",
         "src/automation/",
+        "src/intelligence/ai-assistant.ts",
+        "src/intelligence/ai-types.ts",
         "src/scheduling/reminder-manager.ts",
         "src/data/data-manager.ts",
         "src/data/debug-logger.ts",

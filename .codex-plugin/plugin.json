@@ -1,0 +1,29 @@
+{
+    "name": "personal-spaced-repetition",
+    "version": "1.15.4",
+    "description": "Connect Codex to the file-native MSRE collection and AI co-author queue.",
+    "author": {
+        "name": "das-nibelung",
+        "url": "https://github.com/das-nibelung"
+    },
+    "homepage": "https://github.com/das-nibelung/MSRE",
+    "repository": "https://github.com/das-nibelung/MSRE",
+    "license": "MIT",
+    "keywords": ["obsidian", "spaced-repetition", "flashcards", "mcp"],
+    "mcpServers": "./.mcp.json",
+    "interface": {
+        "displayName": "MSRE",
+        "shortDescription": "Create and improve file-native study cards.",
+        "longDescription": "Connect Codex to MSRE through its signed vault queue. Search cards, create reviewed drafts, and answer AI co-author requests without bypassing Obsidian's file-native writer.",
+        "developerName": "das-nibelung",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write"],
+        "websiteURL": "https://github.com/das-nibelung/MSRE",
+        "defaultPrompt": [
+            "Process pending MSRE AI card requests.",
+            "Find weak MSRE cards and propose improvements.",
+            "Create grounded cards in my MSRE vault."
+        ],
+        "brandColor": "#8B5CF6"
+    }
+}

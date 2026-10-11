@@ -43,5 +43,44 @@ export interface MsrePublicApi {
         payload: { source: string; cards: Array<MsreCardInput & { externalId?: string }> },
         source?: MsreAutomationSource,
     ): Promise<unknown>;
+    registerAiProvider(provider: {
+        id: string;
+        label: string;
+        description?: string;
+        isAvailable?: () => boolean | Promise<boolean>;
+        run(request: {
+            id: string;
+            task: "draft-cards" | "improve-card" | "split-card" | "make-cloze" | "suggest-answer";
+            locale: string;
+            sourceText: string;
+            currentCard?: {
+                front: string;
+                back: string;
+                type: "basic" | "reversed" | "cloze";
+                tags: string[];
+                deckPath: string;
+            };
+            maximumCards: number;
+        }): Promise<{
+            cards: Array<{
+                front: string;
+                back: string;
+                type: "basic" | "reversed" | "cloze";
+                tags?: string[];
+                deckPath?: string;
+                rationale?: string;
+            }>;
+            summary?: string;
+        }>;
+    }): () => void;
+    listAiProviders(): Promise<
+        Array<{
+            id: string;
+            label: string;
+            description: string;
+            kind: "api" | "mcp" | "plugin";
+            available: boolean;
+        }>
+    >;
     on(event: string, listener: (payload: unknown) => void): () => void;
 }

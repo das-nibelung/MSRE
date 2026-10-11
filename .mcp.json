@@ -1,0 +1,10 @@
+{
+    "mcpServers": {
+        "msre": {
+            "command": "node",
+            "args": ["./mcp/msre-mcp-server.mjs"],
+            "enabled": true,
+            "env_vars": ["MSRE_VAULT_PATH", "MSRE_TOKEN", "MSRE_AUTOMATION_DIR"]
+        }
+    }
+}

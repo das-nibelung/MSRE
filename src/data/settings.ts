@@ -94,6 +94,14 @@ export interface SRSettings {
     automationMaxBatchSize: number;
     automationAuditRetention: number;
 
+    // AI co-author. API secrets are intentionally device-local and are not stored here.
+    aiPreferredProvider: string;
+    aiApiEndpoint: string;
+    aiApiModel: string;
+    aiApiProtocol: "responses" | "chat-completions";
+    aiMcpEnabled: boolean;
+    aiMcpWaitSeconds: number;
+
     // algorithm
     algorithm: SRAlgorithmType;
     baseEase: number;
@@ -207,6 +215,14 @@ export const DEFAULT_SETTINGS: SRSettings = {
     automationAllowedDeckPaths: [],
     automationMaxBatchSize: 100,
     automationAuditRetention: 1000,
+
+    // AI co-author
+    aiPreferredProvider: "direct-api",
+    aiApiEndpoint: "https://api.openai.com/v1/responses",
+    aiApiModel: "",
+    aiApiProtocol: "responses",
+    aiMcpEnabled: true,
+    aiMcpWaitSeconds: 180,
 
     // algorithm
     algorithm: SRAlgorithmType.SM_2_OSR,
