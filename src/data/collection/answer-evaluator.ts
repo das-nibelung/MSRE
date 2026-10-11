@@ -371,33 +371,37 @@ class FormulaParser {
     }
 
     private term(): number {
-        let value = this.power();
+        let value = this.unary();
         while (this.peek() === "*" || this.peek() === "/") {
             const operator = this.source[this.index++];
             if (operator === "*" && this.peek() === "*") {
                 this.index--;
                 break;
             }
-            const next = this.power();
+            const next = this.unary();
             value = operator === "*" ? value * next : value / next;
         }
         return value;
+    }
+
+    private unary(): number {
+        if (this.peek() === "+" || this.peek() === "-") {
+            const sign = this.source[this.index++] === "-" ? -1 : 1;
+            return sign * this.unary();
+        }
+        return this.power();
     }
 
     private power(): number {
         let value = this.atom();
         if (this.source.slice(this.index, this.index + 2) === "**") {
             this.index += 2;
-            value **= this.power();
+            value **= this.unary();
         }
         return value;
     }
 
     private atom(): number {
-        if (this.peek() === "+" || this.peek() === "-") {
-            const sign = this.source[this.index++] === "-" ? -1 : 1;
-            return sign * this.atom();
-        }
         if (this.peek() === "(") {
             this.index++;
             const value = this.expression();
