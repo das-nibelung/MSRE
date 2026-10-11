@@ -537,6 +537,10 @@ export class CardBrowserView extends ItemView {
             .setIcon("images")
             .setTooltip(t("MEDIA_LIBRARY"))
             .onClick(() => void this.plugin.uiManager.openNativeMediaManager());
+        new ButtonComponent(actions)
+            .setIcon("arrow-left-right")
+            .setTooltip(uiText("Import & export", "Импорт и экспорт"))
+            .onClick(() => void this.plugin.uiManager.openNativeTransferManager());
         const reviewButton = new ButtonComponent(actions)
             .setButtonText(t("START_REVIEW"))
             .setClass("sr-card-browser-review-button")

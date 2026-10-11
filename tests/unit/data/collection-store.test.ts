@@ -1510,4 +1510,140 @@ describe("Anki-style collection store", () => {
             ),
         ).toHaveLength(0);
     });
+
+    it("restores Anki queues, flags, schedules, and review history by portable GUID", async () => {
+        const now = Date.UTC(2026, 9, 11, 12);
+        const collectionCreatedAt = Date.UTC(2026, 0, 1);
+        const storage = new MemoryStorage();
+        const store = new CollectionStore(storage, () => now, idFactory);
+        const queues = [0, 1, 2, 3, -1, -2];
+
+        for (const [index, queue] of queues.entries()) {
+            await store.createNote({
+                noteTypeId: "builtin-basic",
+                fields: { front: `Question ${queue}`, back: `Answer ${queue}` },
+                deckPath: "Imported",
+                source: {
+                    kind: "managed",
+                    path: `Cards/imported-${index}.md`,
+                    questionId: `^imported-${index}`,
+                },
+                externalIds: { ankiGuid: `guid-${queue}` },
+            });
+        }
+
+        expect(
+            await store.applyImportedAnkiState(
+                [
+                    ...queues.map((queue, index) => ({
+                        guid: `guid-${queue}`,
+                        cards: [
+                            {
+                                ordinal: queue === -2 ? 99 : 0,
+                                queue,
+                                due:
+                                    queue === 2
+                                        ? Number.NaN
+                                        : queue === 1 || queue === 3
+                                          ? 1_800_000 + index
+                                          : 12 + index,
+                                interval: 4 + index,
+                                factor: index === 0 ? 0 : 2500,
+                                reps: 10 + index,
+                                lapses: index,
+                                flags: index === queues.length - 1 ? 99 : index,
+                                reviews:
+                                    index === 0
+                                        ? [
+                                              {
+                                                  id: Date.UTC(2026, 9, 8, 12),
+                                                  ease: 0,
+                                                  durationMs: 0,
+                                              },
+                                          ]
+                                        : index === 1
+                                          ? [
+                                                {
+                                                    id: Date.UTC(2026, 9, 9, 12),
+                                                    ease: 0,
+                                                    durationMs: 0,
+                                                },
+                                            ]
+                                          : index === 2
+                                            ? [
+                                                  {
+                                                      id: Date.UTC(2026, 9, 10, 12),
+                                                      ease: 9,
+                                                      durationMs: 1_250,
+                                                  },
+                                              ]
+                                            : [],
+                            },
+                            ...(index === 2
+                                ? [
+                                      {
+                                          ordinal: 88,
+                                          queue: 2,
+                                          due: 20,
+                                          interval: 2,
+                                          factor: 2300,
+                                          reps: 1,
+                                          lapses: 0,
+                                          flags: 0,
+                                          reviews: [],
+                                      },
+                                  ]
+                                : []),
+                        ],
+                    })),
+                    { guid: "missing-guid", cards: [] },
+                ],
+                collectionCreatedAt,
+            ),
+        ).toBe(queues.length);
+
+        const snapshot = store.getCollectionSnapshot();
+        const cards = Object.values(snapshot.cards).filter((card) => !card.deletedAt);
+        const cardForQueue = (queue: number) => {
+            const note = Object.values(snapshot.notes).find(
+                (candidate) => candidate.externalIds?.ankiGuid === `guid-${queue}`,
+            );
+            return cards.find((card) => card.noteId === note?.id);
+        };
+        expect(cardForQueue(0)).toMatchObject({ queue: "new", schedule: null });
+        expect(cardForQueue(1)).toMatchObject({ queue: "learning", state: "active" });
+        expect(cardForQueue(2)).toMatchObject({
+            queue: "review",
+            state: "active",
+            flag: 2,
+            reps: 12,
+            lapses: 2,
+        });
+        expect(cardForQueue(3)).toMatchObject({ queue: "relearning", state: "active" });
+        expect(cardForQueue(-1)).toMatchObject({ state: "suspended" });
+        expect(cardForQueue(-2)).toMatchObject({ state: "buried", flag: 7 });
+        expect(cardForQueue(-2)?.buriedUntil).toBeGreaterThan(now);
+        expect(cardForQueue(2)?.schedule?.scheduleData).toMatchObject({
+            interval: 6,
+            ease: 250,
+        });
+        expect(Object.values(store.getReviewLogSnapshot().entries)).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ rating: 4, durationMs: 1_250, mode: "review" }),
+            ]),
+        );
+        expect(storage.collection).not.toBeNull();
+        expect(storage.reviews).not.toBeNull();
+
+        const untouchedStorage = new MemoryStorage();
+        const untouched = new CollectionStore(untouchedStorage, () => now, idFactory);
+        expect(
+            await untouched.applyImportedAnkiState(
+                [{ guid: "still-missing", cards: [] }],
+                collectionCreatedAt,
+            ),
+        ).toBe(0);
+        expect(untouchedStorage.collection).toBeNull();
+        expect(untouchedStorage.reviews).toBeNull();
+    });
 });

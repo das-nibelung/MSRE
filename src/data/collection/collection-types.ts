@@ -148,6 +148,8 @@ export interface NoteTypeDefinition {
     fields: NoteFieldDefinition[];
     templates: CardTemplateDefinition[];
     css: string;
+    externalIds?: Record<string, string>;
+    externalData?: Record<string, unknown>;
     createdAt: number;
     updatedAt: number;
     deletedAt?: number;
@@ -206,6 +208,10 @@ export interface CollectionNote {
     answerMode?: CardAnswerMode;
     tags: string[];
     source: NoteSource;
+    /** Stable identities from interoperable formats (for example an Anki GUID). */
+    externalIds?: Record<string, string>;
+    /** Lossless source metadata used when exporting back to the originating application. */
+    externalData?: Record<string, unknown>;
     createdAt: number;
     updatedAt: number;
     deletedAt?: number;
@@ -382,6 +388,8 @@ export interface CollectionNoteInput {
     tags?: string[];
     deckPath: string;
     source: NoteSource;
+    externalIds?: Record<string, string>;
+    externalData?: Record<string, unknown>;
     /** Per-card block IDs used by the temporary Markdown scheduling bridge. */
     legacyQuestionIds?: Record<number, string>;
     /** Exact question/card identities for generators that emit sibling cards. */

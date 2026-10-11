@@ -2562,3 +2562,303 @@
     align-items: stretch;
     flex-direction: column;
 }
+
+/* Stage 10 — a dense, native transfer workspace rather than another stacked settings form. */
+.sr-transfer-manager {
+    width: min(760px, 100%);
+    margin: 0 auto;
+    padding-bottom: calc(32px + env(safe-area-inset-bottom));
+}
+
+.sr-transfer-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 2px 0 12px;
+}
+
+.sr-transfer-actions::-webkit-scrollbar {
+    display: none;
+}
+
+.sr-transfer-actions button {
+    flex: 0 0 auto;
+    min-height: 42px;
+    border-radius: 12px;
+}
+
+.sr-transfer-file-input {
+    display: none;
+}
+
+.sr-transfer-promise,
+.sr-transfer-report,
+.sr-transfer-progress {
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr);
+    align-items: center;
+    gap: 11px;
+    padding: 12px 14px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--background-secondary) 86%, transparent);
+}
+
+.sr-transfer-promise strong,
+.sr-transfer-promise span,
+.sr-transfer-report strong,
+.sr-transfer-report span {
+    display: block;
+}
+
+.sr-transfer-promise span,
+.sr-transfer-report span {
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    line-height: 1.35;
+}
+
+.sr-transfer-promise-icon,
+.sr-transfer-report-icon {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    place-items: center;
+    border-radius: 11px;
+    color: var(--interactive-accent);
+    background: color-mix(in srgb, var(--interactive-accent) 13%, transparent);
+}
+
+.sr-transfer-progress {
+    margin-top: 10px;
+    color: var(--text-muted);
+}
+
+.sr-transfer-spinner svg {
+    animation: sr-transfer-spin 0.9s linear infinite;
+}
+
+@keyframes sr-transfer-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.sr-transfer-empty {
+    display: grid;
+    justify-items: center;
+    padding: clamp(46px, 12vh, 110px) 22px;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.sr-transfer-empty > div {
+    display: grid;
+    width: 58px;
+    height: 58px;
+    place-items: center;
+    margin-bottom: 14px;
+    border-radius: 18px;
+    color: var(--interactive-accent);
+    background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+}
+
+.sr-transfer-empty > div svg {
+    width: 28px;
+    height: 28px;
+}
+
+.sr-transfer-empty h2 {
+    margin: 0 0 7px;
+    color: var(--text-normal);
+    font-size: 20px;
+}
+
+.sr-transfer-empty p {
+    max-width: 520px;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.sr-transfer-preview {
+    margin-top: 12px;
+    padding: 16px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 18px;
+    background: var(--background-secondary);
+}
+
+.sr-transfer-preview h2,
+.sr-transfer-preview h3,
+.sr-transfer-preview p {
+    margin-top: 0;
+}
+
+.sr-transfer-preview > p,
+.sr-transfer-preview-header p {
+    color: var(--text-muted);
+}
+
+.sr-transfer-preview-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.sr-transfer-preview-header h2 {
+    overflow-wrap: anywhere;
+    margin-bottom: 4px;
+    font-size: 20px;
+}
+
+.sr-transfer-duplicate-badge {
+    min-width: 76px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    text-align: center;
+    background: var(--background-primary);
+}
+
+.sr-transfer-duplicate-badge strong,
+.sr-transfer-duplicate-badge span {
+    display: block;
+}
+
+.sr-transfer-duplicate-badge strong {
+    font-size: 18px;
+}
+
+.sr-transfer-duplicate-badge span {
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.sr-transfer-control-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 14px 0;
+}
+
+.sr-transfer-control-row label,
+.sr-transfer-field-map label {
+    display: grid;
+    gap: 6px;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+}
+
+.sr-transfer-control-row select,
+.sr-transfer-control-row input,
+.sr-transfer-field-map select {
+    width: 100%;
+    min-height: 42px;
+    margin: 0;
+    border-radius: 10px;
+}
+
+.sr-transfer-deck-list {
+    display: grid;
+    max-height: 310px;
+    overflow-y: auto;
+    border-block: 1px solid var(--background-modifier-border);
+}
+
+.sr-transfer-deck-row {
+    display: grid;
+    grid-template-columns: 22px 34px minmax(0, 1fr);
+    align-items: center;
+    gap: 9px;
+    min-height: 54px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.sr-transfer-deck-row:last-child {
+    border-bottom: 0;
+}
+
+.sr-transfer-deck-icon {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    border-radius: 9px;
+    color: var(--interactive-accent);
+    background: var(--background-primary);
+}
+
+.sr-transfer-deck-copy strong,
+.sr-transfer-deck-copy small {
+    display: block;
+}
+
+.sr-transfer-deck-copy small {
+    margin-top: 2px;
+    color: var(--text-muted);
+}
+
+.sr-transfer-warning {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    color: var(--text-warning);
+    background: color-mix(in srgb, var(--color-yellow) 10%, transparent);
+}
+
+.sr-transfer-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 14px;
+}
+
+.sr-transfer-footer button {
+    min-height: 44px;
+    border-radius: 12px;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.sr-transfer-report {
+    margin-top: 10px;
+}
+
+.sr-transfer-report details {
+    margin-top: 8px;
+}
+
+.sr-transfer-report details p {
+    margin: 5px 0;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}
+
+.sr-transfer-field-map {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    padding-top: 4px;
+}
+
+@media (max-width: 600px) {
+    .sr-transfer-manager {
+        width: 100%;
+    }
+
+    .sr-transfer-preview {
+        padding: 14px;
+        border-radius: 16px;
+    }
+
+    .sr-transfer-control-row,
+    .sr-transfer-field-map {
+        grid-template-columns: 1fr;
+    }
+
+    .sr-transfer-preview-header {
+        align-items: center;
+    }
+}

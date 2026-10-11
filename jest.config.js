@@ -31,6 +31,8 @@ export default {
         "src/data/debug-logger.ts",
         "src/data/plugin-data-manager.ts",
         "src/data/settings-manager.ts",
+        "src/data/anki/anki-transfer-service.ts",
+        "src/data/anki/anki-package.ts",
         "src/data/data-store/.*/.*-file-modifier.ts",
         "src/data/data-store/.*/.*file-modifier.ts",
         "src/note/next-note-review-handler.ts",

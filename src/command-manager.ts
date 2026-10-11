@@ -511,6 +511,15 @@ export class CommandManager {
         });
 
         this.plugin.addCommand({
+            id: "srs-import-export",
+            name: "Open import and export",
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await this.uiManager.openNativeTransferManager();
+            },
+        });
+
+        this.plugin.addCommand({
             id: "srs-open-review-queue-view",
             name: t("OPEN_REVIEW_QUEUE_VIEW"),
             callback: async () => {

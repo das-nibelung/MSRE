@@ -120,6 +120,22 @@ explains where to find it. Recovery candidates use a non-Markdown extension so
 they cannot accidentally appear as duplicate cards. Snapshots are limited to
 the twelve newest versions per file.
 
+## Anki and spreadsheet transfer
+
+Open **Cards → Import & export** (or the command palette action) to preview an
+Anki `.apkg` before changing the vault. The importer carries over decks and
+subdecks, note types, fields, templates, card CSS, media, Image Occlusion output,
+card state, flags, and review history. Stable Anki GUIDs are stored in each
+portable Markdown manifest, so importing the same package again can keep,
+update, or deliberately copy existing notes without accidental duplicates. A
+recoverable collection snapshot is created before every import.
+
+The same workspace exports a broadly compatible `.apkg` into
+`Spaced Repetition/Exports`. CSV and TSV imports provide an explicit field
+mapping preview, while CSV export offers a simple interchange format for other
+tools. All operations work offline; the native collection database remains a
+disposable materialized view of vault files.
+
 ## Upstream project
 
 The original project, documentation, and contributor history are available at

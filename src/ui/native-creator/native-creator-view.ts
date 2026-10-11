@@ -4,6 +4,7 @@ import {
     ItemView,
     MarkdownRenderer,
     Menu,
+    normalizePath,
     Notice,
     Platform,
     setIcon,
@@ -11,6 +12,17 @@ import {
     WorkspaceLeaf,
 } from "obsidian";
 
+import {
+    AnkiPackage,
+    parseAnkiPackage,
+    parseDelimited,
+    writeDelimited,
+} from "src/data/anki/anki-package";
+import {
+    AnkiImportReport,
+    AnkiTransferService,
+    DuplicatePolicy,
+} from "src/data/anki/anki-transfer-service";
 import {
     canonicalAnswerMode,
     createDefaultAnswerConfig,
@@ -62,6 +74,7 @@ import {
     NativeCardType,
     normalizeManagedDeckPath,
     renderNoteTypeTemplate,
+    StructuredNoteDraft,
 } from "src/data/native-card-store";
 import { KnowledgeArea } from "src/data/plugin-data";
 import { t } from "src/lang/helpers";
@@ -84,7 +97,14 @@ import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirma
 import { escapeHtml } from "src/utils/escape-html";
 
 export type NativeCreatorMode =
-    "card" | "image-occlusion" | "media" | "deck" | "deck-options" | "area" | "note-type";
+    | "card"
+    | "image-occlusion"
+    | "media"
+    | "transfer"
+    | "deck"
+    | "deck-options"
+    | "area"
+    | "note-type";
 
 type MediaTarget = "front" | "back" | `field:${string}`;
 
@@ -170,6 +190,18 @@ export class NativeCreatorView extends ItemView {
     private templatePreviewDevice: "phone" | "desktop" = "phone";
     private templatePreviewTheme: "light" | "dark" = "dark";
     private templatePreviewValues: Record<string, string> = {};
+    private transferPackage: AnkiPackage | null = null;
+    private transferFileName = "";
+    private transferSelectedDeckIds = new Set<number>();
+    private transferDuplicatePolicy: DuplicatePolicy = "skip";
+    private transferReport: AnkiImportReport | null = null;
+    private transferProgress = "";
+    private transferCsvRows: string[][] = [];
+    private transferCsvDelimiter: "," | "\t" = ",";
+    private transferCsvNoteTypeId = BASIC_NOTE_TYPE_ID;
+    private transferCsvDeck = "";
+    private transferCsvMapping: Record<string, number> = {};
+    private transferCsvTagsColumn = -1;
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -187,6 +219,8 @@ export class NativeCreatorView extends ItemView {
     getDisplayText(): string {
         if (this.request.mode === "image-occlusion") return t("IMAGE_OCCLUSION");
         if (this.request.mode === "media") return t("MEDIA_LIBRARY");
+        if (this.request.mode === "transfer")
+            return this.transferText("Import & export", "Импорт и экспорт");
         if (this.editingCard) return t("EDIT_CARD");
         if (this.request.mode === "area") {
             return this.editingAreaId ? t("EDIT_KNOWLEDGE_AREA") : t("NEW_KNOWLEDGE_AREA");
@@ -199,6 +233,7 @@ export class NativeCreatorView extends ItemView {
     getIcon(): string {
         if (this.request.mode === "image-occlusion") return "scan";
         if (this.request.mode === "media") return "images";
+        if (this.request.mode === "transfer") return "arrow-left-right";
         if (this.request.mode === "area") return "library-big";
         if (this.request.mode === "deck-options") return "sliders-horizontal";
         if (this.request.mode === "note-type") return "shapes";
@@ -333,19 +368,21 @@ export class NativeCreatorView extends ItemView {
                       ? t("EDIT_CARD")
                       : this.request.mode === "media"
                         ? t("MEDIA_LIBRARY")
-                        : this.request.mode === "area"
-                          ? this.editingAreaId
-                              ? t("EDIT_KNOWLEDGE_AREA")
-                              : t("NEW_KNOWLEDGE_AREA")
-                          : this.request.mode === "note-type"
-                            ? this.noteTypeDraft
-                                ? t("EDIT_NOTE_TYPE")
-                                : t("NOTE_TYPES")
-                            : this.request.mode === "deck-options"
-                              ? t("DECK_OPTIONS")
-                              : this.request.mode === "deck"
-                                ? t("NEW_DECK")
-                                : t("NEW_CARD"),
+                        : this.request.mode === "transfer"
+                          ? this.transferText("Import & export", "Импорт и экспорт")
+                          : this.request.mode === "area"
+                            ? this.editingAreaId
+                                ? t("EDIT_KNOWLEDGE_AREA")
+                                : t("NEW_KNOWLEDGE_AREA")
+                            : this.request.mode === "note-type"
+                              ? this.noteTypeDraft
+                                  ? t("EDIT_NOTE_TYPE")
+                                  : t("NOTE_TYPES")
+                              : this.request.mode === "deck-options"
+                                ? t("DECK_OPTIONS")
+                                : this.request.mode === "deck"
+                                  ? t("NEW_DECK")
+                                  : t("NEW_CARD"),
         });
         heading.createEl("p", {
             text:
@@ -355,15 +392,20 @@ export class NativeCreatorView extends ItemView {
                       ? t("EDIT_CARD_DESCRIPTION")
                       : this.request.mode === "media"
                         ? t("MEDIA_LIBRARY_DESCRIPTION")
-                        : this.request.mode === "area"
-                          ? t("KNOWLEDGE_AREA_DESCRIPTION")
-                          : this.request.mode === "note-type"
-                            ? t("NOTE_TYPES_DESCRIPTION")
-                            : this.request.mode === "deck-options"
-                              ? t("DECK_OPTIONS_DESCRIPTION")
-                              : this.request.mode === "deck"
-                                ? t("NEW_DECK_DESCRIPTION")
-                                : t("NEW_CARD_DESCRIPTION"),
+                        : this.request.mode === "transfer"
+                          ? this.transferText(
+                                "Move Anki packages and spreadsheets without leaving your vault.",
+                                "Переносите пакеты Anki и таблицы, не покидая хранилище.",
+                            )
+                          : this.request.mode === "area"
+                            ? t("KNOWLEDGE_AREA_DESCRIPTION")
+                            : this.request.mode === "note-type"
+                              ? t("NOTE_TYPES_DESCRIPTION")
+                              : this.request.mode === "deck-options"
+                                ? t("DECK_OPTIONS_DESCRIPTION")
+                                : this.request.mode === "deck"
+                                  ? t("NEW_DECK_DESCRIPTION")
+                                  : t("NEW_CARD_DESCRIPTION"),
         });
 
         if (
@@ -403,6 +445,7 @@ export class NativeCreatorView extends ItemView {
         const surface = page.createDiv("sr-native-creator-surface");
         if (this.request.mode === "image-occlusion") this.renderImageOcclusionForm(surface);
         else if (this.request.mode === "media") this.renderMediaManager(surface);
+        else if (this.request.mode === "transfer") this.renderTransferManager(surface);
         else if (this.request.mode === "deck") this.renderDeckForm(surface);
         else if (this.request.mode === "deck-options") this.renderDeckOptionsForm(surface);
         else if (this.request.mode === "area") this.renderAreaForm(surface);
@@ -415,6 +458,7 @@ export class NativeCreatorView extends ItemView {
         if (mode === "area") return t("KNOWLEDGE_AREAS");
         if (mode === "note-type") return t("NOTE_TYPES");
         if (mode === "media") return t("MEDIA_LIBRARY");
+        if (mode === "transfer") return this.transferText("Import & export", "Импорт и экспорт");
         return t("CARD");
     }
 
@@ -423,12 +467,13 @@ export class NativeCreatorView extends ItemView {
         if (mode === "area") return "library-big";
         if (mode === "note-type") return "shapes";
         if (mode === "media") return "images";
+        if (mode === "transfer") return "arrow-left-right";
         return "square-pen";
     }
 
     private openModeMenu(event: MouseEvent): void {
         const menu = new Menu();
-        for (const mode of ["card", "deck", "area", "note-type", "media"] as const) {
+        for (const mode of ["card", "deck", "area", "note-type", "media", "transfer"] as const) {
             menu.addItem((item) =>
                 item
                     .setTitle(this.getModeLabel(mode))
@@ -1842,6 +1887,544 @@ export class NativeCreatorView extends ItemView {
             const file = this.plugin.app.vault.getAbstractFileByPath(path);
             if (file instanceof TFile) await this.plugin.app.fileManager.trashFile(file);
         }
+    }
+
+    private transferText(english: string, russian: string): string {
+        return (activeDocument.documentElement.lang || navigator.language)
+            .toLocaleLowerCase()
+            .startsWith("ru")
+            ? russian
+            : english;
+    }
+
+    private renderTransferManager(surface: HTMLElement): void {
+        surface.addClass("sr-transfer-manager");
+        const actions = surface.createDiv("sr-transfer-actions");
+        const importInput = actions.createEl("input");
+        importInput.type = "file";
+        importInput.accept = ".apkg,.colpkg,.csv,.tsv,text/csv,text/tab-separated-values";
+        importInput.addClass("sr-transfer-file-input");
+        importInput.addEventListener("change", () => {
+            const file = importInput.files?.[0];
+            if (file) void this.loadTransferFile(file);
+        });
+        const importButton = new ButtonComponent(actions)
+            .setButtonText(this.transferText("Choose a file", "Выбрать файл"))
+            .setIcon("folder-input")
+            .onClick(() => importInput.click());
+        importButton.buttonEl.addClass("mod-cta");
+        new ButtonComponent(actions)
+            .setButtonText(this.transferText("Export to Anki", "Экспорт в Anki"))
+            .setIcon("archive-restore")
+            .setDisabled(this.busy)
+            .onClick(() => void this.exportTransferPackage());
+        new ButtonComponent(actions)
+            .setButtonText("CSV")
+            .setIcon("sheet")
+            .setDisabled(this.busy)
+            .onClick(() => void this.exportTransferCsv());
+
+        const promise = surface.createDiv("sr-transfer-promise");
+        const promiseIcon = promise.createDiv("sr-transfer-promise-icon");
+        setIcon(promiseIcon, "shield-check");
+        const promiseCopy = promise.createDiv();
+        promiseCopy.createEl("strong", {
+            text: this.transferText(
+                "Preview first, change second",
+                "Сначала просмотр, затем изменения",
+            ),
+        });
+        promiseCopy.createEl("span", {
+            text: this.transferText(
+                "An automatic snapshot is created before import. Markdown remains the source of truth.",
+                "Перед импортом создаётся снимок. Markdown остаётся источником данных.",
+            ),
+        });
+
+        if (this.error) surface.createDiv({ cls: "sr-native-error", text: this.error });
+        if (this.transferProgress) {
+            const progress = surface.createDiv("sr-transfer-progress");
+            const spinner = progress.createDiv("sr-transfer-spinner");
+            setIcon(spinner, "loader-circle");
+            progress.createSpan({ text: this.transferProgress });
+        }
+        if (this.transferReport) this.renderTransferReport(surface, this.transferReport);
+        if (this.transferPackage) this.renderAnkiPreview(surface, this.transferPackage);
+        else if (this.transferCsvRows.length > 0) this.renderCsvPreview(surface);
+        else {
+            const empty = surface.createDiv("sr-transfer-empty");
+            const icon = empty.createDiv();
+            setIcon(icon, "package-open");
+            empty.createEl("h2", {
+                text: this.transferText(
+                    "Anki and tables, one doorway",
+                    "Anki и таблицы — в одном месте",
+                ),
+            });
+            empty.createEl("p", {
+                text: this.transferText(
+                    "Import APKG with decks, templates, media and review history, or map CSV/TSV columns before creating notes.",
+                    "Импортируйте APKG с колодами, шаблонами, медиа и историей либо сопоставьте столбцы CSV/TSV перед созданием заметок.",
+                ),
+            });
+        }
+    }
+
+    private async loadTransferFile(file: File): Promise<void> {
+        this.error = "";
+        this.transferReport = null;
+        this.transferFileName = file.name;
+        this.transferProgress = this.transferText("Reading file…", "Читаю файл…");
+        this.render();
+        try {
+            if (/\.(apkg|colpkg)$/i.test(file.name)) {
+                this.transferPackage = await parseAnkiPackage(await file.arrayBuffer());
+                this.transferSelectedDeckIds = new Set(
+                    this.transferPackage.decks.map((deck) => deck.id),
+                );
+                this.transferCsvRows = [];
+            } else {
+                this.transferCsvDelimiter = /\.tsv$/i.test(file.name) ? "\t" : ",";
+                this.transferCsvRows = parseDelimited(await file.text(), this.transferCsvDelimiter);
+                if (this.transferCsvRows.length === 0) throw new Error("empty-table");
+                this.transferPackage = null;
+                this.initializeCsvMapping();
+            }
+        } catch (error) {
+            this.error = this.transferText(
+                `Could not read ${file.name}: ${error instanceof Error ? error.message : String(error)}`,
+                `Не удалось прочитать ${file.name}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            this.transferPackage = null;
+            this.transferCsvRows = [];
+        } finally {
+            this.transferProgress = "";
+            this.render();
+        }
+    }
+
+    private renderAnkiPreview(surface: HTMLElement, pkg: AnkiPackage): void {
+        const service = new AnkiTransferService(this.plugin);
+        const panel = surface.createDiv("sr-transfer-preview");
+        const header = panel.createDiv("sr-transfer-preview-header");
+        const headerCopy = header.createDiv();
+        headerCopy.createEl("h2", { text: this.transferFileName });
+        headerCopy.createEl("p", {
+            text: this.transferText(
+                `${pkg.notes.length} notes · ${pkg.decks.length} decks · ${Object.keys(pkg.media).length} media`,
+                `${pkg.notes.length} заметок · ${pkg.decks.length} колод · ${Object.keys(pkg.media).length} медиа`,
+            ),
+        });
+        const badge = header.createDiv("sr-transfer-duplicate-badge");
+        badge.createEl("strong", { text: String(service.countDuplicates(pkg)) });
+        badge.createSpan({ text: this.transferText("already here", "уже есть") });
+
+        const controls = panel.createDiv("sr-transfer-control-row");
+        const policyLabel = controls.createEl("label");
+        policyLabel.createSpan({
+            text: this.transferText("When a note already exists", "Если заметка уже существует"),
+        });
+        const policy = policyLabel.createEl("select");
+        for (const [value, en, ru] of [
+            ["skip", "Keep existing", "Оставить существующую"],
+            ["replace", "Update existing", "Обновить существующую"],
+            ["copy", "Create a copy", "Создать копию"],
+        ] as const) {
+            const option = policy.createEl("option", { text: this.transferText(en, ru) });
+            option.value = value;
+            option.selected = this.transferDuplicatePolicy === value;
+        }
+        policy.addEventListener("change", () => {
+            this.transferDuplicatePolicy = policy.value as DuplicatePolicy;
+        });
+
+        panel.createEl("h3", { text: this.transferText("Decks to import", "Колоды для импорта") });
+        const decks = panel.createDiv("sr-transfer-deck-list");
+        for (const deck of pkg.decks) {
+            const row = decks.createEl("label", { cls: "sr-transfer-deck-row" });
+            const checkbox = row.createEl("input");
+            checkbox.type = "checkbox";
+            checkbox.checked = this.transferSelectedDeckIds.has(deck.id);
+            checkbox.addEventListener("change", () => {
+                if (checkbox.checked) this.transferSelectedDeckIds.add(deck.id);
+                else this.transferSelectedDeckIds.delete(deck.id);
+            });
+            const icon = row.createSpan("sr-transfer-deck-icon");
+            setIcon(icon, "folder");
+            const copy = row.createSpan("sr-transfer-deck-copy");
+            copy.createEl("strong", { text: deck.name.replaceAll("::", " / ") });
+            copy.createEl("small", {
+                text: this.transferText(
+                    `${pkg.notes.filter((note) => note.cards.some((card) => card.deckId === deck.id)).length} notes`,
+                    `${pkg.notes.filter((note) => note.cards.some((card) => card.deckId === deck.id)).length} заметок`,
+                ),
+            });
+        }
+        for (const warning of pkg.warnings) {
+            panel.createDiv({ cls: "sr-transfer-warning", text: warning });
+        }
+        const footer = panel.createDiv("sr-transfer-footer");
+        new ButtonComponent(footer)
+            .setButtonText(
+                this.busy
+                    ? this.transferText("Importing…", "Импорт…")
+                    : this.transferText("Import selected", "Импортировать выбранное"),
+            )
+            .setIcon("download")
+            .setDisabled(this.busy || this.transferSelectedDeckIds.size === 0)
+            .onClick(() => void this.importTransferPackage());
+    }
+
+    private async importTransferPackage(): Promise<void> {
+        if (!this.transferPackage || this.busy) return;
+        this.busy = true;
+        this.error = "";
+        this.transferProgress = this.transferText("Preparing import…", "Подготавливаю импорт…");
+        this.render();
+        try {
+            const service = new AnkiTransferService(this.plugin);
+            this.transferReport = await service.importPackage(this.transferPackage, {
+                deckIds: new Set(this.transferSelectedDeckIds),
+                duplicatePolicy: this.transferDuplicatePolicy,
+                onProgress: (completed, total) => {
+                    this.transferProgress = this.transferText(
+                        `Writing notes ${completed} of ${total}…`,
+                        `Записываю заметки: ${completed} из ${total}…`,
+                    );
+                },
+            });
+            new Notice(this.transferText("Anki import finished", "Импорт Anki завершён"));
+        } catch (error) {
+            this.error = error instanceof Error ? error.message : String(error);
+        } finally {
+            this.busy = false;
+            this.transferProgress = "";
+            this.render();
+        }
+    }
+
+    private renderTransferReport(surface: HTMLElement, report: AnkiImportReport): void {
+        const panel = surface.createDiv("sr-transfer-report");
+        const icon = panel.createDiv("sr-transfer-report-icon");
+        setIcon(icon, report.errors.length ? "circle-alert" : "circle-check");
+        const copy = panel.createDiv();
+        copy.createEl("strong", {
+            text: report.errors.length
+                ? this.transferText("Imported with warnings", "Импортировано с предупреждениями")
+                : this.transferText("Import complete", "Импорт завершён"),
+        });
+        copy.createEl("span", {
+            text: this.transferText(
+                `${report.created} created · ${report.updated} updated · ${report.skipped} skipped`,
+                `Создано: ${report.created} · обновлено: ${report.updated} · пропущено: ${report.skipped}`,
+            ),
+        });
+        if (report.errors.length) {
+            const details = copy.createEl("details");
+            details.createEl("summary", {
+                text: this.transferText(
+                    `${report.errors.length} issues`,
+                    `${report.errors.length} ошибок`,
+                ),
+            });
+            for (const error of report.errors.slice(0, 100)) {
+                details.createEl("p", { text: `${error.identity}: ${error.message}` });
+            }
+        }
+    }
+
+    private initializeCsvMapping(): void {
+        const noteTypes = Object.values(
+            this.plugin.dataManager.collectionStore.getCollectionSnapshot().noteTypes,
+        ).filter((type) => !type.deletedAt && type.kind !== "image-occlusion");
+        if (!noteTypes.some((type) => type.id === this.transferCsvNoteTypeId)) {
+            this.transferCsvNoteTypeId = noteTypes[0]?.id ?? BASIC_NOTE_TYPE_ID;
+        }
+        const type = noteTypes.find((candidate) => candidate.id === this.transferCsvNoteTypeId);
+        const headers = this.transferCsvRows[0] ?? [];
+        this.transferCsvMapping = Object.fromEntries(
+            (type?.fields ?? []).map((field) => [
+                field.id,
+                headers.findIndex(
+                    (header) =>
+                        header
+                            .replace(/^Field:/i, "")
+                            .trim()
+                            .localeCompare(field.name, undefined, { sensitivity: "base" }) === 0,
+                ),
+            ]),
+        );
+        this.transferCsvTagsColumn = headers.findIndex((header) => /^tags?$/i.test(header.trim()));
+        const deckColumn = headers.findIndex((header) => /^deck$/i.test(header.trim()));
+        if (deckColumn >= 0) this.transferCsvDeck = "";
+    }
+
+    private renderCsvPreview(surface: HTMLElement): void {
+        const panel = surface.createDiv("sr-transfer-preview");
+        panel.createEl("h2", { text: this.transferFileName });
+        panel.createEl("p", {
+            text: this.transferText(
+                `${Math.max(0, this.transferCsvRows.length - 1)} rows. Match each note field before import.`,
+                `${Math.max(0, this.transferCsvRows.length - 1)} строк. Сопоставьте поля перед импортом.`,
+            ),
+        });
+        const noteTypes = Object.values(
+            this.plugin.dataManager.collectionStore.getCollectionSnapshot().noteTypes,
+        ).filter((type) => !type.deletedAt && type.kind !== "image-occlusion");
+        const top = panel.createDiv("sr-transfer-control-row");
+        const typeLabel = top.createEl("label");
+        typeLabel.createSpan({ text: this.transferText("Note type", "Тип заметки") });
+        const typeSelect = typeLabel.createEl("select");
+        for (const type of noteTypes) {
+            const option = typeSelect.createEl("option", { text: type.name });
+            option.value = type.id;
+            option.selected = type.id === this.transferCsvNoteTypeId;
+        }
+        typeSelect.addEventListener("change", () => {
+            this.transferCsvNoteTypeId = typeSelect.value;
+            this.initializeCsvMapping();
+            this.render();
+        });
+        const deckLabel = top.createEl("label");
+        deckLabel.createSpan({ text: this.transferText("Default deck", "Колода по умолчанию") });
+        const deckInput = deckLabel.createEl("input");
+        deckInput.value = this.transferCsvDeck;
+        deckInput.placeholder = this.transferText("Inbox", "Входящие");
+        deckInput.addEventListener("input", () => (this.transferCsvDeck = deckInput.value));
+        const policyLabel = top.createEl("label");
+        policyLabel.createSpan({
+            text: this.transferText("Duplicate rows", "Повторяющиеся строки"),
+        });
+        const policy = policyLabel.createEl("select");
+        for (const [value, english, russian] of [
+            ["skip", "Keep existing", "Оставить существующие"],
+            ["replace", "Update existing", "Обновить существующие"],
+            ["copy", "Create copies", "Создать копии"],
+        ] as const) {
+            const option = policy.createEl("option", {
+                text: this.transferText(english, russian),
+            });
+            option.value = value;
+            option.selected = this.transferDuplicatePolicy === value;
+        }
+        policy.addEventListener("change", () => {
+            this.transferDuplicatePolicy = policy.value as DuplicatePolicy;
+        });
+
+        const headers = this.transferCsvRows[0] ?? [];
+        const type = noteTypes.find((candidate) => candidate.id === this.transferCsvNoteTypeId);
+        const mapping = panel.createDiv("sr-transfer-field-map");
+        for (const field of type?.fields ?? []) {
+            const row = mapping.createEl("label");
+            row.createSpan({ text: field.name });
+            const select = row.createEl("select");
+            const none = select.createEl("option", {
+                text: this.transferText("Do not import", "Не импортировать"),
+            });
+            none.value = "-1";
+            for (const [index, header] of headers.entries()) {
+                const option = select.createEl("option", { text: header || `Column ${index + 1}` });
+                option.value = String(index);
+                option.selected = this.transferCsvMapping[field.id] === index;
+            }
+            select.addEventListener("change", () => {
+                this.transferCsvMapping[field.id] = Number(select.value);
+            });
+        }
+        const tagsRow = mapping.createEl("label");
+        tagsRow.createSpan({ text: this.transferText("Tags", "Теги") });
+        const tagsSelect = tagsRow.createEl("select");
+        const noTags = tagsSelect.createEl("option", {
+            text: this.transferText("No tags", "Без тегов"),
+        });
+        noTags.value = "-1";
+        for (const [index, header] of headers.entries()) {
+            const option = tagsSelect.createEl("option", { text: header || `Column ${index + 1}` });
+            option.value = String(index);
+            option.selected = this.transferCsvTagsColumn === index;
+        }
+        tagsSelect.addEventListener(
+            "change",
+            () => (this.transferCsvTagsColumn = Number(tagsSelect.value)),
+        );
+        const footer = panel.createDiv("sr-transfer-footer");
+        new ButtonComponent(footer)
+            .setButtonText(this.transferText("Import rows", "Импортировать строки"))
+            .setIcon("download")
+            .setDisabled(this.busy || !type)
+            .onClick(() => void this.importTransferCsv());
+    }
+
+    private transferRowKey(row: string[]): string {
+        let hash = 0x811c9dc5;
+        const value = `${this.transferFileName}\u001f${row.join("\u001f")}`;
+        for (let index = 0; index < value.length; index++) {
+            hash ^= value.charCodeAt(index);
+            hash = Math.imul(hash, 0x01000193);
+        }
+        return `csv-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+    }
+
+    private async importTransferCsv(): Promise<void> {
+        if (this.busy || this.transferCsvRows.length < 2) return;
+        const collection = this.plugin.dataManager.collectionStore;
+        const type = collection.getNoteType(this.transferCsvNoteTypeId);
+        if (!type) return;
+        this.busy = true;
+        this.error = "";
+        this.render();
+        try {
+            await collection.createBackup("before-csv-import");
+            const snapshot = collection.getCollectionSnapshot();
+            const existing = new Map(
+                Object.values(snapshot.notes)
+                    .filter((note) => !note.deletedAt && note.externalIds?.csvKey)
+                    .map((note) => [note.externalIds.csvKey, note]),
+            );
+            const drafts: StructuredNoteDraft[] = [];
+            let updated = 0;
+            let skipped = 0;
+            for (const row of this.transferCsvRows.slice(1)) {
+                const key = this.transferRowKey(row);
+                const fields = Object.fromEntries(
+                    type.fields.map((field) => [
+                        field.id,
+                        this.transferCsvMapping[field.id] >= 0
+                            ? (row[this.transferCsvMapping[field.id]] ?? "")
+                            : "",
+                    ]),
+                );
+                const tags =
+                    this.transferCsvTagsColumn >= 0
+                        ? (row[this.transferCsvTagsColumn] ?? "").split(/[ ,]+/).filter(Boolean)
+                        : [];
+                const deckColumn = (this.transferCsvRows[0] ?? []).findIndex((header) =>
+                    /^deck$/i.test(header.trim()),
+                );
+                const draft: StructuredNoteDraft = {
+                    noteTypeId: type.id,
+                    deckPath: normalizeManagedDeckPath(
+                        (deckColumn >= 0 ? row[deckColumn] : this.transferCsvDeck) ?? "",
+                    ),
+                    fields,
+                    tags,
+                    externalIds: { csvKey: key },
+                    externalData: { csv: { file: this.transferFileName, row } },
+                };
+                const previous = existing.get(key);
+                if (previous && this.transferDuplicatePolicy === "skip") skipped++;
+                else if (previous && this.transferDuplicatePolicy === "replace") {
+                    await this.store.updateStructuredNote(previous, draft);
+                    updated++;
+                } else {
+                    if (previous)
+                        draft.externalIds = { csvKey: `${key}-copy-${Date.now().toString(36)}` };
+                    drafts.push(draft);
+                }
+            }
+            const files = await this.store.createStructuredNotes(drafts);
+            this.transferReport = {
+                created: files.length,
+                updated,
+                skipped,
+                noteTypes: 0,
+                decks: 0,
+                media: 0,
+                scheduledCards: 0,
+                errors: [],
+            };
+        } catch (error) {
+            this.error = error instanceof Error ? error.message : String(error);
+        } finally {
+            this.busy = false;
+            this.render();
+        }
+    }
+
+    private async ensureTransferFolder(path: string): Promise<void> {
+        let current = "";
+        for (const part of normalizePath(path).split("/").filter(Boolean)) {
+            current = current ? `${current}/${part}` : part;
+            if (!this.plugin.app.vault.getAbstractFileByPath(current)) {
+                await this.plugin.app.vault.createFolder(current);
+            }
+        }
+    }
+
+    private async saveTransferBinary(fileName: string, data: ArrayBuffer): Promise<string> {
+        const folder = normalizePath(
+            `${this.plugin.dataManager.data.settings.scheduleDataVaultLocation}/Exports`,
+        );
+        await this.ensureTransferFolder(folder);
+        let path = normalizePath(`${folder}/${fileName}`);
+        let suffix = 2;
+        const dot = fileName.lastIndexOf(".");
+        const stem = dot > 0 ? fileName.slice(0, dot) : fileName;
+        const extension = dot > 0 ? fileName.slice(dot) : "";
+        while (this.plugin.app.vault.getAbstractFileByPath(path)) {
+            path = normalizePath(`${folder}/${stem}-${suffix}${extension}`);
+            suffix++;
+        }
+        await this.plugin.app.vault.createBinary(path, data);
+        return path;
+    }
+
+    private async exportTransferPackage(): Promise<void> {
+        if (this.busy) return;
+        this.busy = true;
+        this.transferProgress = this.transferText("Building Anki package…", "Собираю пакет Anki…");
+        this.render();
+        try {
+            const bytes = await new AnkiTransferService(this.plugin).exportPackage();
+            const path = await this.saveTransferBinary(
+                `MSRE-${new Date().toISOString().slice(0, 10)}.apkg`,
+                Uint8Array.from(bytes).buffer,
+            );
+            new Notice(this.transferText(`Saved to ${path}`, `Сохранено: ${path}`));
+        } catch (error) {
+            this.error = error instanceof Error ? error.message : String(error);
+        } finally {
+            this.busy = false;
+            this.transferProgress = "";
+            this.render();
+        }
+    }
+
+    private async exportTransferCsv(): Promise<void> {
+        const collection = this.plugin.dataManager.collectionStore.getCollectionSnapshot();
+        const notes = Object.values(collection.notes).filter((note) => !note.deletedAt);
+        const cards = Object.values(collection.cards).filter((card) => !card.deletedAt);
+        const fieldNames = [
+            ...new Set(
+                notes.flatMap(
+                    (note) =>
+                        collection.noteTypes[note.noteTypeId]?.fields.map((field) => field.name) ??
+                        [],
+                ),
+            ),
+        ].sort((left, right) => left.localeCompare(right));
+        const rows = [
+            ["Deck", "Note type", "Tags", ...fieldNames.map((field) => `Field:${field}`)],
+            ...notes.map((note) => {
+                const type = collection.noteTypes[note.noteTypeId];
+                const deck = cards.find((card) => card.noteId === note.id)?.deckPath ?? "";
+                const byName = new Map(
+                    type.fields.map((field) => [field.name, note.fields[field.id] ?? ""]),
+                );
+                return [
+                    deck,
+                    type.name,
+                    note.tags.join(" "),
+                    ...fieldNames.map((name) => byName.get(name) ?? ""),
+                ];
+            }),
+        ];
+        const data = new TextEncoder().encode(`\ufeff${writeDelimited(rows, ",")}`);
+        const path = await this.saveTransferBinary(
+            `MSRE-${new Date().toISOString().slice(0, 10)}.csv`,
+            Uint8Array.from(data).buffer,
+        );
+        new Notice(this.transferText(`Saved to ${path}`, `Сохранено: ${path}`));
     }
 
     private renderMediaManager(surface: HTMLElement): void {

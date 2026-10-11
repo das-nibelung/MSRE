@@ -58,6 +58,8 @@ export interface StructuredNoteDraft {
     noteTypeId: string;
     fields: Record<string, string>;
     tags?: string[];
+    externalIds?: Record<string, string>;
+    externalData?: Record<string, unknown>;
 }
 
 export interface ImageOcclusionAssetDraft {
@@ -86,6 +88,8 @@ export interface ImageOcclusionNoteDraft {
     comments?: string;
     reference?: string;
     tags?: string[];
+    externalIds?: Record<string, string>;
+    externalData?: Record<string, unknown>;
 }
 
 interface FileNativeRecordInput {
@@ -98,6 +102,8 @@ interface FileNativeRecordInput {
     questionId: string | null;
     legacyQuestionIds?: Record<number, string>;
     legacyStableIds?: Record<number, string>;
+    externalIds?: Record<string, string>;
+    externalData?: Record<string, unknown>;
 }
 
 export function serializeImageOcclusionBody(
@@ -841,6 +847,8 @@ export class NativeCardStore {
                     questionId: baseQuestionId,
                     legacyQuestionIds,
                     legacyStableIds,
+                    externalIds: draft.externalIds,
+                    externalData: draft.externalData,
                 },
                 visibleContents,
             ),
@@ -855,11 +863,92 @@ export class NativeCardStore {
             source: { kind: "managed", path: file.path, questionId: baseQuestionId },
             legacyQuestionIds,
             legacyStableIds,
+            externalIds: draft.externalIds,
+            externalData: draft.externalData,
         });
         await this.waitForMetadata(this.plugin.app, file);
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
         return file;
+    }
+
+    /** Imports many portable notes with one collection write and one index refresh. */
+    async createStructuredNotes(
+        drafts: StructuredNoteDraft[],
+        onProgress?: (completed: number, total: number) => void,
+    ): Promise<TFile[]> {
+        if (drafts.length === 0) return [];
+        const collection = this.plugin.dataManager.collectionStore;
+        const settings = this.plugin.dataManager.data.settings;
+        const rootTag = (settings.flashcardTags[0] ?? FALLBACK_ROOT_TAG).replace(/\/+$/g, "");
+        const rootFolder = normalizePath(`${settings.scheduleDataVaultLocation}/Cards`);
+        const deckPaths = new Set(
+            drafts.map((draft) => normalizeManagedDeckPath(draft.deckPath)).filter(Boolean),
+        );
+        for (const deckPath of deckPaths) await this.createDeck(deckPath);
+
+        const files: TFile[] = [];
+        const records: Array<{ path: string; note: FileNativeNoteRecord }> = [];
+        for (const [index, draft] of drafts.entries()) {
+            const noteType = collection.getNoteType(draft.noteTypeId);
+            if (!noteType) throw new Error("note-type-not-found");
+            const normalizedDeck = normalizeManagedDeckPath(draft.deckPath);
+            const noteId = collection.createId("note");
+            const baseQuestionId = `^sr-data-id-${noteId}`;
+            const generated = serializeStructuredNoteBody(
+                noteType,
+                draft.fields,
+                settings,
+                baseQuestionId,
+            );
+            const deckFolder = normalizedDeck
+                ? `${rootFolder}/${normalizedDeck}`
+                : `${rootFolder}/Inbox`;
+            await this.ensureFolder(deckFolder);
+            const title = noteType.fields
+                .map((field) => draft.fields[field.id]?.trim())
+                .find(Boolean);
+            const slug =
+                (title ?? "note")
+                    .normalize("NFKD")
+                    .replace(/[^\p{L}\p{N}]+/gu, "-")
+                    .replace(/^-|-$/g, "")
+                    .slice(0, 54) || "note";
+            let path = normalizePath(`${deckFolder}/${slug}.md`);
+            let suffix = 2;
+            while (this.plugin.app.vault.getAbstractFileByPath(path)) {
+                path = normalizePath(`${deckFolder}/${slug}-${suffix}.md`);
+                suffix++;
+            }
+            const tag = normalizedDeck ? `${rootTag}/${normalizedDeck}` : rootTag;
+            const visibleContents = `${tag}\n\n${generated.body}\n`;
+            const record = this.createFileNativeRecord(
+                {
+                    id: noteId,
+                    noteTypeId: noteType.id,
+                    fields: draft.fields,
+                    tags: draft.tags,
+                    deckPath: normalizedDeck,
+                    questionId: baseQuestionId,
+                    legacyQuestionIds: generated.legacyQuestionIds,
+                    legacyStableIds: generated.legacyStableIds,
+                    externalIds: draft.externalIds,
+                    externalData: draft.externalData,
+                },
+                visibleContents,
+            );
+            const file = await this.writeVaultText(
+                path,
+                writeFileNativeDocument(visibleContents, [record]),
+            );
+            files.push(file);
+            records.push({ path: file.path, note: record });
+            onProgress?.(index + 1, drafts.length);
+        }
+        await collection.reconcileFileNativeNotes(records);
+        await this.plugin.dataManager.sync();
+        this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+        return files;
     }
 
     async createImageOcclusionNote(draft: ImageOcclusionNoteDraft): Promise<TFile> {
@@ -909,6 +998,8 @@ export class NativeCardStore {
                     deckPath: normalizedDeck,
                     questionId: baseQuestionId,
                     legacyQuestionIds,
+                    externalIds: draft.externalIds,
+                    externalData: draft.externalData,
                 },
                 visibleContents,
             ),
@@ -922,6 +1013,8 @@ export class NativeCardStore {
             deckPath: normalizedDeck,
             source: { kind: "managed", path: file.path, questionId: baseQuestionId },
             legacyQuestionIds,
+            externalIds: draft.externalIds,
+            externalData: draft.externalData,
         });
         await this.waitForMetadata(this.plugin.app, file);
         await this.plugin.dataManager.sync();
@@ -966,6 +1059,8 @@ export class NativeCardStore {
             deckPath: normalizedDeck,
             questionId: baseQuestionId,
             legacyQuestionIds,
+            externalIds: draft.externalIds ?? note.externalIds,
+            externalData: draft.externalData ?? note.externalData,
         });
         await this.plugin.dataManager.collectionStore.updateNote(note.id, {
             fields,
@@ -973,6 +1068,8 @@ export class NativeCardStore {
             deckPath: normalizedDeck,
             source: { ...note.source, questionId: baseQuestionId },
             legacyQuestionIds,
+            externalIds: draft.externalIds ?? note.externalIds,
+            externalData: draft.externalData ?? note.externalData,
         });
         await this.waitForMetadata(this.plugin.app, file);
         await this.plugin.dataManager.sync();
@@ -1008,6 +1105,8 @@ export class NativeCardStore {
             questionId: baseQuestionId,
             legacyQuestionIds,
             legacyStableIds,
+            externalIds: draft.externalIds ?? note.externalIds,
+            externalData: draft.externalData ?? note.externalData,
         });
         if (note.noteTypeId !== noteType.id) {
             const previousType = collection.getNoteType(note.noteTypeId);
@@ -1038,6 +1137,8 @@ export class NativeCardStore {
             tags: draft.tags,
             deckPath: normalizedDeck,
             source: { ...note.source, questionId: baseQuestionId },
+            externalIds: draft.externalIds ?? note.externalIds,
+            externalData: draft.externalData ?? note.externalData,
             legacyQuestionIds,
             legacyStableIds,
         });
@@ -1086,6 +1187,8 @@ export class NativeCardStore {
                 questionId: baseQuestionId,
                 legacyQuestionIds,
                 legacyStableIds,
+                externalIds: note.externalIds,
+                externalData: note.externalData,
             });
             await collection.updateNote(note.id, {
                 fields: note.fields,
@@ -1094,6 +1197,8 @@ export class NativeCardStore {
                 source: { ...note.source, questionId: baseQuestionId },
                 legacyQuestionIds,
                 legacyStableIds,
+                externalIds: note.externalIds,
+                externalData: note.externalData,
             });
             refreshed++;
         }
@@ -1142,6 +1247,8 @@ export class NativeCardStore {
             questionId: input.questionId,
             legacyQuestionIds: input.legacyQuestionIds,
             legacyStableIds: input.legacyStableIds,
+            externalIds: input.externalIds ? { ...input.externalIds } : undefined,
+            externalData: input.externalData ? { ...input.externalData } : undefined,
             bodyHash: hashVisibleMarkdown(visibleContents),
             createdAt: previous?.createdAt ?? now,
             updatedAt: now,

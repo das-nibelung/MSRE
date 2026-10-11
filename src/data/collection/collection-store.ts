@@ -37,6 +37,7 @@ import {
     REVIEW_LOG_SCHEMA_VERSION,
     ReviewLogData,
     ReviewLogEntry,
+    ReviewRating,
 } from "src/data/collection/collection-types";
 import { FileNativeCatalog, FileNativeNoteRecord } from "src/data/file-native/file-native-format";
 import { AtomicVaultWriter } from "src/data/reliability/atomic-vault-writer";
@@ -830,6 +831,8 @@ export class CollectionStore {
             note.answerMode = input.answerMode;
             note.tags = normalizeTags(input.tags ?? []);
             note.source = { kind: "managed", path, questionId: input.questionId };
+            note.externalIds = input.externalIds ? { ...input.externalIds } : undefined;
+            note.externalData = input.externalData ? cloneJson(input.externalData) : undefined;
             note.updatedAt = Math.max(input.updatedAt || 0, timestamp);
             delete note.deletedAt;
             this.collection.notes[note.id] = note;
@@ -851,6 +854,110 @@ export class CollectionStore {
 
     getReviewLogSnapshot(): ReviewLogData {
         return cloneJson(this.reviewLog);
+    }
+
+    /** Applies scheduling/history carried by an Anki package after Markdown notes are materialized. */
+    async applyImportedAnkiState(
+        imported: Array<{
+            guid: string;
+            cards: Array<{
+                ordinal: number;
+                queue: number;
+                due: number;
+                interval: number;
+                factor: number;
+                reps: number;
+                lapses: number;
+                flags: number;
+                reviews: Array<{
+                    id: number;
+                    ease: number;
+                    durationMs: number;
+                }>;
+            }>;
+        }>,
+        collectionCreatedAt: number,
+    ): Promise<number> {
+        await this.initialize();
+        let updated = 0;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        for (const source of imported) {
+            const note = Object.values(this.collection.notes).find(
+                (candidate) =>
+                    !candidate.deletedAt && candidate.externalIds?.ankiGuid === source.guid,
+            );
+            if (!note) continue;
+            const cards = Object.values(this.collection.cards)
+                .filter((card) => !card.deletedAt && card.noteId === note.id)
+                .sort((left, right) => left.ordinal - right.ordinal);
+            for (const [index, importedCard] of source.cards.entries()) {
+                const card =
+                    cards.find((candidate) => candidate.ordinal === importedCard.ordinal) ??
+                    cards[index];
+                if (!card) continue;
+                card.reps = importedCard.reps;
+                card.lapses = importedCard.lapses;
+                card.flag = Math.max(0, Math.min(7, importedCard.flags)) as CardFlag;
+                card.state =
+                    importedCard.queue === -1
+                        ? "suspended"
+                        : importedCard.queue < -1
+                          ? "buried"
+                          : "active";
+                card.buriedUntil = card.state === "buried" ? today.valueOf() + 86_400_000 : null;
+                card.queue =
+                    importedCard.queue === 0
+                        ? "new"
+                        : importedCard.queue === 1
+                          ? "learning"
+                          : importedCard.queue === 3
+                            ? "relearning"
+                            : "review";
+                if (card.queue === "new") {
+                    card.schedule = null;
+                } else {
+                    const due =
+                        importedCard.queue === 1 || importedCard.queue === 3
+                            ? importedCard.due * 1000
+                            : collectionCreatedAt + importedCard.due * 86_400_000;
+                    card.schedule = {
+                        algorithm: SRAlgorithmType.SM_2_OSR,
+                        scheduleData: {
+                            dueDate: new Date(Number.isFinite(due) ? due : today.valueOf())
+                                .toISOString()
+                                .slice(0, 10),
+                            interval: Math.max(0, importedCard.interval),
+                            ease: importedCard.factor > 0 ? importedCard.factor / 10 : 250,
+                            delayedBeforeReviewTicks: 0,
+                        },
+                    };
+                }
+                const lastReview = importedCard.reviews[importedCard.reviews.length - 1];
+                card.lastReviewAt = lastReview?.id ?? null;
+                card.updatedAt = this.now();
+                for (const review of importedCard.reviews) {
+                    const id = `anki-review-${review.id}`;
+                    this.reviewLog.entries[id] = {
+                        id,
+                        cardId: card.id,
+                        noteId: note.id,
+                        rating: Math.max(1, Math.min(4, review.ease)) as ReviewRating,
+                        reviewedAt: review.id,
+                        durationMs: review.durationMs || null,
+                        mode: "review",
+                        previousSchedule: null,
+                        nextSchedule: card.schedule ? cloneJson(card.schedule) : null,
+                    };
+                }
+                updated++;
+            }
+        }
+        if (updated > 0) {
+            await this.persistCollection();
+            await this.persistReviewLog();
+        }
+        return updated;
     }
 
     /** Recomputes FSRS due dates atomically after creating a recoverable snapshot. */
@@ -1500,6 +1607,8 @@ export class CollectionStore {
             fields: { ...input.fields },
             tags: normalizeTags(input.tags ?? []),
             source: { ...input.source },
+            externalIds: input.externalIds ? { ...input.externalIds } : undefined,
+            externalData: input.externalData ? cloneJson(input.externalData) : undefined,
             createdAt: timestamp,
             updatedAt: timestamp,
         };
@@ -1536,6 +1645,8 @@ export class CollectionStore {
         note.fields = { ...input.fields };
         note.tags = normalizeTags(input.tags ?? note.tags);
         note.source = { ...input.source };
+        note.externalIds = input.externalIds ? { ...input.externalIds } : note.externalIds;
+        note.externalData = input.externalData ? cloneJson(input.externalData) : note.externalData;
         note.updatedAt = timestamp;
         const deck = this.ensureDeckPathInMemory(input.deckPath, timestamp);
         this.replaceGeneratedCards(

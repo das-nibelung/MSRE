@@ -31,12 +31,14 @@ function createStoreHarness(noteType = getBuiltinNoteTypes()[1]) {
     const files = new Map<string, TFile>();
     const createdContents = new Map<string, string>();
     const modifiedContents = new Map<string, string>();
+    const settings = { ...DEFAULT_SETTINGS, flashcardTags: [...DEFAULT_SETTINGS.flashcardTags] };
     const collectionStore = {
         getNoteType: jest.fn((id: string) => (id === noteType.id ? noteType : undefined)),
         createId: jest.fn(() => "note-fixed"),
         createNote: jest.fn().mockResolvedValue(undefined),
         updateNote: jest.fn().mockResolvedValue(undefined),
         updateNativeNote: jest.fn().mockResolvedValue(undefined),
+        reconcileFileNativeNotes: jest.fn().mockResolvedValue(0),
         ensureDeckPath: jest.fn().mockResolvedValue(undefined),
         moveNotesBySource: jest.fn().mockResolvedValue(undefined),
         setNotesTagsBySource: jest.fn().mockResolvedValue(undefined),
@@ -70,7 +72,7 @@ function createStoreHarness(noteType = getBuiltinNoteTypes()[1]) {
         dataManager: {
             data: {
                 ...DEFAULT_DATA,
-                settings: DEFAULT_SETTINGS,
+                settings,
                 managedDecks: [],
                 knowledgeAreas: [],
             },
@@ -84,6 +86,7 @@ function createStoreHarness(noteType = getBuiltinNoteTypes()[1]) {
     } as never;
 
     return {
+        settings,
         store: new NativeCardStore(plugin),
         collectionStore,
         vault,
@@ -684,6 +687,115 @@ describe("native card storage", () => {
         );
         expect(harness.sync).toHaveBeenCalledTimes(1);
         expect(harness.refreshCardBrowser).toHaveBeenCalledTimes(1);
+    });
+
+    it("imports structured notes in one batch with unique files and one index refresh", async () => {
+        const harness = createStoreHarness();
+        harness.collectionStore.createId
+            .mockReturnValueOnce("note-one")
+            .mockReturnValueOnce("note-two")
+            .mockReturnValueOnce("note-three");
+        const progress = jest.fn();
+
+        expect(await harness.store.createStructuredNotes([])).toEqual([]);
+        const files = await harness.store.createStructuredNotes(
+            [
+                {
+                    deckPath: "Languages / French",
+                    noteTypeId: "builtin-basic-and-reversed",
+                    fields: { front: "bonjour", back: "hello" },
+                    tags: ["imported"],
+                    externalIds: { ankiGuid: "anki-one" },
+                    externalData: { source: "anki" },
+                },
+                {
+                    deckPath: "Languages / French",
+                    noteTypeId: "builtin-basic-and-reversed",
+                    fields: { front: "bonjour", back: "good morning" },
+                    tags: [],
+                },
+                {
+                    deckPath: "",
+                    noteTypeId: "builtin-basic-and-reversed",
+                    fields: { front: "salut", back: "hi" },
+                    tags: [],
+                },
+            ],
+            progress,
+        );
+
+        expect(files.map((file) => file.path)).toEqual([
+            "Spaced Repetition/Cards/Languages/French/bonjour.md",
+            "Spaced Repetition/Cards/Languages/French/bonjour-2.md",
+            "Spaced Repetition/Cards/Inbox/salut.md",
+        ]);
+        expect(progress.mock.calls).toEqual([
+            [1, 3],
+            [2, 3],
+            [3, 3],
+        ]);
+        expect(harness.collectionStore.reconcileFileNativeNotes).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    path: files[0].path,
+                    note: expect.objectContaining({
+                        id: "note-one",
+                        externalIds: { ankiGuid: "anki-one" },
+                        externalData: { source: "anki" },
+                    }),
+                }),
+            ]),
+        );
+        expect(harness.sync).toHaveBeenCalledTimes(1);
+        expect(harness.refreshCardBrowser).toHaveBeenCalledTimes(1);
+    });
+
+    it("uses portable batch fallbacks and rejects an unknown imported note type", async () => {
+        const basic = getBuiltinNoteTypes()[0];
+        const harness = createStoreHarness(basic);
+        harness.collectionStore.createId.mockReturnValueOnce("punctuation-note");
+        harness.settings.flashcardTags = [];
+
+        const [file] = await harness.store.createStructuredNotes([
+            {
+                deckPath: "",
+                noteTypeId: basic.id,
+                fields: { front: "!!!", back: "Answer" },
+            },
+        ]);
+        expect(file.path).toBe("Spaced Repetition/Cards/Inbox/note.md");
+        expect(harness.createdContents.get(file.path)).toContain("#flashcards");
+
+        await expect(
+            harness.store.createStructuredNotes([
+                { deckPath: "", noteTypeId: "missing", fields: {} },
+            ]),
+        ).rejects.toThrow("note-type-not-found");
+    });
+
+    it("uses a neutral filename when an imported template has no populated fields", async () => {
+        const basic = getBuiltinNoteTypes()[0];
+        const staticType = {
+            ...basic,
+            id: "static-import",
+            fields: [{ ...basic.fields[0], required: false }],
+            templates: [
+                {
+                    ...basic.templates[0],
+                    questionFormat: "Static question",
+                    answerFormat: "Static answer",
+                },
+            ],
+        };
+        const harness = createStoreHarness(staticType);
+        harness.collectionStore.createId.mockReturnValueOnce("static-note");
+
+        const [file] = await harness.store.createStructuredNotes([
+            { deckPath: "", noteTypeId: staticType.id, fields: {} },
+        ]);
+
+        expect(file.path).toBe("Spaced Repetition/Cards/Inbox/note.md");
+        expect(harness.createdContents.get(file.path)).toContain("Static question");
     });
 
     it("updates a structured note without changing its stable source ids", async () => {

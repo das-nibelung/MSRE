@@ -24,6 +24,10 @@ export interface FileNativeNoteRecord {
     questionId: string | null;
     legacyQuestionIds?: Record<number, string>;
     legacyStableIds?: Record<number, string>;
+    /** Portable external identity makes repeated imports idempotent without relying on the cache. */
+    externalIds?: Record<string, string>;
+    /** Original scheduler/card metadata retained for a lossless round trip. */
+    externalData?: Record<string, unknown>;
     /** Hash of the visible Markdown body when the native editor last wrote it. */
     bodyHash: string;
     createdAt: number;
