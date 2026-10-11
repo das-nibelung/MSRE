@@ -264,5 +264,26 @@ describe("SettingsUtil", () => {
             reviewReminderPlaySound: DEFAULT_SETTINGS.reviewReminderPlaySound,
             reviewReminderBounceDock: DEFAULT_SETTINGS.reviewReminderBounceDock,
         });
+
+        settings = {
+            ...DEFAULT_SETTINGS,
+            automationEnabled: true,
+            automationWriteAccess: true,
+            automationQueueEnabled: true,
+            automationAccessToken: undefined as unknown as string,
+            automationAllowedDeckPaths: undefined as unknown as string[],
+            automationMaxBatchSize: 10_000,
+            automationAuditRetention: 0,
+        };
+        upgradeSettings(settings);
+        expect(settings).toMatchObject({
+            automationEnabled: true,
+            automationWriteAccess: true,
+            automationQueueEnabled: true,
+            automationAccessToken: "",
+            automationAllowedDeckPaths: [],
+            automationMaxBatchSize: 1000,
+            automationAuditRetention: 1000,
+        });
     });
 });

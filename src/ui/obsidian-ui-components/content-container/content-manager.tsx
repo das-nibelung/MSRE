@@ -672,6 +672,13 @@ export default class ContentManager {
                     leechThreshold: area?.scheduling?.leechThreshold ?? deckOptions.leechThreshold,
                     leechAction: area?.scheduling?.leechAction ?? deckOptions.leechAction,
                 });
+                if (
+                    snapshot.reviewLogId &&
+                    typeof this.plugin.isApiLoaded === "function" &&
+                    this.plugin.isApiLoaded()
+                ) {
+                    this.plugin.api.notifyReviewRecorded(snapshot.reviewLogId);
+                }
             } catch (error) {
                 console.warn("MSRE: Unable to record review history", error);
             }

@@ -1,5 +1,5 @@
 import "src/ui/obsidian-ui-components/content-container/settings-page/data-page.css";
-import { ButtonComponent, Notice, setIcon, Setting, SettingGroup } from "obsidian";
+import { ButtonComponent, Notice, setIcon, Setting, SettingGroup, TFile } from "obsidian";
 
 import {
     CollectionIntegrityIssue,
@@ -52,6 +52,136 @@ export class DataPage extends SettingsPage {
 
         this.safetyEl = this.containerEl.createDiv("sr-collection-safety");
         void this.renderCollectionSafety();
+
+        const automationGroup = new SettingGroup(this.containerEl).setHeading("Automation & MCP");
+        automationGroup
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Enable automation API")
+                    .setDesc("Expose the versioned API to trusted Obsidian plugins and scripts.")
+                    .addToggle((toggle) =>
+                        toggle
+                            .setValue(this.settingsManager.settings.automationEnabled)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.automationEnabled = value;
+                                await this.settingsManager.save();
+                                if (value) await this.plugin.api.start();
+                                else this.plugin.api.bridge.stop();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Allow changes")
+                    .setDesc("Required for creating decks, cards, media, and editing fields.")
+                    .addToggle((toggle) =>
+                        toggle
+                            .setValue(this.settingsManager.settings.automationWriteAccess)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.automationWriteAccess = value;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Enable MCP queue")
+                    .setDesc("Process signed requests from the vault-local Automation inbox.")
+                    .addToggle((toggle) =>
+                        toggle
+                            .setValue(this.settingsManager.settings.automationQueueEnabled)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.automationQueueEnabled = value;
+                                await this.settingsManager.save();
+                                if (value) await this.plugin.api.start();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Allowed deck paths")
+                    .setDesc("Optional comma-separated roots. Leave empty to allow every deck.")
+                    .addText((text) =>
+                        text
+                            .setPlaceholder("Medicine, Law/Private")
+                            .setValue(
+                                this.settingsManager.settings.automationAllowedDeckPaths.join(", "),
+                            )
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.automationAllowedDeckPaths = value
+                                    .split(",")
+                                    .map((path) => path.trim())
+                                    .filter(Boolean);
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Maximum cards per import")
+                    .setDesc("Limits a single external request.")
+                    .addText((text) => {
+                        text.inputEl.type = "number";
+                        text.inputEl.min = "1";
+                        text.inputEl.max = "1000";
+                        text.setValue(
+                            String(this.settingsManager.settings.automationMaxBatchSize),
+                        ).onChange(async (value) => {
+                            this.settingsManager.settings.automationMaxBatchSize = Math.max(
+                                1,
+                                Math.min(1000, Number.parseInt(value, 10) || 1),
+                            );
+                            await this.settingsManager.save();
+                        });
+                    });
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Access token")
+                    .setDesc("Keep this secret. Regenerating it disconnects existing clients.")
+                    .addButton((button) =>
+                        button.setButtonText("Copy").onClick(async () => {
+                            await navigator.clipboard.writeText(
+                                await this.plugin.api.ensureAccessToken(),
+                            );
+                            new Notice("Automation token copied");
+                        }),
+                    )
+                    .addExtraButton((button) =>
+                        button
+                            .setIcon("refresh-cw")
+                            .setTooltip("Regenerate token")
+                            .onClick(async () => {
+                                this.settingsManager.settings.automationAccessToken = "";
+                                await this.settingsManager.save();
+                                await this.plugin.api.ensureAccessToken();
+                                new Notice("Automation token regenerated");
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Queue and action log")
+                    .setDesc("Process pending requests or inspect the local automation audit log.")
+                    .addButton((button) =>
+                        button.setButtonText("Process now").onClick(async () => {
+                            const count = await this.plugin.api.bridge.processNow();
+                            new Notice(
+                                `Processed ${count} automation request${count === 1 ? "" : "s"}`,
+                            );
+                        }),
+                    )
+                    .addButton((button) =>
+                        button.setButtonText("Open log").onClick(async () => {
+                            const file = this.plugin.app.vault.getAbstractFileByPath(
+                                this.plugin.api.bridge.auditPath,
+                            );
+                            if (file instanceof TFile) {
+                                await this.plugin.app.workspace.getLeaf("tab").openFile(file);
+                            }
+                        }),
+                    );
+            });
 
         // TODO: Implement this when the other data stores are implemented
 

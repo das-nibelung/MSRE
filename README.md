@@ -17,6 +17,15 @@ Install the fork separately on desktop and iPhone. Disable the official
 `Spaced Repetition` plugin before enabling this fork so that both plugins do not
 write scheduling information to the same notes.
 
+## Automation and MCP
+
+Stage 15 adds a versioned API for QuickAdd, Templater, DataviewJS, and other
+trusted Obsidian plugins, protected `obsidian://msre` actions, and a local MCP
+server for agents. Cards remain ordinary Markdown files; external tools submit
+validated operations through MSRE instead of editing the collection directly.
+Enable the API, write access, and MCP queue independently in **Settings → Data**.
+See [the API guide](docs/automation-api.md) and [MCP setup](mcp/README.md).
+
 ## Obsidian-native card workflow
 
 The fork includes a persistent **Cards** view that uses the already-loaded

@@ -1,5 +1,10 @@
-import { Plugin } from "obsidian";
+import { Notice, Plugin } from "obsidian";
 
+import {
+    AutomationOperationKind,
+    AutomationOperationPayloadMap,
+} from "src/automation/automation-types";
+import { PersonalSpacedRepetitionApi } from "src/automation/public-api";
 import { CommandManager } from "src/command-manager";
 import { DataManager } from "src/data/data-manager";
 import { DebugLoggerInstance } from "src/data/debug-logger";
@@ -21,6 +26,7 @@ export default class SRPlugin extends Plugin {
     private _nextNoteReviewHandler: NextNoteReviewHandler | null = null;
     private _commandManager: CommandManager | null = null;
     private _reminderManager: ReminderManager | null = null;
+    private _api: PersonalSpacedRepetitionApi | null = null;
     public isInitialized: boolean = false;
 
     async onload(): Promise<void> {
@@ -37,6 +43,7 @@ export default class SRPlugin extends Plugin {
             );
 
             this.dataManager = new DataManager(this, pluginDataManager, settingsManager);
+            this._api = new PersonalSpacedRepetitionApi(this);
             const uiManager = new UIManager(this, settingsManager);
             this.uiManager = uiManager;
             this.commandManager = new CommandManager(this, settingsManager, uiManager);
@@ -66,7 +73,35 @@ export default class SRPlugin extends Plugin {
                 this._reminderManager = new ReminderManager(this, this.uiManager, this.dataManager);
 
                 this.isInitialized = true;
+                await this.api.start();
                 this._reminderManager.restartReviewReminders();
+            });
+
+            this.registerObsidianProtocolHandler("msre", async (params) => {
+                if (!this.isInitialized) return;
+                const action = params.action ?? "open-creator";
+                if (action === "open-creator") {
+                    await this.uiManager.openNativeCardCreator();
+                    return;
+                }
+                if (action === "open-browser") {
+                    await this.uiManager.openCardBrowser();
+                    return;
+                }
+                const operation = action as AutomationOperationKind;
+                if (!this.api.capabilities.includes(operation)) {
+                    new Notice("MSRE: Unsupported automation action");
+                    return;
+                }
+                try {
+                    const payload = this.uriPayload(operation, params);
+                    await this.api.executeUri(operation, payload, params.token ?? "");
+                    new Notice("MSRE: Automation completed");
+                } catch (error) {
+                    new Notice(
+                        `MSRE: ${error instanceof Error ? error.message : "Automation failed"}`,
+                    );
+                }
             });
         } catch (error) {
             if (error instanceof PluginDataError || error instanceof Error) {
@@ -85,6 +120,15 @@ export default class SRPlugin extends Plugin {
     get reminderManager(): ReminderManager {
         if (this._reminderManager === null) throw new Error("Reminder manager not initialized!!!");
         return this._reminderManager;
+    }
+
+    get api(): PersonalSpacedRepetitionApi {
+        if (this._api === null) throw new Error("Public API not initialized!!!");
+        return this._api;
+    }
+
+    isApiLoaded(): boolean {
+        return this._api !== null;
     }
 
     get uiManager(): UIManager {
@@ -129,11 +173,12 @@ export default class SRPlugin extends Plugin {
     }
 
     onunload(): void {
-        this.reminderManager.stopReviewReminders();
-        this.dataManager.close();
+        this._api?.stop();
+        this._reminderManager?.stopReviewReminders();
+        this._dataManager?.close();
         this.app.workspace.getLeavesOfType(REVIEW_QUEUE_VIEW_TYPE).forEach((leaf) => leaf.detach());
-        this.uiManager.destroy();
-        this.commandManager.onunload();
+        this._uiManager?.destroy();
+        this._commandManager?.onunload();
     }
 
     public addCustomHotkeys() {
@@ -162,5 +207,34 @@ export default class SRPlugin extends Plugin {
         if (this.dataManager.data.settings.enableNoteReviewPaneOnStartup) {
             this.uiManager.sidebarManager.redraw();
         }
+    }
+
+    private uriPayload(
+        operation: AutomationOperationKind,
+        params: Record<string, string>,
+    ): AutomationOperationPayloadMap[AutomationOperationKind] {
+        if (params.payload) {
+            return JSON.parse(
+                params.payload,
+            ) as AutomationOperationPayloadMap[AutomationOperationKind];
+        }
+        if (operation === "create-card") {
+            return {
+                deckPath: params.deck ?? "Inbox",
+                type: params.type === "cloze" || params.type === "reversed" ? params.type : "basic",
+                front: params.front ?? "",
+                back: params.back ?? "",
+                tags: params.tags
+                    ?.split(",")
+                    .map((tag) => tag.trim())
+                    .filter(Boolean),
+            };
+        }
+        if (operation === "create-deck") return { deckPath: params.deck ?? "" };
+        if (operation === "find-cards") {
+            return { query: params.query, deckPath: params.deck, noteId: params.noteId };
+        }
+        if (operation === "get-statistics" || operation === "check-integrity") return {};
+        throw new Error("payload-required");
     }
 }

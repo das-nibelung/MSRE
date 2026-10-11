@@ -9,6 +9,9 @@ on:
             - package.json
             - pnpm-lock.yaml
             - src/**
+            - mcp/**
+            - api.d.ts
+            - docs/automation-api.md
             - styles.css
             - esbuild.config.mjs
             - .github/workflows/release.yml
@@ -51,7 +54,8 @@ jobs:
             - name: Package plugin
               run: |
                   mkdir "$PLUGIN_NAME"
-                  cp build/main.js manifest.json styles.css "$PLUGIN_NAME/"
+                  cp build/main.js manifest.json styles.css api.d.ts "$PLUGIN_NAME/"
+                  cp -R mcp "$PLUGIN_NAME/"
                   zip -r "$PLUGIN_NAME.zip" "$PLUGIN_NAME"
 
             - name: Create or update GitHub release
@@ -61,11 +65,11 @@ jobs:
               run: |
                   if gh release view "$VERSION" >/dev/null 2>&1; then
                       gh release upload "$VERSION" \
-                          build/main.js manifest.json styles.css "$PLUGIN_NAME.zip" \
+                          build/main.js manifest.json styles.css api.d.ts mcp/msre-mcp-server.mjs "$PLUGIN_NAME.zip" \
                           --clobber
                   else
                       gh release create "$VERSION" \
-                          build/main.js manifest.json styles.css "$PLUGIN_NAME.zip" \
+                          build/main.js manifest.json styles.css api.d.ts mcp/msre-mcp-server.mjs "$PLUGIN_NAME.zip" \
                           --target "$GITHUB_SHA" \
                           --title "$VERSION" \
                           --notes "Personal Spaced Repetition $VERSION"

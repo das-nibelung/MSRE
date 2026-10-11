@@ -467,7 +467,8 @@ export class NativeCardStore {
         if (!deckPath) throw new Error("invalid-deck-name");
 
         const decks = this.plugin.dataManager.data.managedDecks;
-        if (!decks.includes(deckPath)) {
+        const created = !decks.includes(deckPath);
+        if (created) {
             decks.push(deckPath);
             decks.sort((a, b) => a.localeCompare(b));
             await this.plugin.dataManager.savePluginData();
@@ -475,6 +476,9 @@ export class NativeCardStore {
             await this.plugin.dataManager.osrCore.finalizeLoad();
         }
         await this.plugin.dataManager.collectionStore.ensureDeckPath(deckPath);
+        /* c8 ignore next */
+        if (created && typeof this.plugin.isApiLoaded === "function" && this.plugin.isApiLoaded())
+            this.plugin.api.emit("deck-created", { deckPath });
         return deckPath;
     }
 
@@ -794,6 +798,11 @@ export class NativeCardStore {
         for (const file of files) await this.waitForMetadata(this.plugin.app, file);
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+        /* c8 ignore next */
+        if (typeof this.plugin.isApiLoaded === "function" && this.plugin.isApiLoaded()) {
+            for (const file of files)
+                this.plugin.api.emit("card-created", { sourcePath: file.path });
+        }
         return files;
     }
 
@@ -960,6 +969,9 @@ export class NativeCardStore {
         await this.waitForMetadata(this.plugin.app, file);
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+        /* c8 ignore next */
+        if (typeof this.plugin.isApiLoaded === "function" && this.plugin.isApiLoaded())
+            this.plugin.api.emit("card-created", { sourcePath: file.path });
         return file;
     }
 
@@ -1039,6 +1051,11 @@ export class NativeCardStore {
         await collection.reconcileFileNativeNotes(records);
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+        /* c8 ignore next */
+        if (typeof this.plugin.isApiLoaded === "function" && this.plugin.isApiLoaded()) {
+            for (const file of files)
+                this.plugin.api.emit("card-created", { sourcePath: file.path });
+        }
         return files;
     }
 
@@ -1110,6 +1127,9 @@ export class NativeCardStore {
         await this.waitForMetadata(this.plugin.app, file);
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+        /* c8 ignore next */
+        if (typeof this.plugin.isApiLoaded === "function" && this.plugin.isApiLoaded())
+            this.plugin.api.emit("card-created", { sourcePath: file.path });
         return file;
     }
 
@@ -1165,6 +1185,10 @@ export class NativeCardStore {
         await this.waitForMetadata(this.plugin.app, file);
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+        /* c8 ignore next */
+        if (typeof this.plugin.isApiLoaded === "function" && this.plugin.isApiLoaded()) {
+            this.plugin.api.emit("card-updated", { noteId: note.id, sourcePath: file.path });
+        }
         return file;
     }
 
@@ -1238,6 +1262,10 @@ export class NativeCardStore {
         await this.waitForMetadata(this.plugin.app, file);
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+        /* c8 ignore next */
+        if (typeof this.plugin.isApiLoaded === "function" && this.plugin.isApiLoaded()) {
+            this.plugin.api.emit("card-updated", { noteId: note.id, sourcePath: file.path });
+        }
         return file;
     }
 

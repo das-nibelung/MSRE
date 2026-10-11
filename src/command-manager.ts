@@ -1,4 +1,4 @@
-import { Editor, MarkdownView, Platform, TFile } from "obsidian";
+import { Editor, MarkdownView, Notice, Platform, TFile } from "obsidian";
 
 import { SettingsManager } from "src/data/settings-manager";
 import { t } from "src/lang/helpers";
@@ -559,6 +559,51 @@ export class CommandManager {
             callback: async () => {
                 if (!this.plugin.isInitialized) return;
                 await this.uiManager.sidebarManager.openReviewQueueView();
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-edit-cards-in-current-note",
+            name: "Edit cards in current note",
+            checkCallback: (checking) => {
+                const file = this.plugin.app.workspace.getActiveFile();
+                if (!this.plugin.isInitialized || !file || file.extension !== "md") return false;
+                if (!checking) void this.uiManager.openCardBrowser(file.path);
+                return true;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-automation-process-queue",
+            name: "Automation: Process external queue",
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                const count = await this.plugin.api.bridge.processNow();
+                new Notice(`MSRE: Processed ${count} automation request${count === 1 ? "" : "s"}`);
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-automation-copy-token",
+            name: "Automation: Copy access token",
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await navigator.clipboard.writeText(await this.plugin.api.ensureAccessToken());
+                new Notice("MSRE automation token copied");
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-check-collection-integrity",
+            name: "Check collection integrity",
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                const report = await this.plugin.dataManager.collectionStore.checkIntegrity();
+                new Notice(
+                    report.issues.length === 0
+                        ? "MSRE: Collection is healthy"
+                        : `MSRE: Found ${report.issues.length} integrity issue${report.issues.length === 1 ? "" : "s"}`,
+                );
             },
         });
     }

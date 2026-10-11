@@ -85,6 +85,15 @@ export interface SRSettings {
     reviewGestureDown: ReviewGestureAction;
     autoSuggestFsrsOptimization: boolean;
 
+    // automation and public API
+    automationEnabled: boolean;
+    automationWriteAccess: boolean;
+    automationQueueEnabled: boolean;
+    automationAccessToken: string;
+    automationAllowedDeckPaths: string[];
+    automationMaxBatchSize: number;
+    automationAuditRetention: number;
+
     // algorithm
     algorithm: SRAlgorithmType;
     baseEase: number;
@@ -190,6 +199,15 @@ export const DEFAULT_SETTINGS: SRSettings = {
     reviewGestureDown: "hard",
     autoSuggestFsrsOptimization: true,
 
+    // automation and public API
+    automationEnabled: false,
+    automationWriteAccess: false,
+    automationQueueEnabled: false,
+    automationAccessToken: "",
+    automationAllowedDeckPaths: [],
+    automationMaxBatchSize: 100,
+    automationAuditRetention: 1000,
+
     // algorithm
     algorithm: SRAlgorithmType.SM_2_OSR,
     baseEase: 250,
@@ -272,6 +290,24 @@ export function upgradeSettings(settings: SRSettings) {
     settings.reviewSessionMinutes = Math.max(0, Number(settings.reviewSessionMinutes) || 0);
     settings.reviewUndoDepth = Math.max(1, Math.min(100, Number(settings.reviewUndoDepth) || 20));
     settings.reviewAheadDays = Math.max(0, Math.min(365, Number(settings.reviewAheadDays) || 0));
+    settings.automationEnabled = settings.automationEnabled === true;
+    settings.automationWriteAccess = settings.automationWriteAccess === true;
+    settings.automationQueueEnabled = settings.automationQueueEnabled === true;
+    settings.automationAccessToken = String(settings.automationAccessToken ?? "");
+    settings.automationAllowedDeckPaths = Array.isArray(settings.automationAllowedDeckPaths)
+        ? settings.automationAllowedDeckPaths
+              .map(String)
+              .map((path) => path.trim())
+              .filter(Boolean)
+        : [];
+    settings.automationMaxBatchSize = Math.max(
+        1,
+        Math.min(1000, Number(settings.automationMaxBatchSize) || 100),
+    );
+    settings.automationAuditRetention = Math.max(
+        50,
+        Math.min(10_000, Number(settings.automationAuditRetention) || 1000),
+    );
 
     // Only published reminder settings are upgraded here. We deliberately do not preserve
     // unpublished draft field names from this feature branch, so the shipped schema stays clean.
