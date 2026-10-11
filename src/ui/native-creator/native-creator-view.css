@@ -2439,6 +2439,300 @@
     }
 }
 
+/* Stage 16: compact mobile authoring and progressive note-type editing. */
+.sr-native-top-tools {
+    display: flex;
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+    gap: 2px;
+}
+
+.sr-native-top-tools .sr-native-icon-button {
+    width: 38px;
+    min-width: 38px;
+    min-height: 38px;
+    border-radius: 11px;
+}
+
+.sr-native-creator-top-card .sr-native-section-picker {
+    grid-column: 2;
+}
+
+.sr-native-creator-top-card {
+    grid-template-columns: 48px minmax(110px, auto) minmax(0, 1fr) auto;
+}
+
+.sr-native-creator-top-card .sr-native-creator-heading {
+    display: none;
+}
+
+.sr-native-creator-top-card .sr-native-top-save {
+    grid-column: 4;
+}
+
+.sr-native-card-utility:has(.sr-native-quick-hint) {
+    display: none;
+}
+
+.sr-native-card-editor .sr-native-form-actions {
+    position: static;
+    margin: 2px 0 0;
+    padding: 14px 0 0;
+    border-top: 1px solid var(--background-modifier-border);
+    background: transparent;
+    backdrop-filter: none;
+}
+
+.sr-native-full-preview {
+    display: flex;
+    padding: 0;
+    flex-direction: column;
+    gap: 0;
+    overflow: hidden;
+}
+
+.sr-native-full-preview-heading {
+    min-height: 48px;
+    padding: 6px 8px 6px 14px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.sr-native-preview-switcher,
+.sr-note-template-preview-surfaces,
+.sr-note-type-editor-navigation {
+    display: flex;
+    min-width: 0;
+    gap: 3px;
+    padding: 3px;
+    border-radius: 11px;
+    background: var(--background-secondary);
+}
+
+.sr-native-preview-switcher button,
+.sr-note-template-preview-surfaces button,
+.sr-note-type-editor-navigation button {
+    min-height: 34px;
+    padding: 5px 11px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    white-space: nowrap;
+}
+
+.sr-native-preview-switcher button.is-active,
+.sr-note-template-preview-surfaces button.is-active,
+.sr-note-type-editor-navigation button.is-active {
+    background: var(--background-primary);
+    color: var(--text-normal);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 14%);
+}
+
+.sr-native-full-preview-face {
+    min-height: 132px;
+    padding: 18px;
+    border-radius: 0;
+    background: transparent;
+}
+
+.sr-note-type-editor-surface {
+    gap: 14px;
+}
+
+.sr-note-type-editor-header {
+    min-height: 40px;
+    padding: 0;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+}
+
+.sr-note-type-editor-header > button {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+}
+
+.sr-note-type-editor-navigation {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.sr-note-type-editor-navigation::-webkit-scrollbar {
+    display: none;
+}
+
+.sr-note-type-editor-navigation button {
+    flex: 1 0 auto;
+    min-height: 42px;
+    justify-content: center;
+    gap: 7px;
+}
+
+.sr-note-type-editor-navigation small {
+    display: grid;
+    min-width: 20px;
+    height: 20px;
+    place-items: center;
+    padding-inline: 5px;
+    border-radius: 999px;
+    background: var(--background-modifier-hover);
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
+.sr-note-type-editor-workspace {
+    min-width: 0;
+}
+
+.sr-note-type-editor-workspace .sr-note-type-section {
+    padding: 0;
+}
+
+.sr-note-type-editor-workspace .sr-note-field-row,
+.sr-note-type-editor-workspace .sr-note-template-card {
+    border-inline: 0;
+    border-radius: 0;
+}
+
+.sr-note-type-editor-workspace .sr-note-type-definition-list,
+.sr-note-type-editor-workspace .sr-note-template-list {
+    gap: 1px;
+    overflow: hidden;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 15px;
+    background: var(--background-modifier-border);
+}
+
+.sr-note-template-preview.is-standalone {
+    gap: 12px;
+}
+
+.sr-note-template-preview-surfaces {
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.sr-note-template-preview-surfaces button {
+    flex: 1 0 auto;
+}
+
+.sr-note-template-preview-faces,
+.sr-note-template-preview-faces.is-phone {
+    width: 100%;
+    max-width: none;
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.sr-note-template-preview-face {
+    min-height: 180px;
+    padding: 18px;
+}
+
+.sr-note-preview-template-selector {
+    display: flex;
+    gap: 7px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.sr-note-preview-template-selector button {
+    min-height: 36px;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    box-shadow: none;
+}
+
+.sr-note-preview-template-selector button.is-active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+@media (max-width: 600px) {
+    .sr-native-creator-top-card {
+        display: grid;
+        grid-template-columns: 42px minmax(78px, auto) minmax(102px, 1fr) auto;
+        gap: 5px;
+    }
+
+    .sr-native-creator-top-card .sr-native-section-picker {
+        min-width: 0;
+        padding-inline: 9px;
+    }
+
+    .sr-native-creator-top-card .sr-native-section-picker-icon {
+        display: none;
+    }
+
+    .sr-native-creator-top-card .sr-native-top-save {
+        min-height: 42px;
+        padding-inline: 12px;
+    }
+
+    .sr-native-top-tools {
+        justify-self: stretch;
+        justify-content: flex-end;
+    }
+
+    .sr-native-top-tools .sr-native-icon-button {
+        width: 34px;
+        min-width: 34px;
+        height: 38px;
+        min-height: 38px;
+        padding: 0;
+    }
+
+    .sr-native-card-utility:has(.sr-native-quick-queue) {
+        position: static;
+        padding: 0 0 8px;
+        background: transparent;
+        backdrop-filter: none;
+    }
+
+    .sr-native-card-editor .sr-native-form-actions {
+        position: static;
+        z-index: auto;
+        padding: 12px 0 0;
+    }
+
+    .sr-note-type-editor-surface {
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+    }
+
+    .sr-note-type-editor-workspace .sr-note-type-section-heading p {
+        display: none;
+    }
+
+    .sr-note-template-card {
+        padding: 12px 10px;
+    }
+
+    .sr-note-template-preview-toolbar {
+        align-items: flex-start;
+    }
+}
+
+@media (max-width: 380px) {
+    .sr-native-creator-top-card {
+        grid-template-columns: 40px minmax(70px, auto) minmax(96px, 1fr) auto;
+    }
+
+    .sr-native-top-tools .sr-native-icon-button {
+        width: 31px;
+        min-width: 31px;
+    }
+
+    .sr-native-creator-top-card .sr-native-section-picker-chevron {
+        display: none;
+    }
+}
+
 /* Stage 11: one compact creation surface instead of stacked control cards. */
 .sr-native-card-utility {
     display: flex;
@@ -3040,5 +3334,39 @@
 
     .sr-transfer-preview-header {
         align-items: center;
+    }
+}
+
+/* Final cascade guards for the compact creator. */
+.sr-native-full-preview {
+    display: flex;
+    padding: 0;
+    flex-direction: column;
+    gap: 0;
+    overflow: hidden;
+}
+
+.sr-native-full-preview-heading {
+    min-height: 48px;
+    padding: 6px 8px 6px 14px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.sr-native-full-preview-face {
+    min-height: 132px;
+    padding: 18px;
+    border-radius: 0;
+    background: transparent;
+}
+
+@media (max-width: 600px) {
+    .sr-native-card-editor .sr-native-form-actions {
+        position: static;
+        z-index: auto;
+        margin: 2px 0 0;
+        padding: 12px 0 0;
+        border-top: 1px solid var(--background-modifier-border);
+        background: transparent;
+        backdrop-filter: none;
     }
 }
