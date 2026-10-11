@@ -32,9 +32,9 @@ The repository root is also a valid Codex plugin (`.codex-plugin/plugin.json` + 
 The **MCP / Codex** route in the card editor never sends a request to a fixed model. It places a transparent request in `Automation/AI/Requests`. A connected agent can:
 
 1. call `list_ai_requests`;
-2. create grounded card drafts from the request's source and task;
-3. call `resolve_ai_request` with `{ requestId, result: { summary, cards } }`, or `reject_ai_request`.
+2. create grounded card drafts or a field-level editing proposal from the request's source and task;
+3. call `resolve_ai_request` with `{ requestId, result: { summary, cards, replacement, acceptedAnswers, hint, explanation } }`, or `reject_ai_request`. Unused result fields may be omitted for MCP responses.
 
-The proposal returns to the open card editor, where the user selects which cards to apply. The agent cannot silently save those cards. This works with Codex when this MCP server is installed as a Codex plugin/server, and with any compatible local MCP client.
+The proposal returns to the open card editor, where the user reviews it before applying. Field-level requests contain only the selected text or the active field, never the whole vault. The agent cannot silently save a change. This works with Codex when this MCP server is installed as a Codex plugin/server, and with any compatible local MCP client.
 
 Another Obsidian plugin can provide Codex or a different model directly without using the queue by calling `plugin.api.registerAiProvider(...)`; see `api.d.ts` for the contract. This is the portable option for mobile integrations that already have their own authenticated model connection.

@@ -14,6 +14,7 @@ import {
     OCCLUSION_ASSETS_FIELD_ID,
 } from "src/data/collection/builtin-note-types";
 import {
+    AnswerPartDefinition,
     CardFlag,
     CardTemplateDefinition,
     NoteTypeDefinition,
@@ -349,6 +350,24 @@ export class CardContainer {
 
     private getAnswerContext(sessionData: SessionData): AnswerEvaluationContext | null {
         const card = sessionData.cardData.currentCard;
+        const answerMetadataSource = `${card.back}\n${card.question.questionText.actualQuestion}`;
+        const acceptedMarker = answerMetadataSource.match(
+            /<!--\s*sr-accepted-answers:\s*([^]*?)\s*-->/i,
+        );
+        let cardAcceptedAnswers: string[] = [];
+        try {
+            const parsed = acceptedMarker
+                ? (JSON.parse(decodeURIComponent(acceptedMarker[1].trim())) as unknown)
+                : [];
+            if (Array.isArray(parsed)) {
+                cardAcceptedAnswers = parsed.filter(
+                    (answer): answer is string =>
+                        typeof answer === "string" && Boolean(answer.trim()),
+                );
+            }
+        } catch {
+            cardAcceptedAnswers = [];
+        }
         const note = this.plugin.dataManager.collectionStore.findNoteBySource(
             sessionData.currentNote.filePath,
             card.storageInfo?.questionId,
@@ -383,6 +402,14 @@ export class CardContainer {
                 ? (note?.fields[template.answerFieldId]?.trim() ?? "")
                 : "";
             let answerConfig = normalizeAnswerConfig(template.answerConfig);
+            if (cardAcceptedAnswers.length) {
+                answerConfig = {
+                    ...answerConfig,
+                    acceptedAnswers: [
+                        ...new Set([...answerConfig.acceptedAnswers, ...cardAcceptedAnswers]),
+                    ],
+                };
+            }
             if (note?.noteTypeId === IMAGE_OCCLUSION_NOTE_TYPE_ID && !expected) {
                 try {
                     const assets = JSON.parse(
@@ -403,12 +430,12 @@ export class CardContainer {
                         ...answerConfig,
                         acceptedAnswers: asset?.acceptedLabels ?? [],
                         parts:
-                            asset?.answers?.map((answer, index) => ({
+                            asset?.answers?.map<AnswerPartDefinition>((answer, index) => ({
                                 id: answer.id,
                                 label:
                                     answer.concepts?.filter(Boolean).join(" · ") ||
                                     `Region ${index + 1}`,
-                                answerFieldId: null as string | null,
+                                answerFieldId: null,
                                 acceptedAnswers: [answer.label, ...(answer.acceptedLabels ?? [])]
                                     .map((value) => value.trim())
                                     .filter(Boolean),
@@ -430,9 +457,15 @@ export class CardContainer {
             };
         }
         if (canonicalAnswerMode(note?.answerMode) === "text") {
+            const expected = card.back
+                .replace(/<!--[^]*?-->/g, " ")
+                .replace(/<[^>]+>/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
             return {
                 mode: "text",
-                expected: "",
+                expected,
+                config: { acceptedAnswers: cardAcceptedAnswers },
                 values: this.answerValue,
                 fieldValues: note?.fields ?? {},
             };
@@ -442,6 +475,7 @@ export class CardContainer {
             ? {
                   mode: "text",
                   expected: decodeURIComponent(fallback[1].trim()),
+                  config: { acceptedAnswers: cardAcceptedAnswers },
                   values: this.answerValue,
               }
             : null;

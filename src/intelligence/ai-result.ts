@@ -4,7 +4,7 @@ const MAX_CARDS = 12;
 
 export function normalizeAiResult(value: unknown): AiAssistantResult {
     if (!value || typeof value !== "object") throw new Error("invalid-ai-response");
-    const record = value as { cards?: unknown; summary?: unknown };
+    const record = value as Record<string, unknown>;
     if (!Array.isArray(record.cards)) throw new Error("invalid-ai-response");
     const cards = record.cards.slice(0, MAX_CARDS).flatMap((candidate): AiCardDraft[] => {
         if (!candidate || typeof candidate !== "object") return [];
@@ -34,9 +34,32 @@ export function normalizeAiResult(value: unknown): AiAssistantResult {
             },
         ];
     });
-    if (cards.length === 0) throw new Error("empty-ai-response");
+    const replacement = typeof record.replacement === "string" ? record.replacement.trim() : "";
+    const acceptedAnswers = Array.isArray(record.acceptedAnswers)
+        ? record.acceptedAnswers
+              .filter((answer): answer is string => typeof answer === "string")
+              .map((answer) => answer.trim())
+              .filter(Boolean)
+              .filter((answer, index, all) => all.indexOf(answer) === index)
+              .slice(0, 24)
+        : [];
+    const hint = typeof record.hint === "string" ? record.hint.trim() : "";
+    const explanation = typeof record.explanation === "string" ? record.explanation.trim() : "";
+    if (
+        cards.length === 0 &&
+        !replacement &&
+        acceptedAnswers.length === 0 &&
+        !hint &&
+        !explanation
+    ) {
+        throw new Error("empty-ai-response");
+    }
     return {
         cards,
         summary: typeof record.summary === "string" ? record.summary.trim() : undefined,
+        replacement: replacement || undefined,
+        acceptedAnswers: acceptedAnswers.length ? acceptedAnswers : undefined,
+        hint: hint || undefined,
+        explanation: explanation || undefined,
     };
 }

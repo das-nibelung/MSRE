@@ -22,7 +22,7 @@ Available methods: `createCard`, `createDeck`, `addMedia`, `findCards`, `updateN
 
 ## AI provider plugins
 
-The native card editor includes an AI co-author with a review-before-apply workflow. Another Obsidian plugin can add a provider—Codex included—without writing cards itself:
+The native card editor includes an AI co-author and a field-scoped intelligent editor with a review-before-apply workflow. Another Obsidian plugin can add a provider—Codex included—without writing cards itself:
 
 ```js
 const unregister = api.registerAiProvider({
@@ -34,6 +34,8 @@ const unregister = api.registerAiProvider({
         return {
             summary: "Atomic study prompts",
             cards: [{ front: "Question", back: "Answer", type: "basic", tags: [] }],
+            // Field-level tasks may instead return replacement, acceptedAnswers, hint,
+            // or explanation. Only the active field/selection is sent for those tasks.
         };
     },
 });
