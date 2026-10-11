@@ -34,6 +34,7 @@ import {
 import { FileNativeStore } from "src/data/file-native/file-native-store";
 import { PluginData } from "src/data/plugin-data";
 import { PluginDataManager } from "src/data/plugin-data-manager";
+import { AtomicVaultWriter, VaultRecoveryReport } from "src/data/reliability/atomic-vault-writer";
 import { SettingsUtil, SRSettings } from "src/data/settings";
 import { SettingsManager } from "src/data/settings-manager";
 import { t } from "src/lang/helpers";
@@ -62,6 +63,7 @@ export class DataManager {
     private cardIndex: IncrementalCardIndex;
     private scheduleLedger: ScheduleLedger | null = null;
     public readonly collectionStore: CollectionStore;
+    public readonly vaultWriter: AtomicVaultWriter;
     private readonly fileNativeStore: FileNativeStore;
     private hasLoadedVault = false;
     private lastSyncContext: string | null = null;
@@ -83,8 +85,11 @@ export class DataManager {
             createCardIndexStorage(databaseName),
             plugin.getObsidianRtlSetting(),
         );
-        this.collectionStore = new CollectionStore(new VaultCollectionStorage(plugin.app.vault));
-        this.fileNativeStore = new FileNativeStore(plugin.app.vault);
+        this.vaultWriter = new AtomicVaultWriter(plugin.app.vault);
+        this.collectionStore = new CollectionStore(
+            new VaultCollectionStorage(plugin.app.vault, this.vaultWriter),
+        );
+        this.fileNativeStore = new FileNativeStore(plugin.app.vault, this.vaultWriter);
         this.registerCardIndexEvents();
     }
 
@@ -142,6 +147,8 @@ export class DataManager {
         noteReviewQueue: NoteReviewQueue,
         onOsrVaultDataChanged: () => Promise<void>,
     ): Promise<void> {
+        const recovery = await this.vaultWriter.recover();
+        this.reportVaultRecovery(recovery);
         await this.collectionStore.initialize();
         await this.hydrateFileNativeState();
         this.collectionStore.setChangeListener(() =>
@@ -164,6 +171,24 @@ export class DataManager {
             this.cardIndex,
         );
         this.applyManagedDecks();
+    }
+
+    private reportVaultRecovery(report: VaultRecoveryReport): void {
+        if (report.recovered > 0) {
+            new Notice(`Spaced Repetition recovered ${report.recovered} interrupted save(s).`);
+        }
+        if (report.conflicts > 0) {
+            new Notice(
+                `Spaced Repetition preserved ${report.conflicts} sync conflict(s) in Spaced Repetition/Recovery/Conflicts.`,
+                10_000,
+            );
+        }
+        if (report.failed > 0) {
+            new Notice(
+                `Spaced Repetition could not automatically recover ${report.failed} save(s). Recovery data was kept.`,
+                10_000,
+            );
+        }
     }
 
     /** Applies deck paths created through the native UI to the in-memory deck tree. */
@@ -364,8 +389,8 @@ export class DataManager {
                 createdAt: note.createdAt,
                 updatedAt: note.updatedAt,
             };
-            await this.plugin.app.vault.modify(
-                file,
+            await this.vaultWriter.writeText(
+                file.path,
                 writeFileNativeDocument(contents, [...(manifest?.notes ?? []), record]),
             );
         }
@@ -547,6 +572,7 @@ export class DataManager {
             this.plugin.app.metadataCache,
             this.plugin.app.fileManager,
             note,
+            this.vaultWriter,
         );
     }
 
@@ -559,7 +585,7 @@ export class DataManager {
         switch (settings.dataStore) {
             case StorageType.NOTES: {
                 const scheduleLedger = new ScheduleLedger(
-                    new VaultScheduleLedgerStorage(this.plugin.app.vault),
+                    new VaultScheduleLedgerStorage(this.plugin.app.vault, this.vaultWriter),
                 );
                 this.scheduleLedger = scheduleLedger;
                 DataStore.instance = new NotesDataStore(

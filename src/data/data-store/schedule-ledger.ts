@@ -1,6 +1,7 @@
 import { TFile, Vault } from "obsidian";
 
 import { ISerializedScheduleEntry } from "src/data/plugin-data";
+import { AtomicVaultWriter } from "src/data/reliability/atomic-vault-writer";
 import { RepItemScheduleFactory } from "src/scheduling/algorithms/base/rep-item-info-factory";
 import { RepItemScheduleInfo } from "src/scheduling/algorithms/base/rep-item-schedule-info";
 
@@ -30,7 +31,10 @@ export interface ScheduleLedgerStorage {
 }
 
 export class VaultScheduleLedgerStorage implements ScheduleLedgerStorage {
-    constructor(private readonly vault: Vault) {}
+    constructor(
+        private readonly vault: Vault,
+        private readonly writer?: AtomicVaultWriter,
+    ) {}
 
     async read(): Promise<string | null> {
         const file = this.vault.getAbstractFileByPath(SCHEDULE_LEDGER_PATH);
@@ -38,6 +42,10 @@ export class VaultScheduleLedgerStorage implements ScheduleLedgerStorage {
     }
 
     async write(content: string): Promise<void> {
+        if (this.writer) {
+            await this.writer.writeText(SCHEDULE_LEDGER_PATH, content);
+            return;
+        }
         let file = this.vault.getAbstractFileByPath(SCHEDULE_LEDGER_PATH);
         if (file instanceof TFile) {
             await this.vault.modify(file, content);

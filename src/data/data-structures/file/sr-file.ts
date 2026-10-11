@@ -8,6 +8,7 @@ import {
     Vault,
 } from "obsidian";
 
+import { AtomicVaultWriter } from "src/data/reliability/atomic-vault-writer";
 import { parseObsidianFrontmatterTag, TextDirection } from "src/utils/strings";
 
 /**
@@ -49,7 +50,13 @@ export abstract class SRTFile implements ISRFile {
     vault: Vault; // Reference to the Obsidian Vault
     metadataCache: MetadataCache; // Reference to the Obsidian MetadataCache
 
-    constructor(vault: Vault, metadataCache: MetadataCache, fileManager: FileManager, file: TFile) {
+    constructor(
+        vault: Vault,
+        metadataCache: MetadataCache,
+        fileManager: FileManager,
+        file: TFile,
+        private readonly writer?: AtomicVaultWriter,
+    ) {
         this.vault = vault;
         this.metadataCache = metadataCache;
         this.file = file;
@@ -221,6 +228,7 @@ export abstract class SRTFile implements ISRFile {
      * @returns {Promise<void>} - A promise that resolves when the content is written to the file.
      */
     async write(content: string): Promise<void> {
-        await this.vault.modify(this.file, content);
+        if (this.writer) await this.writer.writeText(this.file.path, content);
+        else await this.vault.modify(this.file, content);
     }
 }

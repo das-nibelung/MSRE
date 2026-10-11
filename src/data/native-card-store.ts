@@ -653,7 +653,9 @@ export class NativeCardStore {
                     : note;
             });
             const updated = notes ? writeFileNativeDocument(updatedVisible, notes) : updatedVisible;
-            if (updated !== contents) await this.plugin.app.vault.modify(file, updated);
+            if (updated !== contents) {
+                await this.writeVaultText(file.path, updated);
+            }
         }
         await this.plugin.dataManager.collectionStore.moveNotesBySource(sources, normalizedDeck);
         await this.plugin.dataManager.sync();
@@ -676,7 +678,7 @@ export class NativeCardStore {
                     ? { ...note, tags: [...tags], updatedAt: Date.now() }
                     : note,
             );
-            await this.plugin.app.vault.modify(file, writeFileNativeDocument(contents, notes));
+            await this.writeVaultText(file.path, writeFileNativeDocument(contents, notes));
         }
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
@@ -769,7 +771,7 @@ export class NativeCardStore {
                 visibleContents,
             ),
         ]);
-        const file = await this.plugin.app.vault.create(path, contents);
+        const file = await this.writeVaultText(path, contents);
         await this.plugin.dataManager.collectionStore.createNativeNote({
             id: noteId,
             type: draft.type,
@@ -843,7 +845,7 @@ export class NativeCardStore {
                 visibleContents,
             ),
         ]);
-        const file = await this.plugin.app.vault.create(path, contents);
+        const file = await this.writeVaultText(path, contents);
         await collection.createNote({
             id: noteId,
             noteTypeId: noteType.id,
@@ -911,7 +913,7 @@ export class NativeCardStore {
                 visibleContents,
             ),
         ]);
-        const file = await this.plugin.app.vault.create(path, contents);
+        const file = await this.writeVaultText(path, contents);
         await collection.createNote({
             id: noteId,
             noteTypeId: IMAGE_OCCLUSION_NOTE_TYPE_ID,
@@ -1113,6 +1115,17 @@ export class NativeCardStore {
         }
     }
 
+    private async writeVaultText(path: string, contents: string): Promise<TFile> {
+        const writer = this.plugin.dataManager.vaultWriter;
+        if (writer) return await writer.writeText(path, contents);
+        const existing = this.plugin.app.vault.getAbstractFileByPath(path);
+        if (existing instanceof TFile) {
+            await this.plugin.app.vault.modify(existing, contents);
+            return existing;
+        }
+        return await this.plugin.app.vault.create(path, contents);
+    }
+
     private createFileNativeRecord(
         input: FileNativeRecordInput,
         visibleContents: string,
@@ -1145,7 +1158,7 @@ export class NativeCardStore {
         const previous = manifest?.notes.find((note) => note.id === input.id);
         const next = this.createFileNativeRecord(input, visibleContents, previous);
         const notes = [...(manifest?.notes ?? []).filter((note) => note.id !== input.id), next];
-        await this.plugin.app.vault.modify(file, writeFileNativeDocument(visibleContents, notes));
+        await this.writeVaultText(file.path, writeFileNativeDocument(visibleContents, notes));
     }
 
     private async waitForMetadata(app: App, file: TFile): Promise<void> {

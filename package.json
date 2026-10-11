@@ -1,6 +1,6 @@
 {
     "name": "personal-spaced-repetition",
-    "version": "1.15.4-personal.45",
+    "version": "1.15.4-personal.46",
     "description": "A mobile-compatible Obsidian spaced repetition workspace with native cards and media.",
     "main": "main.js",
     "scripts": {

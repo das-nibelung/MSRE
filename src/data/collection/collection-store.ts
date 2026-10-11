@@ -39,6 +39,7 @@ import {
     ReviewLogEntry,
 } from "src/data/collection/collection-types";
 import { FileNativeCatalog, FileNativeNoteRecord } from "src/data/file-native/file-native-format";
+import { AtomicVaultWriter } from "src/data/reliability/atomic-vault-writer";
 import { SRAlgorithmType } from "src/scheduling/algorithms/base/isr-algorithm";
 import { ISerializedFSRSScheduleData } from "src/scheduling/algorithms/fsrs/serialized-schedule-data";
 import { intervalForRetention } from "src/scheduling/fsrs/scheduler-analytics";
@@ -64,7 +65,10 @@ export interface CollectionStorage {
 }
 
 export class VaultCollectionStorage implements CollectionStorage {
-    constructor(private readonly vault: Vault) {}
+    constructor(
+        private readonly vault: Vault,
+        private readonly writer?: AtomicVaultWriter,
+    ) {}
 
     readCollection(): Promise<string | null> {
         return this.read(COLLECTION_PATH);
@@ -115,6 +119,12 @@ export class VaultCollectionStorage implements CollectionStorage {
     }
 
     private async write(path: string, content: string): Promise<void> {
+        if (this.writer) {
+            await this.writer.writeText(path, content, {
+                backup: !path.startsWith(`${COLLECTION_BACKUP_FOLDER}/`),
+            });
+            return;
+        }
         const file = this.vault.getAbstractFileByPath(path);
         if (file instanceof TFile) {
             await this.vault.modify(file, content);

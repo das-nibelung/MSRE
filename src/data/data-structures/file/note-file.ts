@@ -3,6 +3,7 @@ import { FileManager, HeadingCache, MetadataCache, TFile, Vault } from "obsidian
 
 import { ALLOWED_DATE_FORMATS, PREFERRED_DATE_FORMAT } from "src/data/constants";
 import { ISRFile, SRTFile } from "src/data/data-structures/file/sr-file";
+import { AtomicVaultWriter } from "src/data/reliability/atomic-vault-writer";
 import { RepItemScheduleInfo } from "src/scheduling/algorithms/base/rep-item-schedule-info";
 import { RepItemScheduleInfoOsr } from "src/scheduling/algorithms/osr/rep-item-schedule-info-osr";
 import { formatDate } from "src/utils/dates";
@@ -31,8 +32,14 @@ export interface ISRNoteTFile extends ISRFile {
  * @implements {ISRNoteTFile}
  */
 export class SRNoteTFile extends SRTFile implements ISRNoteTFile {
-    constructor(vault: Vault, metadataCache: MetadataCache, fileManager: FileManager, file: TFile) {
-        super(vault, metadataCache, fileManager, file);
+    constructor(
+        vault: Vault,
+        metadataCache: MetadataCache,
+        fileManager: FileManager,
+        file: TFile,
+        writer?: AtomicVaultWriter,
+    ) {
+        super(vault, metadataCache, fileManager, file, writer);
     }
 
     /**

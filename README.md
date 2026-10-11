@@ -104,6 +104,22 @@ This keeps the Obsidian model intact: the complete library can be inspected,
 versioned, backed up, and restored as normal vault files. No opaque database is
 required to preserve the meaning of a card.
 
+## Crash-safe vault writes
+
+Card edits, the portable library catalog, collection materializations, review
+history, and the schedule ledger now use one journaled vault writer. Before the
+plugin changes a file, it stores the intended contents in
+`Spaced Repetition/Recovery/Pending`, keeps a bounded snapshot of the previous
+version, verifies the completed write, and removes the temporary transaction.
+
+If Obsidian, iOS, or synchronization stops during a save, the transaction is
+replayed automatically on the next plugin start. If another device changed the
+same target in the meantime, MSRE never overwrites that newer file: the local
+candidate is preserved in `Spaced Repetition/Recovery/Conflicts` and a notice
+explains where to find it. Recovery candidates use a non-Markdown extension so
+they cannot accidentally appear as duplicate cards. Snapshots are limited to
+the twelve newest versions per file.
+
 ## Upstream project
 
 The original project, documentation, and contributor history are available at

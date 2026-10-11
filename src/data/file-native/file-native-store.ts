@@ -8,11 +8,15 @@ import {
     parseFileNativeCatalog,
     readFileNativeDocument,
 } from "src/data/file-native/file-native-format";
+import { AtomicVaultWriter } from "src/data/reliability/atomic-vault-writer";
 
 export class FileNativeStore {
     private lastCatalog = "";
 
-    constructor(private readonly vault: Vault) {}
+    constructor(
+        private readonly vault: Vault,
+        private readonly writer?: AtomicVaultWriter,
+    ) {}
 
     resetCatalogCache(): void {
         this.lastCatalog = "";
@@ -29,10 +33,13 @@ export class FileNativeStore {
     async writeCatalog(catalog: FileNativeCatalog): Promise<void> {
         const contents = formatFileNativeCatalog(catalog);
         if (contents === this.lastCatalog) return;
-        await this.ensureFolder(FILE_NATIVE_CATALOG_PATH.split("/").slice(0, -1).join("/"));
-        const file = this.vault.getAbstractFileByPath(FILE_NATIVE_CATALOG_PATH);
-        if (file instanceof TFile) await this.vault.modify(file, contents);
-        else await this.vault.create(FILE_NATIVE_CATALOG_PATH, contents);
+        if (this.writer) await this.writer.writeText(FILE_NATIVE_CATALOG_PATH, contents);
+        else {
+            await this.ensureFolder(FILE_NATIVE_CATALOG_PATH.split("/").slice(0, -1).join("/"));
+            const file = this.vault.getAbstractFileByPath(FILE_NATIVE_CATALOG_PATH);
+            if (file instanceof TFile) await this.vault.modify(file, contents);
+            else await this.vault.create(FILE_NATIVE_CATALOG_PATH, contents);
+        }
         this.lastCatalog = contents;
     }
 
