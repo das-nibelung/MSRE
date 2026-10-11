@@ -59,12 +59,20 @@ function responseSchema(): Record<string, unknown> {
     return {
         type: "object",
         additionalProperties: false,
-        required: ["summary", "cards"],
+        required: ["summary", "cards", "replacement", "acceptedAnswers", "hint", "explanation"],
         properties: {
             summary: { type: "string" },
+            replacement: { type: "string" },
+            acceptedAnswers: {
+                type: "array",
+                maxItems: 24,
+                items: { type: "string" },
+            },
+            hint: { type: "string" },
+            explanation: { type: "string" },
             cards: {
                 type: "array",
-                minItems: 1,
+                minItems: 0,
                 maxItems: MAX_CARDS,
                 items: {
                     type: "object",
@@ -90,8 +98,22 @@ function promptFor(request: AiAssistantRequest): { system: string; user: string 
         "improve-card": "Rewrite the current card to be atomic, precise, and easy to grade.",
         "split-card": "Split the material into the smallest useful independent cards.",
         "make-cloze":
-            "Create cloze cards. Put Anki-style {{c1::answer}} markup in front and the plain answer in back.",
+            "Create cloze cards. Put the full plain sentence in front without cloze markup, and put the exact answer substring from that sentence in back.",
         "suggest-answer": "Write the shortest complete answer to the current question.",
+        shorten: "Shorten SOURCE without losing any fact needed to answer it.",
+        clarify:
+            "Rewrite SOURCE so it is unambiguous. Replace vague pronouns and make the requested fact explicit.",
+        "merge-card":
+            "Merge the related facts in SOURCE into one coherent card only when they test one concept.",
+        "reverse-card": "Create the useful reverse study direction of SOURCE.",
+        "accepted-answers":
+            "List only semantically equivalent answers that should be graded correct. Do not add broader or partially correct answers.",
+        "generate-hint":
+            "Write one short hint that helps recall without revealing the answer itself.",
+        "explain-card":
+            "Explain briefly why SOURCE may be weak for spaced repetition and give concrete fixes.",
+        "generate-templates":
+            "Create several useful study directions from the same knowledge: recognition, recall, reverse, and cloze only when grounded.",
     }[request.task];
     const current = request.currentCard
         ? `\nCURRENT CARD\nFront: ${request.currentCard.front}\nBack: ${request.currentCard.back}\nType: ${request.currentCard.type}\nDeck: ${request.currentCard.deckPath}\nTags: ${request.currentCard.tags.join(", ")}`
@@ -103,7 +125,8 @@ function promptFor(request: AiAssistantRequest): { system: string; user: string 
             task,
             `Return no more than ${request.maximumCards} cards. Preserve the source language (${request.locale}).`,
             "Never invent facts absent from the source. Avoid yes/no questions, vague pronouns, and multi-part prompts.",
-            "Return only JSON with {summary, cards:[{front,back,type,tags,deckPath,rationale}] }.",
+            "Use replacement for shorten/clarify. Use acceptedAnswers for accepted-answers, hint for generate-hint, explanation for explain-card, and cards for all card-producing tasks.",
+            "Return only JSON with {summary,cards,replacement,acceptedAnswers,hint,explanation}. Use empty strings/arrays for fields not used by the task.",
         ].join("\n"),
         user: [current, `\nSOURCE\n${request.sourceText}`].join("\n"),
     };

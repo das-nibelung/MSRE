@@ -50,7 +50,20 @@ export interface MsrePublicApi {
         isAvailable?: () => boolean | Promise<boolean>;
         run(request: {
             id: string;
-            task: "draft-cards" | "improve-card" | "split-card" | "make-cloze" | "suggest-answer";
+            task:
+                | "draft-cards"
+                | "improve-card"
+                | "split-card"
+                | "make-cloze"
+                | "suggest-answer"
+                | "shorten"
+                | "clarify"
+                | "merge-card"
+                | "reverse-card"
+                | "accepted-answers"
+                | "generate-hint"
+                | "explain-card"
+                | "generate-templates";
             locale: string;
             sourceText: string;
             currentCard?: {
@@ -71,6 +84,10 @@ export interface MsrePublicApi {
                 rationale?: string;
             }>;
             summary?: string;
+            replacement?: string;
+            acceptedAnswers?: string[];
+            hint?: string;
+            explanation?: string;
         }>;
     }): () => void;
     listAiProviders(): Promise<

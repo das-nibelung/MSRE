@@ -45,6 +45,7 @@ export interface NativeCardDraft {
     front: string;
     back: string;
     answerMode?: "reveal" | "type";
+    acceptedAnswers?: string[];
     tags?: string[];
 }
 
@@ -414,6 +415,12 @@ export function serializeNativeQuestion(draft: NativeCardDraft, settings: SRSett
     const front = draft.front.trim();
     const back = draft.back.trim();
     const answerModeMarker = draft.answerMode === "type" ? "\n<!-- sr-answer-mode: type -->" : "";
+    const acceptedAnswers = (draft.answerMode === "type" ? (draft.acceptedAnswers ?? []) : [])
+        .map((value) => value.trim())
+        .filter(Boolean);
+    const acceptedAnswersMarker = acceptedAnswers.length
+        ? `\n<!-- sr-accepted-answers: ${encodeURIComponent(JSON.stringify(acceptedAnswers))} -->`
+        : "";
 
     if (draft.type === "cloze") {
         const wrapper = getClozeWrapper(settings);
@@ -423,7 +430,7 @@ export function serializeNativeQuestion(draft: NativeCardDraft, settings: SRSett
         const text = `${front.slice(0, matchIndex)}${wrapper[0]}${back}${wrapper[1]}${front.slice(
             matchIndex + back.length,
         )}`;
-        return `${text}${answerModeMarker}`;
+        return `${text}${answerModeMarker}${acceptedAnswersMarker}`;
     }
 
     const separator =
@@ -431,7 +438,7 @@ export function serializeNativeQuestion(draft: NativeCardDraft, settings: SRSett
             ? settings.multilineReversedCardSeparator
             : settings.multilineCardSeparator;
     const endMarker = settings.multilineCardEndMarker ? `\n${settings.multilineCardEndMarker}` : "";
-    return `${front}\n${separator}\n${back}${answerModeMarker}${endMarker}`;
+    return `${front}\n${separator}\n${back}${answerModeMarker}${acceptedAnswersMarker}${endMarker}`;
 }
 
 function stripRootDeckPath(path: string[], rootPath: string[]): string {
@@ -648,6 +655,11 @@ export class NativeCardStore {
             !/<!--\s*sr-answer-mode:\s*type\s*-->/i.test(modifiedText)
         ) {
             modifiedText += "\n<!-- sr-answer-mode: type -->";
+        }
+        if (draft.answerMode === "type" && draft.acceptedAnswers?.length) {
+            modifiedText += `\n<!-- sr-accepted-answers: ${encodeURIComponent(
+                JSON.stringify(draft.acceptedAnswers.map((value) => value.trim()).filter(Boolean)),
+            )} -->`;
         }
         const expanded = CardFrontBackUtil.expand(question.questionType, modifiedText, settings);
         if (expanded.length !== question.cards.length) throw new Error("card-count-changed");

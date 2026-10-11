@@ -149,6 +149,7 @@ interface CardEditorSnapshot {
     noteTypeId: string;
     cardType: NativeCardType;
     answerMode: "reveal" | "type";
+    acceptedAnswers: string[];
     tagsText: string;
     customFieldValues: Record<string, string>;
 }
@@ -194,6 +195,7 @@ export class NativeCreatorView extends ItemView {
     private deckIcon = "folder";
     private cardType: NativeCardType = "basic";
     private answerMode: "reveal" | "type" = "reveal";
+    private acceptedAnswers: string[] = [];
     private front = "";
     private back = "";
     private busy = false;
@@ -448,6 +450,7 @@ export class NativeCreatorView extends ItemView {
             this.cardType = "basic";
             this.selectedNoteTypeId = BASIC_NOTE_TYPE_ID;
             this.answerMode = "reveal";
+            this.acceptedAnswers = [];
             this.customFieldValues = {};
             this.tagsText = "";
             this.existingMedia = [];
@@ -897,9 +900,38 @@ export class NativeCreatorView extends ItemView {
             button.onClick(() => {
                 this.rememberCardState();
                 this.answerMode = mode;
+                if (mode === "reveal") this.acceptedAnswers = [];
                 this.error = "";
                 this.saveDraft();
                 this.render();
+            });
+        }
+        if (this.answerMode === "type") {
+            const accepted = this.createFieldGroup(
+                advancedBody,
+                this.creatorText("Accepted answers", "Допустимые ответы"),
+                this.creatorText(
+                    "One equivalent answer per line. They are saved inside the Markdown card.",
+                    "Один равнозначный ответ на строку. Они сохраняются внутри Markdown-карточки.",
+                ),
+            );
+            const input = accepted.createEl("textarea", {
+                cls: "sr-native-input sr-native-accepted-answers",
+                attr: {
+                    rows: "3",
+                    placeholder: this.creatorText(
+                        "Alternative wording…",
+                        "Альтернативная формулировка…",
+                    ),
+                },
+            });
+            input.value = this.acceptedAnswers.join("\n");
+            input.addEventListener("input", () => {
+                this.acceptedAnswers = input.value
+                    .split(/\r?\n/)
+                    .map((answer) => answer.trim())
+                    .filter(Boolean);
+                this.saveDraft();
             });
         }
 
@@ -979,6 +1011,88 @@ export class NativeCreatorView extends ItemView {
         }).open();
     }
 
+    private openAiFieldEditor(
+        editor: HTMLElement,
+        label: string,
+        onChange: (value: string) => void,
+    ): void {
+        const selection = editor.ownerDocument.getSelection();
+        const range =
+            selection?.rangeCount && selection.anchorNode && editor.contains(selection.anchorNode)
+                ? selection.getRangeAt(0).cloneRange()
+                : null;
+        const selectedText = range?.toString().trim() ?? "";
+        const fieldText = this.readEditorValue(editor).trim();
+        const sourceText = selectedText || fieldText;
+        const setEditorContents = (value: string): void => {
+            editor.empty();
+            editor.append(
+                editor.ownerDocument.createRange().createContextualFragment(this.editorHtml(value)),
+            );
+        };
+        if (!sourceText) {
+            new Notice(
+                this.creatorText(
+                    "Write or select text first.",
+                    "Сначала напишите или выделите текст.",
+                ),
+            );
+            return;
+        }
+        const applyReplacement = (value: string): void => {
+            this.rememberCardState();
+            if (range && !range.collapsed) {
+                const currentSelection = editor.ownerDocument.getSelection();
+                currentSelection?.removeAllRanges();
+                currentSelection?.addRange(range);
+                editor.focus();
+                editor.ownerDocument.execCommand("insertText", false, value);
+            } else {
+                setEditorContents(value);
+            }
+            onChange(this.readEditorValue(editor));
+            this.clearError();
+            this.saveDraft();
+        };
+        const replaceWholeField = (value: string): void => {
+            this.rememberCardState();
+            setEditorContents(value);
+            onChange(this.readEditorValue(editor));
+            this.clearError();
+            this.saveDraft();
+        };
+        new AiAssistantModal(this.app, this.plugin, this.plugin.ai, {
+            sourceText,
+            scopeLabel: selectedText
+                ? this.creatorText(`selection in ${label}`, `выделение в поле «${label}»`)
+                : label,
+            currentCard:
+                this.front || this.back
+                    ? {
+                          front: this.front,
+                          back: this.back,
+                          type: this.cardType,
+                          tags: this.getTags(),
+                          deckPath: this.selectedDeck,
+                      }
+                    : undefined,
+            onApply: (cards) => this.applyAiCards(cards),
+            onReplace: applyReplacement,
+            onAcceptedAnswers: (answers) => {
+                this.rememberCardState();
+                this.acceptedAnswers = answers;
+                this.answerMode = "type";
+                this.saveDraft();
+                this.render();
+            },
+            onHint: (hint) => {
+                const original = this.readEditorValue(editor).trimEnd();
+                const callout = `> [!hint]- ${this.creatorText("Hint", "Подсказка")}\n> ${hint.replace(/\n/g, "\n> ")}`;
+                replaceWholeField(`${original}\n\n${callout}`);
+            },
+        }).open();
+    }
+
     private applyAiCards(cards: AiCardDraft[]): void {
         const [first, ...remaining] = cards;
         if (!first) return;
@@ -992,6 +1106,7 @@ export class NativeCreatorView extends ItemView {
             this.front = first.front;
             this.back = first.back;
             this.cardType = first.type;
+            this.acceptedAnswers = [];
             this.selectedNoteTypeId = this.noteTypeIdForCardType(first.type);
         }
         if (first.tags?.length) {
@@ -6470,6 +6585,14 @@ export class NativeCreatorView extends ItemView {
             onChange(this.readEditorValue(editor));
             this.saveDraft();
         });
+        const intelligentEditor = new ButtonComponent(toolbar)
+            .setIcon("sparkles")
+            .setTooltip(this.creatorText("Intelligent editor", "Интеллектуальный редактор"));
+        intelligentEditor.buttonEl.addClass("sr-native-format-button", "sr-ai-field-button");
+        intelligentEditor.buttonEl.addEventListener("pointerdown", (event) => {
+            event.preventDefault();
+            this.openAiFieldEditor(editor, label, onChange);
+        });
         if (
             (this.cardType === "cloze" || this.getSelectedNoteType().kind === "cloze") &&
             (target === "front" || target.toString().startsWith("field:"))
@@ -6652,6 +6775,7 @@ export class NativeCreatorView extends ItemView {
         this.selectedNoteTypeId = this.noteTypeIdForCardType(seed.type);
         this.customFieldValues = {};
         this.answerMode = "reveal";
+        this.acceptedAnswers = [];
         this.saveDraft();
     }
 
@@ -6663,6 +6787,7 @@ export class NativeCreatorView extends ItemView {
             noteTypeId: this.selectedNoteTypeId,
             cardType: this.cardType,
             answerMode: this.answerMode,
+            acceptedAnswers: [...this.acceptedAnswers],
             tagsText: this.tagsText,
             customFieldValues: { ...this.customFieldValues },
         };
@@ -6688,6 +6813,7 @@ export class NativeCreatorView extends ItemView {
         this.selectedNoteTypeId = snapshot.noteTypeId;
         this.cardType = snapshot.cardType;
         this.answerMode = snapshot.answerMode;
+        this.acceptedAnswers = [...snapshot.acceptedAnswers];
         this.tagsText = snapshot.tagsText;
         this.customFieldValues = { ...snapshot.customFieldValues };
         this.error = "";
@@ -6752,6 +6878,7 @@ export class NativeCreatorView extends ItemView {
         if (!this.stickyPreferences.fieldIds.includes("front")) this.front = "";
         if (!this.stickyPreferences.fieldIds.includes("back")) this.back = "";
         if (!this.stickyPreferences.tags) this.tagsText = "";
+        this.acceptedAnswers = [];
         if (!this.stickyPreferences.noteType) {
             this.cardType = "basic";
             this.selectedNoteTypeId = BASIC_NOTE_TYPE_ID;
@@ -6854,6 +6981,7 @@ export class NativeCreatorView extends ItemView {
         this.front = card.front;
         this.back = card.back;
         this.answerMode = card.answerMode ?? "reveal";
+        this.acceptedAnswers = card.acceptedAnswers ?? [];
         this.tagsText = card.tags?.join(", ") ?? "";
         this.existingMedia = (card.media ?? []).map(({ path, target }, index) => ({
             id: `duplicate-${Date.now()}-${index}`,
@@ -6921,6 +7049,7 @@ export class NativeCreatorView extends ItemView {
                 cardType: this.cardType,
                 selectedNoteTypeId: this.selectedNoteTypeId,
                 answerMode: this.answerMode,
+                acceptedAnswers: this.acceptedAnswers,
                 tagsText: this.tagsText,
                 customFieldValues: this.customFieldValues,
             }),
@@ -6953,6 +7082,7 @@ export class NativeCreatorView extends ItemView {
                 selectedNoteTypeId?: string;
                 cardVariants?: NativeCardType[];
                 answerMode?: "reveal" | "type";
+                acceptedAnswers?: string[];
                 tagsText?: string;
                 customFieldValues?: Record<string, string>;
             };
@@ -6968,6 +7098,9 @@ export class NativeCreatorView extends ItemView {
             this.selectedNoteTypeId =
                 draft.selectedNoteTypeId ?? this.noteTypeIdForCardType(restoredType);
             this.answerMode = draft.answerMode ?? "reveal";
+            this.acceptedAnswers = (draft.acceptedAnswers ?? []).filter(
+                (answer): answer is string => typeof answer === "string" && Boolean(answer.trim()),
+            );
             this.tagsText = draft.tagsText ?? "";
             this.customFieldValues = draft.customFieldValues ?? {};
             if (this.front || this.back) new Notice(t("DRAFT_RESTORED"));
@@ -7358,6 +7491,7 @@ export class NativeCreatorView extends ItemView {
                 front: this.withMediaEmbeds(this.front, "front"),
                 back: this.withMediaEmbeds(this.back, "back"),
                 answerMode: this.answerMode,
+                acceptedAnswers: this.acceptedAnswers,
                 tags: this.getTags(),
             };
             if (this.editingCard) await this.saveEditedCard(draft);
@@ -7498,7 +7632,24 @@ export class NativeCreatorView extends ItemView {
         this.answerMode = /<!--\s*sr-answer-mode:\s*type\s*-->/i.test(rawSource)
             ? "type"
             : "reveal";
-        const source = rawSource.replace(/\n?<!--\s*sr-answer-mode:\s*type\s*-->/gi, "").trim();
+        const acceptedMatch = rawSource.match(/<!--\s*sr-accepted-answers:\s*([^]*?)\s*-->/i);
+        try {
+            const parsed = acceptedMatch
+                ? (JSON.parse(decodeURIComponent(acceptedMatch[1].trim())) as unknown)
+                : [];
+            this.acceptedAnswers = Array.isArray(parsed)
+                ? parsed.filter(
+                      (answer): answer is string =>
+                          typeof answer === "string" && Boolean(answer.trim()),
+                  )
+                : [];
+        } catch {
+            this.acceptedAnswers = [];
+        }
+        const source = rawSource
+            .replace(/\n?<!--\s*sr-answer-mode:\s*type\s*-->/gi, "")
+            .replace(/\n?<!--\s*sr-accepted-answers:\s*([^]*?)\s*-->/gi, "")
+            .trim();
         const type = card.question.questionType;
         let separator = settings.multilineCardSeparator;
         this.cardType = "basic";

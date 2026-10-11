@@ -1,7 +1,19 @@
 import type { NativeCardType } from "src/data/native-card-store";
 
 export type AiAssistantTask =
-    "draft-cards" | "improve-card" | "split-card" | "make-cloze" | "suggest-answer";
+    | "draft-cards"
+    | "improve-card"
+    | "split-card"
+    | "make-cloze"
+    | "suggest-answer"
+    | "shorten"
+    | "clarify"
+    | "merge-card"
+    | "reverse-card"
+    | "accepted-answers"
+    | "generate-hint"
+    | "explain-card"
+    | "generate-templates";
 
 export interface AiCardDraft {
     front: string;
@@ -30,6 +42,14 @@ export interface AiAssistantRequest {
 export interface AiAssistantResult {
     cards: AiCardDraft[];
     summary?: string;
+    /** Replacement for the exact field or selection supplied by the user. */
+    replacement?: string;
+    /** Alternative answers that should grade as correct for this card only. */
+    acceptedAnswers?: string[];
+    /** A short, non-answer-revealing hint. */
+    hint?: string;
+    /** Read-only diagnosis of why the current material is difficult to review. */
+    explanation?: string;
 }
 
 export type AiProviderKind = "api" | "mcp" | "plugin";

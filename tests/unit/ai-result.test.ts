@@ -45,4 +45,24 @@ describe("normalizeAiResult", () => {
         );
         expect(() => normalizeAiResult({ value: [] })).toThrow("invalid-ai-response");
     });
+
+    test("normalizes field-scoped intelligent editor results", () => {
+        expect(
+            normalizeAiResult({
+                summary: "  Safer grading  ",
+                cards: [],
+                replacement: "  A precise question?  ",
+                acceptedAnswers: [" ATP ", "ATP", 42, "adenosine triphosphate"],
+                hint: " Think about cellular energy. ",
+                explanation: " The original used a vague pronoun. ",
+            }),
+        ).toEqual({
+            summary: "Safer grading",
+            cards: [],
+            replacement: "A precise question?",
+            acceptedAnswers: ["ATP", "adenosine triphosphate"],
+            hint: "Think about cellular energy.",
+            explanation: "The original used a vague pronoun.",
+        });
+    });
 });

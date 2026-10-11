@@ -12,8 +12,14 @@ import type SRPlugin from "src/main";
 
 interface AiAssistantModalOptions {
     sourceText: string;
+    /** When set, the modal becomes the compact, field-scoped intelligent editor. */
+    scopeLabel?: string;
+    initialTask?: AiAssistantTask;
     currentCard?: AiAssistantRequest["currentCard"];
     onApply(cards: AiCardDraft[]): void;
+    onReplace?(value: string): void;
+    onAcceptedAnswers?(answers: string[]): void;
+    onHint?(hint: string): void;
 }
 
 const TASKS: Array<{ id: AiAssistantTask; icon: string; en: string; ru: string }> = [
@@ -22,6 +28,29 @@ const TASKS: Array<{ id: AiAssistantTask; icon: string; en: string; ru: string }
     { id: "split-card", icon: "split", en: "Split", ru: "Разделить" },
     { id: "make-cloze", icon: "scan-text", en: "Make cloze", ru: "Сделать cloze" },
     { id: "suggest-answer", icon: "message-square-text", en: "Answer", ru: "Дополнить ответ" },
+];
+
+const EDITOR_TASKS: Array<{ id: AiAssistantTask; icon: string; en: string; ru: string }> = [
+    { id: "shorten", icon: "minimize-2", en: "Shorten", ru: "Сократить" },
+    { id: "clarify", icon: "focus", en: "Clarify", ru: "Уточнить" },
+    { id: "split-card", icon: "split", en: "Split", ru: "Разделить" },
+    { id: "merge-card", icon: "combine", en: "Merge", ru: "Объединить" },
+    { id: "make-cloze", icon: "scan-text", en: "Basic → Cloze", ru: "Basic → Cloze" },
+    { id: "reverse-card", icon: "arrow-left-right", en: "Reverse", ru: "Развернуть" },
+    {
+        id: "accepted-answers",
+        icon: "list-checks",
+        en: "Accepted answers",
+        ru: "Допустимые ответы",
+    },
+    { id: "generate-hint", icon: "lightbulb", en: "Hint", ru: "Подсказка" },
+    { id: "explain-card", icon: "message-circle-question", en: "Why weak?", ru: "Почему слабая?" },
+    {
+        id: "generate-templates",
+        icon: "layers-3",
+        en: "Study directions",
+        ru: "Направления изучения",
+    },
 ];
 
 export class AiAssistantModal extends Modal {
@@ -43,11 +72,18 @@ export class AiAssistantModal extends Modal {
         super(app);
         this.sourceText = options.sourceText;
         this.providerId = plugin.dataManager.data.settings.aiPreferredProvider;
-        this.task = options.currentCard?.front ? "improve-card" : "draft-cards";
+        this.task =
+            options.initialTask ??
+            (options.scopeLabel
+                ? "shorten"
+                : options.currentCard?.front
+                  ? "improve-card"
+                  : "draft-cards");
     }
 
     onOpen(): void {
         this.modalEl.addClass("sr-ai-assistant-modal");
+        this.modalEl.toggleClass("is-editor", Boolean(this.options.scopeLabel));
         void this.loadProviders();
     }
 
@@ -78,16 +114,25 @@ export class AiAssistantModal extends Modal {
         const mark = header.createDiv("sr-ai-assistant-mark");
         setIcon(mark, "sparkles");
         const title = header.createDiv();
-        title.createEl("h2", { text: this.text("AI co-author", "AI-соавтор") });
+        title.createEl("h2", {
+            text: this.options.scopeLabel
+                ? this.text("Intelligent editor", "Интеллектуальный редактор")
+                : this.text("AI co-author", "AI-соавтор"),
+        });
         title.createEl("p", {
-            text: this.text(
-                "Generate a proposal first. Nothing is saved until you apply and save the card.",
-                "Сначала создаётся предложение. Ничего не сохранится, пока вы не примените и не сохраните карточку.",
-            ),
+            text: this.options.scopeLabel
+                ? this.text(
+                      `Only ${this.options.scopeLabel} is sent. Review the proposal before applying it.`,
+                      `Отправляется только «${this.options.scopeLabel}». Проверьте предложение перед применением.`,
+                  )
+                : this.text(
+                      "Generate a proposal first. Nothing is saved until you apply and save the card.",
+                      "Сначала создаётся предложение. Ничего не сохранится, пока вы не примените и не сохраните карточку.",
+                  ),
         });
 
         const taskRail = this.contentEl.createDiv("sr-ai-task-rail");
-        for (const task of TASKS) {
+        for (const task of this.options.scopeLabel ? EDITOR_TASKS : TASKS) {
             const button = taskRail.createEl("button", {
                 attr: { type: "button", "aria-pressed": String(this.task === task.id) },
             });
@@ -136,9 +181,16 @@ export class AiAssistantModal extends Modal {
         });
 
         const context = this.contentEl.createDiv("sr-ai-context");
-        context.createEl("label", {
-            text: this.text("Source sent to the provider", "Контекст, отправляемый провайдеру"),
+        const contextTitle = context.createDiv("sr-ai-context-title");
+        contextTitle.createEl("label", {
+            text: this.text("Text sent to the provider", "Текст, отправляемый провайдеру"),
         });
+        if (this.options.scopeLabel) {
+            contextTitle.createSpan({
+                text: this.options.scopeLabel,
+                cls: "sr-ai-scope-chip",
+            });
+        }
         const textarea = context.createEl("textarea", {
             attr: {
                 placeholder: this.text(
@@ -181,29 +233,40 @@ export class AiAssistantModal extends Modal {
 
         const actions = this.contentEl.createDiv("sr-ai-actions");
         if (this.result) {
+            const hasDirectResult = Boolean(
+                this.result.replacement ||
+                this.result.acceptedAnswers?.length ||
+                this.result.hint ||
+                this.result.explanation,
+            );
             new ButtonComponent(actions)
                 .setButtonText(this.text("Try again", "Повторить"))
                 .setDisabled(this.busy)
                 .onClick(() => void this.generate());
             new ButtonComponent(actions)
                 .setButtonText(
-                    this.text(
-                        `Apply ${this.selected.size || ""}`.trim(),
-                        `Применить ${this.selected.size || ""}`.trim(),
-                    ),
+                    this.result.explanation && !this.result.cards.length
+                        ? this.text("Close", "Закрыть")
+                        : this.text(
+                              `Apply ${this.selected.size || ""}`.trim(),
+                              `Применить ${this.selected.size || ""}`.trim(),
+                          ),
                 )
                 .setCta()
-                .setDisabled(this.busy || this.selected.size === 0)
+                .setDisabled(this.busy || (this.selected.size === 0 && !hasDirectResult))
                 .onClick(() => this.applySelected());
         } else {
+            const canRunLocally = this.task === "reverse-card" && Boolean(this.options.currentCard);
             new ButtonComponent(actions)
                 .setButtonText(
                     this.busy
                         ? this.text("Generating…", "Создание…")
-                        : this.text("Generate proposal", "Создать предложение"),
+                        : canRunLocally
+                          ? this.text("Preview reverse", "Показать обратную")
+                          : this.text("Generate proposal", "Создать предложение"),
                 )
                 .setCta()
-                .setDisabled(this.busy || !activeProvider?.available)
+                .setDisabled(this.busy || (!canRunLocally && !activeProvider?.available))
                 .onClick(() => void this.generate());
         }
     }
@@ -212,12 +275,39 @@ export class AiAssistantModal extends Modal {
         const section = this.contentEl.createDiv("sr-ai-result");
         const resultHeader = section.createDiv("sr-ai-result-header");
         resultHeader.createEl("strong", {
-            text: this.text(
-                `${result.cards.length} proposed card${result.cards.length === 1 ? "" : "s"}`,
-                `Предложено карточек: ${result.cards.length}`,
-            ),
+            text: result.cards.length
+                ? this.text(
+                      `${result.cards.length} proposed card${result.cards.length === 1 ? "" : "s"}`,
+                      `Предложено карточек: ${result.cards.length}`,
+                  )
+                : this.text("Proposal", "Предложение"),
         });
         if (result.summary) resultHeader.createSpan({ text: result.summary });
+        if (result.replacement) {
+            const comparison = section.createDiv("sr-ai-rewrite-comparison");
+            const before = comparison.createDiv();
+            before.createEl("small", { text: this.text("Before", "Было") });
+            before.createEl("p", { text: this.sourceText });
+            const after = comparison.createDiv("is-after");
+            after.createEl("small", { text: this.text("After", "Стало") });
+            after.createEl("p", { text: result.replacement });
+        }
+        if (result.acceptedAnswers?.length) {
+            const answers = section.createDiv("sr-ai-answer-chips");
+            result.acceptedAnswers.forEach((answer) => answers.createSpan({ text: answer }));
+        }
+        if (result.hint) {
+            const hint = section.createDiv("sr-ai-editor-note");
+            const icon = hint.createSpan();
+            setIcon(icon, "lightbulb");
+            hint.createEl("p", { text: result.hint });
+        }
+        if (result.explanation) {
+            const explanation = section.createDiv("sr-ai-editor-note");
+            const icon = explanation.createSpan();
+            setIcon(icon, "message-circle-question");
+            explanation.createEl("p", { text: result.explanation });
+        }
         result.cards.forEach((card, index) => {
             const row = section.createEl("label", { cls: "sr-ai-result-card" });
             const checkbox = row.createEl("input", { attr: { type: "checkbox" } });
@@ -245,13 +335,43 @@ export class AiAssistantModal extends Modal {
         this.selected.clear();
         this.render();
         try {
+            if (this.task === "reverse-card" && this.options.currentCard) {
+                const current = this.options.currentCard;
+                this.result = {
+                    summary: this.text(
+                        "Reversed locally; no text was sent to a provider.",
+                        "Развёрнуто локально; текст не отправлялся провайдеру.",
+                    ),
+                    cards: [
+                        {
+                            front: current.back,
+                            back: current.front,
+                            type: "basic",
+                            tags: current.tags,
+                            deckPath: current.deckPath,
+                        },
+                    ],
+                };
+                this.selected.add(0);
+                return;
+            }
             this.result = await this.service.run(this.providerId, {
                 task: this.task,
                 locale: this.plugin.dataManager.data.settings.preferredLocale,
                 sourceText: this.sourceText,
-                currentCard: this.options.currentCard,
-                maximumCards:
-                    this.task === "improve-card" || this.task === "suggest-answer" ? 1 : 8,
+                currentCard: this.options.scopeLabel ? undefined : this.options.currentCard,
+                maximumCards: [
+                    "improve-card",
+                    "suggest-answer",
+                    "shorten",
+                    "clarify",
+                    "merge-card",
+                    "reverse-card",
+                    "generate-hint",
+                    "explain-card",
+                ].includes(this.task)
+                    ? 1
+                    : 8,
             });
             this.result.cards.forEach((_card, index) => this.selected.add(index));
         } catch (error) {
@@ -265,8 +385,16 @@ export class AiAssistantModal extends Modal {
     private applySelected(): void {
         if (!this.result) return;
         const cards = this.result.cards.filter((_card, index) => this.selected.has(index));
-        if (cards.length === 0) return;
-        this.options.onApply(cards);
+        if (cards.length) this.options.onApply(cards);
+        else if (this.result.replacement && this.options.onReplace)
+            this.options.onReplace(this.result.replacement);
+        else if (this.result.acceptedAnswers?.length && this.options.onAcceptedAnswers)
+            this.options.onAcceptedAnswers(this.result.acceptedAnswers);
+        else if (this.result.hint && this.options.onHint) this.options.onHint(this.result.hint);
+        else if (this.result.explanation) {
+            this.close();
+            return;
+        } else return;
         this.close();
     }
 

@@ -590,6 +590,28 @@ describe("native card storage", () => {
         expect(parse(typedCloze, DEFAULT_SETTINGS)[0].cardType).toBe(CardType.Cloze);
     });
 
+    it("keeps card-specific accepted answers in portable Markdown metadata", () => {
+        const serialized = serializeNativeCard(
+            {
+                deckPath: "Medicine",
+                type: "basic",
+                front: "What is ATP?",
+                back: "Adenosine triphosphate",
+                answerMode: "type",
+                acceptedAnswers: ["ATP", "adenosine triphosphate"],
+            },
+            DEFAULT_SETTINGS,
+        );
+
+        expect(serialized).toContain("<!-- sr-accepted-answers:");
+        const encoded = serialized.match(/sr-accepted-answers:\s*([^]*?)\s*-->/)?.[1];
+        expect(JSON.parse(decodeURIComponent(encoded ?? ""))).toEqual([
+            "ATP",
+            "adenosine triphosphate",
+        ]);
+        expect(parse(serialized, DEFAULT_SETTINGS)).toHaveLength(1);
+    });
+
     it("creates and updates grouped image occlusion notes", async () => {
         const harness = createStoreHarness();
         const draft = {

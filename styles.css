@@ -7124,6 +7124,19 @@ th.gridjs-th:last-child {
 .sr-native-ai-trigger {
   color: var(--interactive-accent);
 }
+.sr-ai-field-button {
+  position: relative;
+  color: var(--interactive-accent);
+}
+.sr-ai-field-button:after {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+  inset: 5px 5px auto auto;
+}
 .sr-ai-assistant-modal {
   width: min(680px, calc(100vw - 24px));
   max-height: min(820px, calc(100dvh - 32px));
@@ -7220,6 +7233,27 @@ th.gridjs-th:last-child {
   font-size: var(--font-ui-small);
   font-weight: var(--font-semibold);
 }
+.sr-ai-context-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+}
+.sr-ai-scope-chip {
+  overflow: hidden;
+  max-width: 55%;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+  color: var(--interactive-accent);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-normal);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sr-ai-connection select {
   width: 100%;
   min-height: 46px;
@@ -7273,6 +7307,70 @@ th.gridjs-th:last-child {
 .sr-ai-result-header span {
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
+}
+.sr-ai-rewrite-comparison {
+  display: grid;
+  padding: 4px 0 13px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.sr-ai-rewrite-comparison > div,
+.sr-ai-editor-note {
+  padding: 11px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-secondary);
+}
+.sr-ai-rewrite-comparison > .is-after {
+  border-color: color-mix(in srgb, var(--interactive-accent) 38%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--interactive-accent) 8%,
+    var(--background-primary)
+  );
+}
+.sr-ai-rewrite-comparison small {
+  color: var(--text-faint);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.sr-ai-rewrite-comparison p,
+.sr-ai-editor-note p {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  line-height: 1.42;
+}
+.sr-ai-answer-chips {
+  display: flex;
+  padding: 2px 0 13px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sr-ai-answer-chips span {
+  padding: 6px 9px;
+  border: 1px solid
+    color-mix(in srgb, var(--interactive-accent) 28%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+}
+.sr-ai-editor-note {
+  display: grid;
+  margin-bottom: 13px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+}
+.sr-ai-editor-note > span,
+.sr-ai-editor-note svg {
+  width: 18px;
+  height: 18px;
+  color: var(--interactive-accent);
+}
+.sr-ai-editor-note p {
+  margin: 0;
+}
+.sr-native-accepted-answers {
+  min-height: 82px;
+  resize: vertical;
 }
 .sr-ai-result-card {
   display: grid;
@@ -7341,6 +7439,9 @@ th.gridjs-th:last-child {
   }
   .sr-ai-context textarea {
     min-height: 132px;
+  }
+  .sr-ai-rewrite-comparison {
+    grid-template-columns: 1fr;
   }
   .sr-ai-actions {
     bottom: -20px;
