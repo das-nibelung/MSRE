@@ -272,6 +272,7 @@ export class NativeCreatorView extends ItemView {
     private templateEditorSurface: TemplateSurface = "question";
     private occlusionBatchFiles: File[] = [];
     private occlusionBatchTotal = 0;
+    private publishedViewTitle = "";
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -461,6 +462,7 @@ export class NativeCreatorView extends ItemView {
     }
 
     private render(): void {
+        this.publishViewMetadata();
         this.contentEl.empty();
         this.contentEl.addClass("sr-native-creator-view");
 
@@ -595,6 +597,15 @@ export class NativeCreatorView extends ItemView {
         else if (this.request.mode === "area") this.renderAreaForm(surface);
         else if (this.request.mode === "note-type") this.renderNoteTypeManager(surface);
         else this.renderCardForm(surface);
+    }
+
+    private publishViewMetadata(): void {
+        const title = this.getDisplayText();
+        if (title === this.publishedViewTitle) return;
+        this.publishedViewTitle = title;
+        const leaf = this.leaf as WorkspaceLeaf & { updateHeader?: () => void };
+        leaf.updateHeader?.();
+        this.app.workspace.trigger("layout-change");
     }
 
     private getModeLabel(mode: NativeCreatorMode): string {
@@ -807,10 +818,13 @@ export class NativeCreatorView extends ItemView {
         const frontHelp = this.cardType === "cloze" ? t("CLOZE_TEXT_HELP") : undefined;
         const cardFields = surface.createDiv("sr-native-card-fields");
         let qualityPanel: HTMLDetailsElement | null = null;
+        let semanticPanel: HTMLDivElement | null = null;
         const updateQuality = (): void => {
             if (qualityPanel) {
                 this.renderCardQualityReport(qualityPanel, this.getNativeCardQualityReport());
             }
+            if (semanticPanel)
+                this.renderSemanticAssistant(semanticPanel, `${this.front}\n${this.back}`);
         };
         const frontGroup = this.createFieldGroup(cardFields, frontLabel, frontHelp);
         const frontInput = this.createRichTextEditor(
@@ -843,6 +857,8 @@ export class NativeCreatorView extends ItemView {
         );
         qualityPanel = surface.createEl("details", { cls: "sr-card-quality" });
         this.renderCardQualityReport(qualityPanel, this.getNativeCardQualityReport());
+        semanticPanel = surface.createDiv("sr-semantic-assistant");
+        this.renderSemanticAssistant(semanticPanel, `${this.front}\n${this.back}`);
 
         if (this.showCardPreview) this.renderFullCardPreview(surface);
 
@@ -982,6 +998,130 @@ export class NativeCreatorView extends ItemView {
             this.plugin.app.metadataCache.getFirstLinkpathDest(normalized, sourcePath) instanceof
             TFile
         );
+    }
+
+    private renderSemanticAssistant(panel: HTMLDivElement, text: string): void {
+        panel.empty();
+        const normalized = text
+            .replace(/<[^>]*>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+        if (normalized.length < 8 || this.plugin.dataManager.semanticIndex.status.documents === 0) {
+            panel.hide();
+            return;
+        }
+        const currentNoteId =
+            this.editingStructuredNote?.id ??
+            (this.editingCard
+                ? this.plugin.dataManager.collectionStore.findNoteBySource(
+                      this.editingCard.storageInfo?.notePath ?? "",
+                      this.editingCard.storageInfo?.questionId,
+                  )?.id
+                : undefined);
+        const suggestions = this.plugin.dataManager.semanticIndex.suggest(
+            normalized,
+            currentNoteId,
+        );
+        if (
+            suggestions.decks.length === 0 &&
+            suggestions.tags.length === 0 &&
+            suggestions.areas.length === 0 &&
+            suggestions.related.length === 0
+        ) {
+            panel.hide();
+            return;
+        }
+        panel.show();
+        const heading = panel.createDiv("sr-semantic-heading");
+        const icon = heading.createSpan();
+        setIcon(icon, "sparkles");
+        const copy = heading.createDiv();
+        copy.createEl("strong", {
+            text: this.creatorText("Smart suggestions", "Умные подсказки"),
+        });
+        copy.createSpan({
+            text: this.creatorText(
+                "Local search · your notes stay on this device",
+                "Локальный поиск · заметки остаются на устройстве",
+            ),
+        });
+
+        const createSuggestionRow = (
+            label: string,
+            values: { value: string; score: number }[],
+            iconName: string,
+            action: (value: string) => void,
+        ): void => {
+            if (values.length === 0) return;
+            const row = panel.createDiv("sr-semantic-row");
+            row.createSpan({ cls: "sr-semantic-row-label", text: label });
+            const chips = row.createDiv("sr-semantic-chips");
+            for (const item of values) {
+                const button = chips.createEl("button", {
+                    attr: { type: "button", title: `${Math.round(item.score * 100)}%` },
+                });
+                setIcon(button.createSpan(), iconName);
+                button.createSpan({ text: item.value.split("/").pop() ?? item.value });
+                button.addEventListener("click", () => action(item.value));
+            }
+        };
+
+        createSuggestionRow(
+            this.creatorText("Deck", "Колода"),
+            suggestions.decks,
+            "folder",
+            (deck) => {
+                this.rememberCardState();
+                this.selectedDeck = deck;
+                this.rememberDeck(deck);
+                this.saveDraft();
+                this.render();
+            },
+        );
+        createSuggestionRow(this.creatorText("Tags", "Теги"), suggestions.tags, "tag", (tag) => {
+            const tags = new Set(
+                this.tagsText
+                    .split(/[\s,]+/)
+                    .map((value) => value.trim().replace(/^#/, ""))
+                    .filter(Boolean),
+            );
+            tags.add(tag.replace(/^#/, ""));
+            this.tagsText = [...tags].join(", ");
+            this.saveDraft();
+            this.render();
+        });
+        const areas = new Map(this.store.getKnowledgeAreas().map((area) => [area.id, area]));
+        createSuggestionRow(
+            this.creatorText("Area", "Область"),
+            suggestions.areas
+                .map((item) => ({ ...item, value: areas.get(item.value)?.name ?? "" }))
+                .filter((item) => Boolean(item.value)),
+            "library-big",
+            (areaName) => {
+                const area = this.store
+                    .getKnowledgeAreas()
+                    .find((candidate) => candidate.name === areaName);
+                const deck = area?.deckPaths[0];
+                if (!deck) return;
+                this.selectedDeck = deck;
+                this.rememberDeck(deck);
+                this.saveDraft();
+                this.render();
+            },
+        );
+        if (suggestions.related.length > 0) {
+            const related = panel.createDiv("sr-semantic-related");
+            related.createSpan({
+                cls: "sr-semantic-row-label",
+                text: this.creatorText("Related", "Похожие"),
+            });
+            const relatedList = related.createDiv("sr-semantic-related-list");
+            for (const match of suggestions.related.slice(0, 2)) {
+                const item = relatedList.createDiv("sr-semantic-related-item");
+                item.createSpan({ text: match.item.title || match.item.sourcePath });
+                item.createEl("small", { text: `${Math.round(match.score * 100)}%` });
+            }
+        }
     }
 
     private renderCardQualityReport(panel: HTMLDetailsElement, report: CardQualityReport): void {
@@ -3986,12 +4126,17 @@ export class NativeCreatorView extends ItemView {
             text: this.creatorText("Deadline and daily workload", "Срок и ежедневная нагрузка"),
         });
         const goalBody = goal.createDiv("sr-native-disclosure-body");
-        const goalGrid = goalBody.createDiv("sr-native-options-grid");
-        const targetDate = this.createFieldGroup(
+        const goalGrid = goalBody.createDiv("sr-native-options-grid sr-native-goal-grid");
+        const targetDateGroup = this.createFieldGroup(
             goalGrid,
             this.creatorText("Target date", "Срок"),
             this.creatorText("Optional", "Необязательно"),
-        ).createEl("input", { cls: "sr-native-input", attr: { type: "date" } });
+        );
+        targetDateGroup.addClass("sr-native-target-date");
+        const targetDate = targetDateGroup.createEl("input", {
+            cls: "sr-native-input",
+            attr: { type: "date" },
+        });
         targetDate.value = this.areaGoal.targetDate ?? "";
         targetDate.addEventListener("change", () => {
             this.areaGoal.targetDate = targetDate.value || undefined;
@@ -6909,11 +7054,18 @@ export class NativeCreatorView extends ItemView {
         }
         let firstInput: HTMLElement | null = null;
         let qualityPanel: HTMLDetailsElement | null = null;
+        let semanticPanel: HTMLDivElement | null = null;
         const updateQuality = (): void => {
             if (qualityPanel) {
                 this.renderCardQualityReport(
                     qualityPanel,
                     this.getStructuredCardQualityReport(noteType),
+                );
+            }
+            if (semanticPanel) {
+                this.renderSemanticAssistant(
+                    semanticPanel,
+                    Object.values(this.customFieldValues).join("\n"),
                 );
             }
         };
@@ -6956,6 +7108,11 @@ export class NativeCreatorView extends ItemView {
 
         qualityPanel = surface.createEl("details", { cls: "sr-card-quality" });
         this.renderCardQualityReport(qualityPanel, this.getStructuredCardQualityReport(noteType));
+        semanticPanel = surface.createDiv("sr-semantic-assistant");
+        this.renderSemanticAssistant(
+            semanticPanel,
+            Object.values(this.customFieldValues).join("\n"),
+        );
 
         this.renderTagsField(surface);
         this.renderStickyControls(

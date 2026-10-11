@@ -606,5 +606,27 @@ export class CommandManager {
                 );
             },
         });
+
+        this.plugin.addCommand({
+            id: "srs-rebuild-semantic-index",
+            name: "Rebuild local semantic index",
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                const count = await this.plugin.dataManager.rebuildSemanticIndex();
+                this.uiManager.tabViewManager.refreshCardBrowser();
+                new Notice(`MSRE: Local semantic index rebuilt · ${count} notes`);
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-clear-semantic-index",
+            name: "Delete local semantic index",
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await this.plugin.dataManager.clearSemanticIndex();
+                this.uiManager.tabViewManager.refreshCardBrowser();
+                new Notice("MSRE: Local semantic index deleted. Markdown cards were not changed.");
+            },
+        });
     }
 }

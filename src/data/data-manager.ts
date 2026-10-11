@@ -35,6 +35,10 @@ import { FileNativeStore } from "src/data/file-native/file-native-store";
 import { PluginData } from "src/data/plugin-data";
 import { PluginDataManager } from "src/data/plugin-data-manager";
 import { AtomicVaultWriter, VaultRecoveryReport } from "src/data/reliability/atomic-vault-writer";
+import {
+    createSemanticIndexStorage,
+    SemanticIndexService,
+} from "src/data/semantic/local-semantic-index";
 import { SettingsUtil, SRSettings } from "src/data/settings";
 import { SettingsManager } from "src/data/settings-manager";
 import { t } from "src/lang/helpers";
@@ -63,6 +67,7 @@ export class DataManager {
     private cardIndex: IncrementalCardIndex;
     private scheduleLedger: ScheduleLedger | null = null;
     public readonly collectionStore: CollectionStore;
+    public readonly semanticIndex: SemanticIndexService;
     public readonly vaultWriter: AtomicVaultWriter;
     private readonly fileNativeStore: FileNativeStore;
     private hasLoadedVault = false;
@@ -88,6 +93,11 @@ export class DataManager {
         this.vaultWriter = new AtomicVaultWriter(plugin.app.vault);
         this.collectionStore = new CollectionStore(
             new VaultCollectionStorage(plugin.app.vault, this.vaultWriter),
+        );
+        this.semanticIndex = new SemanticIndexService(
+            createSemanticIndexStorage(
+                `${plugin.manifest.id}:semantic-index:${plugin.app.vault.getName()}`,
+            ),
         );
         this.fileNativeStore = new FileNativeStore(plugin.app.vault, this.vaultWriter);
         this.registerCardIndexEvents();
@@ -151,9 +161,15 @@ export class DataManager {
         this.reportVaultRecovery(recovery);
         await this.collectionStore.initialize();
         await this.hydrateFileNativeState();
-        this.collectionStore.setChangeListener(() =>
-            this.hydratingFileNative ? undefined : this.persistFileNativeCatalog(),
+        await this.semanticIndex.initialize(
+            this.collectionStore.getCollectionSnapshot(),
+            this.data.knowledgeAreas,
         );
+        this.collectionStore.setChangeListener(async () => {
+            if (this.hydratingFileNative) return;
+            await this.persistFileNativeCatalog();
+            await this.refreshSemanticIndex();
+        });
         const questionPostponementList: QuestionPostponementList = new QuestionPostponementList(
             this.pluginDataManager,
             this.settingsManager.settings,
@@ -210,7 +226,7 @@ export class DataManager {
                     return;
                 }
                 if (file instanceof TFile && this.isCollectionDataPath(file.path)) {
-                    void this.collectionStore.reload();
+                    void this.reloadCollectionAndSemanticIndex();
                     return;
                 }
                 if (file instanceof TFile && file.path === SCHEDULE_LEDGER_PATH) {
@@ -234,7 +250,7 @@ export class DataManager {
                     return;
                 }
                 if (file instanceof TFile && this.isCollectionDataPath(file.path)) {
-                    void this.collectionStore.reload();
+                    void this.reloadCollectionAndSemanticIndex();
                     return;
                 }
                 if (file instanceof TFile && file.path === SCHEDULE_LEDGER_PATH) {
@@ -289,7 +305,7 @@ export class DataManager {
                     void this.hydrateFileNativeState();
                 }
                 if (file instanceof TFile && this.isCollectionDataPath(file.path)) {
-                    void this.collectionStore.reload();
+                    void this.reloadCollectionAndSemanticIndex();
                     return;
                 }
                 if (oldPath === SCHEDULE_LEDGER_PATH) {
@@ -330,6 +346,18 @@ export class DataManager {
             path === COLLECTION_PATH ||
             path === REVIEW_LOG_PATH ||
             path === FILE_NATIVE_CATALOG_PATH
+        );
+    }
+
+    private async reloadCollectionAndSemanticIndex(): Promise<void> {
+        await this.collectionStore.reload();
+        await this.refreshSemanticIndex();
+    }
+
+    private async refreshSemanticIndex(): Promise<void> {
+        await this.semanticIndex.refresh(
+            this.collectionStore.getCollectionSnapshot(),
+            this.data.knowledgeAreas,
         );
     }
 
@@ -705,12 +733,27 @@ export class DataManager {
         try {
             await this.pluginDataManager.savePluginData();
             await this.persistFileNativeCatalog();
+            await this.refreshSemanticIndex();
         } catch (error) {
             console.warn("DataManager: Error saving plugin data", error);
         }
     }
 
+    async rebuildSemanticIndex(): Promise<number> {
+        await this.semanticIndex.clear();
+        await this.semanticIndex.initialize(
+            this.collectionStore.getCollectionSnapshot(),
+            this.data.knowledgeAreas,
+        );
+        return this.semanticIndex.status.documents;
+    }
+
+    async clearSemanticIndex(): Promise<void> {
+        await this.semanticIndex.clear();
+    }
+
     close(): void {
         this.cardIndex.close();
+        this.semanticIndex.close();
     }
 }

@@ -464,6 +464,7 @@ export class CardBrowserView extends ItemView {
     private tag = "all";
     private flag = "all";
     private cardType = "all";
+    private semanticSearch = false;
     private resultsEl: HTMLDivElement | null = null;
     private selectionBarEl: HTMLDivElement | null = null;
     private virtualViewportEl: HTMLDivElement | null = null;
@@ -634,7 +635,16 @@ export class CardBrowserView extends ItemView {
                 editHistory: note ? collection.getNoteEditHistory(note.id) : [],
             };
         });
-        const annotated = annotateCardBrowserDiagnostics(records);
+        const semanticDuplicateIds = new Set(
+            this.plugin.dataManager.semanticIndex.findNearDuplicateGroups().flat(),
+        );
+        const annotated = annotateCardBrowserDiagnostics(records).map((record) => ({
+            ...record,
+            diagnostics:
+                record.noteId && semanticDuplicateIds.has(record.noteId)
+                    ? [...new Set([...(record.diagnostics ?? []), "duplicate" as const])]
+                    : record.diagnostics,
+        }));
         this.recordCache = { key: cacheKey, records: annotated };
         return annotated;
     }
@@ -779,6 +789,7 @@ export class CardBrowserView extends ItemView {
     }
 
     private setQuery(query: string): void {
+        this.semanticSearch = false;
         this.query = query;
         this.render();
     }
@@ -789,16 +800,31 @@ export class CardBrowserView extends ItemView {
         const search = primary.createDiv("sr-card-browser-search");
         new SearchComponent(search)
             .setPlaceholder(
-                uiText(
-                    "Search or use deck:, type:, is:due, reps:>10…",
-                    "Поиск или deck:, type:, is:due, reps:>10…",
-                ),
+                this.semanticSearch
+                    ? uiText("Describe what you remember…", "Опишите то, что помните…")
+                    : uiText(
+                          "Search or use deck:, type:, is:due, reps:>10…",
+                          "Поиск или deck:, type:, is:due, reps:>10…",
+                      ),
             )
             .setValue(this.query)
             .onChange((value) => {
                 this.query = value;
                 this.renderResults(records);
             });
+        const semantic = new ButtonComponent(primary)
+            .setIcon("sparkles")
+            .setTooltip(
+                this.semanticSearch
+                    ? uiText("Use exact search", "Использовать точный поиск")
+                    : uiText("Search by meaning", "Искать по смыслу"),
+            )
+            .onClick(() => {
+                this.semanticSearch = !this.semanticSearch;
+                this.render();
+            });
+        semantic.buttonEl.addClass("sr-card-browser-semantic-toggle");
+        semantic.buttonEl.toggleClass("is-active", this.semanticSearch);
         new ButtonComponent(primary)
             .setIcon("circle-help")
             .setTooltip(uiText("Search language", "Язык поиска"))
@@ -954,6 +980,7 @@ export class CardBrowserView extends ItemView {
 
     private applySavedQuery(saved: SavedCardQuery): void {
         const view = saved.view;
+        this.semanticSearch = false;
         this.query = saved.query;
         this.filter = (view?.filter as CardBrowserFilter | undefined) ?? "all";
         this.deck = view?.deck ?? "all";
@@ -997,21 +1024,39 @@ export class CardBrowserView extends ItemView {
         this.resultsEl.empty();
         this.virtualStart = -1;
         this.virtualEnd = -1;
-        this.filteredRecords = sortCardBrowserRecords(
-            filterCardBrowserRecords(
-                records,
-                this.query,
-                this.filter,
-                this.deck,
-                this.notePath,
-                this.tag,
-                this.flag,
-                this.cardType,
-            ),
-            this.sort,
-            this.sortDirection,
+        const semanticScores = new Map(
+            this.semanticSearch && this.query.trim()
+                ? this.plugin.dataManager.semanticIndex
+                      .search(this.query, Math.max(records.length, 30))
+                      .map((match) => [match.item.id, match.score] as const)
+                : [],
         );
-        const queryError = validateCardBrowserQuery(this.query);
+        const filtered = filterCardBrowserRecords(
+            records,
+            this.semanticSearch ? "" : this.query,
+            this.filter,
+            this.deck,
+            this.notePath,
+            this.tag,
+            this.flag,
+            this.cardType,
+        ).filter(
+            (record) =>
+                !this.semanticSearch ||
+                !this.query.trim() ||
+                (record.noteId !== null &&
+                    record.noteId !== undefined &&
+                    semanticScores.has(record.noteId)),
+        );
+        this.filteredRecords =
+            this.semanticSearch && this.query.trim()
+                ? [...filtered].sort(
+                      (left, right) =>
+                          (semanticScores.get(right.noteId ?? "") ?? 0) -
+                          (semanticScores.get(left.noteId ?? "") ?? 0),
+                  )
+                : sortCardBrowserRecords(filtered, this.sort, this.sortDirection);
+        const queryError = this.semanticSearch ? null : validateCardBrowserQuery(this.query);
         if (queryError) {
             const error = this.resultsEl.createDiv("sr-card-browser-query-error");
             setIcon(error.createSpan(), "triangle-alert");
