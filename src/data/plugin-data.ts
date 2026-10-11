@@ -25,6 +25,17 @@ export interface KnowledgeArea {
     /** Visible deck paths, without the configured root flashcard tag. */
     deckPaths: string[];
     pinned: boolean;
+    /** Optional parent turns flat areas into a portable knowledge tree. */
+    parentId?: string | null;
+    /** Projects are goal-oriented areas and may be archived when completed. */
+    kind?: "area" | "project";
+    goal?: {
+        targetDate?: string;
+        cardsPerDay?: number;
+        minutesPerDay?: number;
+        targetRetention?: number;
+    };
+    archivedAt?: number | null;
     /** Area-wide overrides applied after the selected deck preset. */
     scheduling?: {
         desiredRetention?: number;
@@ -44,6 +55,17 @@ export interface SavedCardQuery {
     query: string;
     /** Dynamic queries can be launched as temporary study decks. */
     dynamic: boolean;
+    /** Optional browser state makes this a full saved view, not only a text query. */
+    view?: {
+        filter?: string;
+        deck?: string;
+        tag?: string;
+        flag?: string;
+        cardType?: string;
+        sort?: string;
+        sortDirection?: "asc" | "desc";
+        columns?: string[];
+    };
     createdAt: number;
     updatedAt: number;
 }

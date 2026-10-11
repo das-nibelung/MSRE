@@ -1,6 +1,6 @@
 import { ISerializedScheduleEntry } from "src/data/plugin-data";
 
-export const COLLECTION_SCHEMA_VERSION = 10;
+export const COLLECTION_SCHEMA_VERSION = 11;
 export const REVIEW_LOG_SCHEMA_VERSION = 1;
 
 export type NoteTypeKind = "standard" | "cloze" | "image-occlusion";
@@ -244,6 +244,21 @@ export interface CollectionCard {
     deletedAt?: number;
 }
 
+export interface CollectionEditHistoryEntry {
+    id: string;
+    noteId: string;
+    changedAt: number;
+    action: "edit" | "convert" | "tags" | "template";
+    beforeNoteTypeId: string;
+    afterNoteTypeId: string;
+    beforeFields: Record<string, string>;
+    afterFields: Record<string, string>;
+    beforeTags: string[];
+    afterTags: string[];
+    beforeTemplateIds?: string[];
+    afterTemplateIds?: string[];
+}
+
 export type CollectionEntityKind = "noteType" | "deckOptions" | "deck" | "note" | "card";
 
 /** Preserves both sides of a same-revision sync collision instead of silently dropping one. */
@@ -267,6 +282,8 @@ export interface CollectionData {
     decks: Record<string, CollectionDeck>;
     notes: Record<string, CollectionNote>;
     cards: Record<string, CollectionCard>;
+    /** Append-only content revisions kept in the portable Markdown collection. */
+    editHistory: Record<string, CollectionEditHistoryEntry>;
     conflicts: Record<string, CollectionConflict>;
 }
 

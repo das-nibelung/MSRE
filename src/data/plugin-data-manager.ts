@@ -73,6 +73,36 @@ export class PluginDataManager {
                             ]
                           : [],
                       pinned: area.pinned === true,
+                      parentId:
+                          typeof area.parentId === "string" && area.parentId !== area.id
+                              ? area.parentId
+                              : null,
+                      kind: area.kind === "project" ? ("project" as const) : ("area" as const),
+                      goal:
+                          area.goal && typeof area.goal === "object"
+                              ? {
+                                    targetDate:
+                                        typeof area.goal.targetDate === "string"
+                                            ? area.goal.targetDate
+                                            : undefined,
+                                    cardsPerDay:
+                                        typeof area.goal.cardsPerDay === "number"
+                                            ? Math.max(0, area.goal.cardsPerDay)
+                                            : undefined,
+                                    minutesPerDay:
+                                        typeof area.goal.minutesPerDay === "number"
+                                            ? Math.max(0, area.goal.minutesPerDay)
+                                            : undefined,
+                                    targetRetention:
+                                        typeof area.goal.targetRetention === "number"
+                                            ? Math.max(
+                                                  0.7,
+                                                  Math.min(0.99, area.goal.targetRetention),
+                                              )
+                                            : undefined,
+                                }
+                              : undefined,
+                      archivedAt: typeof area.archivedAt === "number" ? area.archivedAt : null,
                       scheduling:
                           area.scheduling && typeof area.scheduling === "object"
                               ? {
@@ -114,10 +144,26 @@ export class PluginDataManager {
                       name: query.name.trim(),
                       query: query.query.trim(),
                       dynamic: query.dynamic === true,
+                      view:
+                          query.view && typeof query.view === "object"
+                              ? {
+                                    ...query.view,
+                                    columns: Array.isArray(query.view.columns)
+                                        ? query.view.columns.filter(
+                                              (column): column is string =>
+                                                  typeof column === "string",
+                                          )
+                                        : undefined,
+                                }
+                              : undefined,
                       createdAt: Number(query.createdAt) || Date.now(),
                       updatedAt: Number(query.updatedAt) || Date.now(),
                   }))
-                  .filter((query) => query.name.length > 0 && query.query.length > 0)
+                  .filter(
+                      (query) =>
+                          query.name.length > 0 &&
+                          (query.query.length > 0 || query.view !== undefined),
+                  )
             : [];
         const allowedBrowserColumns = new Set([
             "question",
@@ -132,6 +178,9 @@ export class PluginDataManager {
             "reps",
             "lapses",
             "retention",
+            "difficulty",
+            "stability",
+            "created",
             "note",
             "tags",
             "last-review",

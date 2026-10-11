@@ -14,6 +14,7 @@ interface KnowledgeAreaGroup {
     name: string;
     decks: Deck[];
     pinned: boolean;
+    depth: number;
 }
 
 export default class DeckListComponent {
@@ -117,6 +118,19 @@ export default class DeckListComponent {
     private buildAreaGroups(decks: Deck[]): KnowledgeAreaGroup[] {
         const areas = this.store.getKnowledgeAreas();
         const assigned = new Set<string>();
+        const depthOf = (area: KnowledgeArea): number => {
+            let depth = 0;
+            let parentId = area.parentId;
+            const seen = new Set([area.id]);
+            while (parentId && !seen.has(parentId)) {
+                seen.add(parentId);
+                const parent = areas.find((candidate) => candidate.id === parentId);
+                if (!parent) break;
+                depth++;
+                parentId = parent.parentId;
+            }
+            return depth;
+        };
         const groups: KnowledgeAreaGroup[] = areas.map((area) => {
             const paths = new Set(area.deckPaths.map(normalizeManagedDeckPath));
             const areaDecks = decks.filter((deck) => {
@@ -125,7 +139,13 @@ export default class DeckListComponent {
                 assigned.add(path);
                 return true;
             });
-            return { area, name: area.name, decks: areaDecks, pinned: area.pinned };
+            return {
+                area,
+                name: area.name,
+                decks: areaDecks,
+                pinned: area.pinned,
+                depth: depthOf(area),
+            };
         });
         const unassigned = decks.filter((deck) => !assigned.has(this.getVisibleDeckPath(deck)));
         if (unassigned.length > 0) {
@@ -134,9 +154,29 @@ export default class DeckListComponent {
                 name: t("UNASSIGNED_DECKS"),
                 decks: unassigned,
                 pinned: false,
+                depth: 0,
             });
         }
-        return groups.sort((a, b) => Number(b.pinned) - Number(a.pinned));
+        const pathOf = (group: KnowledgeAreaGroup): string => {
+            if (!group.area) return "~";
+            const names = [group.area.name];
+            let parentId = group.area.parentId;
+            const seen = new Set([group.area.id]);
+            while (parentId && !seen.has(parentId)) {
+                seen.add(parentId);
+                const parent = areas.find((area) => area.id === parentId);
+                if (!parent) break;
+                names.unshift(parent.name);
+                parentId = parent.parentId;
+            }
+            return names.join("/");
+        };
+        return groups.sort(
+            (a, b) =>
+                Number(Boolean(a.area?.archivedAt)) - Number(Boolean(b.area?.archivedAt)) ||
+                Number(b.pinned) - Number(a.pinned) ||
+                pathOf(a).localeCompare(pathOf(b)),
+        );
     }
 
     private groupMatchesSearch(group: KnowledgeAreaGroup): boolean {
@@ -157,12 +197,24 @@ export default class DeckListComponent {
     ): void {
         const areaEl = this.treeContainer.createDiv("sr-knowledge-area-card");
         areaEl.toggleClass("is-pinned", group.pinned);
+        areaEl.toggleClass("is-project", group.area?.kind === "project");
+        areaEl.toggleClass("is-archived", Boolean(group.area?.archivedAt));
+        areaEl.style.setProperty("--sr-area-depth", String(group.depth));
         const header = areaEl.createDiv("sr-knowledge-area-header");
         const icon = header.createDiv("sr-knowledge-area-icon");
-        setIcon(icon, group.pinned ? "pin" : "library-big");
+        setIcon(
+            icon,
+            group.pinned ? "pin" : group.area?.kind === "project" ? "target" : "library-big",
+        );
         const copy = header.createDiv("sr-knowledge-area-copy");
         copy.createEl("h3", { text: group.name });
-        copy.createSpan({ text: t("AREA_DECKS_SUMMARY", { count: group.decks.length }) });
+        const details = [
+            group.area?.kind === "project" ? "Project" : "",
+            t("AREA_DECKS_SUMMARY", { count: group.decks.length }),
+            group.area?.goal?.targetDate ? `Goal ${group.area.goal.targetDate}` : "",
+            group.area?.archivedAt ? "Archived" : "",
+        ].filter(Boolean);
+        copy.createSpan({ text: details.join(" · ") });
 
         const actions = header.createDiv("sr-knowledge-area-actions");
         if (group.area) {
@@ -307,6 +359,12 @@ export default class DeckListComponent {
                 .setIcon("folder-plus")
                 .onClick(() => this.createDeck(undefined, area.id)),
         );
+        menu.addItem((item) =>
+            item
+                .setTitle(area.archivedAt ? "Restore area" : "Archive completed area")
+                .setIcon(area.archivedAt ? "archive-restore" : "archive")
+                .onClick(() => void this.toggleAreaArchive(area)),
+        );
         menu.addSeparator();
         menu.addItem((item) =>
             item
@@ -376,6 +434,13 @@ export default class DeckListComponent {
 
     private async updateAreaPin(area: KnowledgeArea): Promise<void> {
         await this.store.setKnowledgeAreaPinned(area.id, !area.pinned);
+        this.redrawCurrent();
+    }
+
+    private async toggleAreaArchive(area: KnowledgeArea): Promise<void> {
+        await this.store.updateKnowledgeArea(area.id, {
+            archivedAt: area.archivedAt ? null : Date.now(),
+        });
         this.redrawCurrent();
     }
 

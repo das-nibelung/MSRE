@@ -10,6 +10,7 @@ import {
     Platform,
     SearchComponent,
     setIcon,
+    TFile,
     WorkspaceLeaf,
 } from "obsidian";
 
@@ -34,10 +35,12 @@ import {
     CardBrowserSort,
     CardBrowserSortDirection,
     createCardBrowserRecords,
+    extractCardMediaPaths,
     filterCardBrowserRecords,
     getCardBrowserDeckNames,
     getCardBrowserTags,
     sortCardBrowserRecords,
+    validateCardBrowserQuery,
 } from "src/ui/card-browser/card-browser-model";
 import { DeckPickerModal } from "src/ui/deck-picker-modal";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
@@ -62,6 +65,15 @@ function compactCardText(value: string): string {
 
 function containsMedia(value: string): boolean {
     return /!\[\[[^\]]+\]\]|!\[[^\]]*\]\([^)]*\)|<(?:img|audio|video)\b/i.test(value);
+}
+
+function safeDecodeMediaPath(path: string): string {
+    const normalized = path.replace(/^<|>$/g, "").split(/[?#]/)[0];
+    try {
+        return decodeURIComponent(normalized);
+    } catch {
+        return normalized;
+    }
 }
 
 function nextLocalDayStart(): number {
@@ -129,8 +141,18 @@ class SavedQueryModal extends Modal {
 
     onOpen(): void {
         this.modalEl.addClass("sr-browser-sheet");
-        this.contentEl.createEl("h2", { text: uiText("Save search", "Сохранить поиск") });
-        this.contentEl.createEl("p", { cls: "setting-item-description", text: this.query });
+        this.contentEl.createEl("h2", {
+            text: uiText("Save browser view", "Сохранить представление"),
+        });
+        this.contentEl.createEl("p", {
+            cls: "setting-item-description",
+            text:
+                this.query ||
+                uiText(
+                    "The current filters, sort order and columns will be saved.",
+                    "Будут сохранены текущие фильтры, сортировка и столбцы.",
+                ),
+        });
         const input = this.contentEl.createEl("input", {
             attr: {
                 type: "text",
@@ -156,6 +178,51 @@ class SavedQueryModal extends Modal {
                 this.close();
             });
         window.setTimeout(() => input.focus(), 0);
+    }
+}
+
+class QueryHelpModal extends Modal {
+    onOpen(): void {
+        this.modalEl.addClass("sr-browser-sheet", "sr-browser-query-help");
+        this.contentEl.createEl("h2", {
+            text: uiText("Browser search language", "Язык поиска браузера"),
+        });
+        this.contentEl.createEl("p", {
+            cls: "setting-item-description",
+            text: uiText(
+                "Combine filters with spaces (AND), OR, NOT, a minus sign and parentheses.",
+                "Объединяйте условия пробелом (И), OR, NOT, минусом и скобками.",
+            ),
+        });
+        const groups: Array<[string, string[]]> = [
+            [
+                uiText("Structure", "Структура"),
+                ["deck:", "area:", "type:", "field:Name=value", "tag:", "note:"],
+            ],
+            [
+                uiText("Memory", "Память"),
+                ["rating:good", "difficulty:>6", "stability:>=30", "retention:<0.9"],
+            ],
+            [uiText("Dates", "Даты"), ["created:7d", "reviewed:today", "due:<=2026-12-31"]],
+            [
+                uiText("Diagnostics", "Диагностика"),
+                ["is:duplicate", "is:orphan", "is:missing-media", "has:media"],
+            ],
+        ];
+        for (const [title, examples] of groups) {
+            const group = this.contentEl.createDiv("sr-browser-query-help-group");
+            group.createEl("h3", { text: title });
+            for (const example of examples) group.createEl("code", { text: example });
+        }
+        const example = this.contentEl.createEl("button", {
+            cls: "sr-browser-query-example",
+            text: "(area:Medicine OR tag:exam) is:due -is:missing-media",
+        });
+        example.addEventListener("click", () => {
+            void navigator.clipboard.writeText(example.textContent ?? "").then(() => {
+                new Notice(uiText("Query copied.", "Запрос скопирован."));
+            });
+        });
     }
 }
 
@@ -309,6 +376,30 @@ class CardInspectorModal extends Modal {
             item.createEl("strong", { text: value });
         }
         const history = this.contentEl.createDiv("sr-card-inspector-history");
+        const edits = this.contentEl.createDiv("sr-card-inspector-history");
+        edits.createEl("h3", { text: uiText("Change history", "История изменений") });
+        if (!this.record.editHistory?.length) {
+            edits.createEl("p", {
+                cls: "setting-item-description",
+                text: uiText(
+                    "No content changes recorded yet.",
+                    "Изменения содержимого пока не записаны.",
+                ),
+            });
+        } else {
+            for (const entry of this.record.editHistory.slice(0, 20)) {
+                const row = edits.createDiv("sr-card-history-row");
+                row.createSpan({ text: entry.action });
+                row.createSpan({ text: formatDate(entry.changedAt) });
+                const changedFields = new Set([
+                    ...Object.keys(entry.beforeFields),
+                    ...Object.keys(entry.afterFields),
+                ]);
+                row.createSpan({
+                    text: uiText(`${changedFields.size} fields`, `Полей: ${changedFields.size}`),
+                });
+            }
+        }
         history.createEl("h3", { text: uiText("Review history", "История повторений") });
         if (!this.record.history?.length) {
             history.createEl("p", {
@@ -355,6 +446,7 @@ export class CardBrowserView extends ItemView {
     private virtualStart = -1;
     private virtualEnd = -1;
     private virtualObserver: ResizeObserver | null = null;
+    private recordCache: { key: string; records: CardBrowserRecord[] } | null = null;
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -383,6 +475,7 @@ export class CardBrowserView extends ItemView {
     }
 
     refresh(): void {
+        this.recordCache = null;
         if (this.contentEl.isShown()) this.render();
     }
 
@@ -402,6 +495,12 @@ export class CardBrowserView extends ItemView {
         const collection = this.plugin.dataManager.collectionStore;
         const snapshot = collection.getCollectionSnapshot();
         const reviewLog = collection.getReviewLogSnapshot();
+        const indexedCards = this.plugin.dataManager.osrCore.getAllCards();
+        const areas = this.plugin.dataManager.data.knowledgeAreas;
+        const cacheKey = `${snapshot.revision}:${reviewLog.revision}:${indexedCards.length}:${JSON.stringify(
+            areas,
+        )}`;
+        if (this.recordCache?.key === cacheKey) return this.recordCache.records;
         const storedByLegacyId = new Map<string, (typeof snapshot.cards)[string]>();
         for (const card of Object.values(snapshot.cards)) {
             if (!card.deletedAt && card.legacyStableId)
@@ -414,65 +513,101 @@ export class CardBrowserView extends ItemView {
             entries.push(entry);
             historyByCard.set(entry.cardId, entries);
         }
-        const areas = this.plugin.dataManager.data.knowledgeAreas;
-        const records = createCardBrowserRecords(this.plugin.dataManager.osrCore.getAllCards()).map(
-            (record) => {
-                const stored = record.card.stableId
-                    ? storedByLegacyId.get(record.card.stableId)
-                    : undefined;
-                const note = stored ? snapshot.notes[stored.noteId] : undefined;
-                const noteType = note ? snapshot.noteTypes[note.noteTypeId] : undefined;
-                const expired =
-                    stored?.state === "buried" &&
-                    stored.buriedUntil !== null &&
-                    stored.buriedUntil <= Date.now();
-                const deckNames = stored?.deckPath ? [stored.deckPath] : record.deckNames;
-                const fieldNames = Object.fromEntries(
-                    noteType?.fields.map((field) => [field.id, field.name]) ?? [],
-                );
-                let retention: number | null = null;
-                if (stored?.schedule?.algorithm === SRAlgorithmType.FSRS) {
-                    const schedule = stored.schedule.scheduleData as ISerializedFSRSScheduleData;
-                    const lastReview = Date.parse(schedule.lastReview);
-                    if (schedule.stability > 0 && Number.isFinite(lastReview)) {
-                        const elapsedDays = Math.max(0, (Date.now() - lastReview) / 86_400_000);
-                        retention = Math.pow(
-                            1 + (19 / 81) * (elapsedDays / schedule.stability),
-                            -0.5,
-                        );
-                    }
+        const areaById = new Map(areas.map((area) => [area.id, area]));
+        const areaPath = (id: string): string => {
+            const names: string[] = [];
+            const visited = new Set<string>();
+            let area = areaById.get(id);
+            while (area && !visited.has(area.id)) {
+                visited.add(area.id);
+                names.unshift(area.name);
+                area = area.parentId ? areaById.get(area.parentId) : undefined;
+            }
+            return names.join("/");
+        };
+        const records = createCardBrowserRecords(indexedCards).map((record) => {
+            const stored = record.card.stableId
+                ? storedByLegacyId.get(record.card.stableId)
+                : undefined;
+            const note = stored ? snapshot.notes[stored.noteId] : undefined;
+            const noteType = note ? snapshot.noteTypes[note.noteTypeId] : undefined;
+            const expired =
+                stored?.state === "buried" &&
+                stored.buriedUntil !== null &&
+                stored.buriedUntil <= Date.now();
+            const deckNames = stored?.deckPath ? [stored.deckPath] : record.deckNames;
+            const fieldNames = Object.fromEntries(
+                noteType?.fields.map((field) => [field.id, field.name]) ?? [],
+            );
+            let retention: number | null = null;
+            let difficulty: number | null = null;
+            let stability: number | null = null;
+            if (stored?.schedule?.algorithm === SRAlgorithmType.FSRS) {
+                const schedule = stored.schedule.scheduleData as ISerializedFSRSScheduleData;
+                difficulty = schedule.difficulty;
+                stability = schedule.stability;
+                const lastReview = Date.parse(schedule.lastReview);
+                if (schedule.stability > 0 && Number.isFinite(lastReview)) {
+                    const elapsedDays = Math.max(0, (Date.now() - lastReview) / 86_400_000);
+                    retention = Math.pow(1 + (19 / 81) * (elapsedDays / schedule.stability), -0.5);
                 }
-                return {
-                    ...record,
-                    deckNames,
-                    lifecycleState: expired ? "active" : (stored?.state ?? "active"),
-                    flag: stored?.flag ?? 0,
-                    tags: note?.tags ?? [],
-                    collectionCardId: stored?.id ?? null,
-                    noteId: note?.id ?? null,
-                    noteTypeId: noteType?.id ?? null,
-                    noteTypeName: noteType?.name,
-                    fields: note?.fields,
-                    fieldNames,
-                    areaNames: areas
-                        .filter((area) => deckNames.some((deck) => area.deckPaths.includes(deck)))
-                        .map((area) => area.name),
-                    reps: stored?.reps ?? 0,
-                    lapses: stored?.lapses ?? 0,
-                    retention,
-                    lastReviewAt: stored?.lastReviewAt ?? null,
-                    hasMedia: containsMedia(
-                        `${record.front}\n${record.back}\n${Object.values(note?.fields ?? {}).join("\n")}`,
-                    ),
-                    history: stored
-                        ? [...(historyByCard.get(stored.id) ?? [])].sort(
-                              (left, right) => right.reviewedAt - left.reviewedAt,
-                          )
-                        : [],
-                };
-            },
-        );
-        return annotateCardBrowserDiagnostics(records);
+            }
+            const cardText = `${record.front}\n${record.back}\n${Object.values(
+                note?.fields ?? {},
+            ).join("\n")}`;
+            const mediaPaths = extractCardMediaPaths(cardText);
+            const missingMediaPaths = mediaPaths.filter((path) => {
+                const decoded = safeDecodeMediaPath(path);
+                return !this.app.metadataCache.getFirstLinkpathDest(decoded, record.notePath);
+            });
+            const history = stored
+                ? [...(historyByCard.get(stored.id) ?? [])].sort(
+                      (left, right) => right.reviewedAt - left.reviewedAt,
+                  )
+                : [];
+            return {
+                ...record,
+                deckNames,
+                lifecycleState: expired ? "active" : (stored?.state ?? "active"),
+                flag: stored?.flag ?? 0,
+                tags: note?.tags ?? [],
+                collectionCardId: stored?.id ?? null,
+                noteId: note?.id ?? null,
+                noteTypeId: noteType?.id ?? null,
+                noteTypeName: noteType?.name,
+                fields: note?.fields,
+                fieldNames,
+                areaNames: areas
+                    .filter(
+                        (area) =>
+                            !area.archivedAt &&
+                            deckNames.some((deck) => area.deckPaths.includes(deck)),
+                    )
+                    .flatMap((area) => {
+                        const path = areaPath(area.id);
+                        return path === area.name ? [area.name] : [area.name, path];
+                    }),
+                reps: stored?.reps ?? 0,
+                lapses: stored?.lapses ?? 0,
+                retention,
+                difficulty,
+                stability,
+                createdAt: stored?.createdAt ?? note?.createdAt ?? null,
+                updatedAt: stored?.updatedAt ?? note?.updatedAt ?? null,
+                lastReviewAt: stored?.lastReviewAt ?? null,
+                lastRating: history[0]?.rating ?? null,
+                hasMedia: containsMedia(cardText),
+                hasSource:
+                    Boolean(record.notePath) &&
+                    this.app.vault.getAbstractFileByPath(record.notePath) instanceof TFile,
+                missingMediaPaths,
+                history,
+                editHistory: note ? collection.getNoteEditHistory(note.id) : [],
+            };
+        });
+        const annotated = annotateCardBrowserDiagnostics(records);
+        this.recordCache = { key: cacheKey, records: annotated };
+        return annotated;
     }
 
     private render(): void {
@@ -580,6 +715,17 @@ export class CardBrowserView extends ItemView {
                 value: records.filter((record) => record.diagnostics?.includes("empty")).length,
                 action: () => this.setQuery("is:empty"),
             },
+            {
+                label: uiText("No source", "Нет источника"),
+                value: records.filter((record) => record.diagnostics?.includes("orphan")).length,
+                action: () => this.setQuery("is:orphan"),
+            },
+            {
+                label: uiText("Missing media", "Нет медиа"),
+                value: records.filter((record) => record.diagnostics?.includes("missing-media"))
+                    .length,
+                action: () => this.setQuery("is:missing-media"),
+            },
         ];
         for (const metric of metrics) {
             const button = new ButtonComponent(insights)
@@ -625,9 +771,22 @@ export class CardBrowserView extends ItemView {
                 this.renderResults(records);
             });
         new ButtonComponent(primary)
+            .setIcon("circle-help")
+            .setTooltip(uiText("Search language", "Язык поиска"))
+            .onClick(() => this.openQueryHelp());
+        const hasViewState =
+            Boolean(this.query.trim()) ||
+            this.filter !== "all" ||
+            this.deck !== "all" ||
+            this.tag !== "all" ||
+            this.flag !== "all" ||
+            this.cardType !== "all" ||
+            this.sort !== "due" ||
+            this.sortDirection !== "asc";
+        new ButtonComponent(primary)
             .setIcon("bookmark-plus")
-            .setTooltip(uiText("Save search", "Сохранить поиск"))
-            .setDisabled(!this.query.trim())
+            .setTooltip(uiText("Save view", "Сохранить представление"))
+            .setDisabled(!hasViewState)
             .onClick(() => this.openSaveQuery());
         const filters = toolbar.createDiv("sr-card-browser-filter-row");
         const knownDecks = new Set([
@@ -743,8 +902,42 @@ export class CardBrowserView extends ItemView {
             reps: uiText("Sort: reviews", "Сортировка: повторения"),
             lapses: uiText("Sort: lapses", "Сортировка: ошибки"),
             retention: uiText("Sort: retention", "Сортировка: сохранение"),
+            difficulty: uiText("Sort: difficulty", "Сортировка: сложность"),
+            stability: uiText("Sort: stability", "Сортировка: стабильность"),
+            created: uiText("Sort: created", "Сортировка: создание"),
             "last-review": uiText("Sort: last review", "Сортировка: последнее повторение"),
         };
+    }
+
+    private openQueryHelp(): void {
+        new QueryHelpModal(this.app).open();
+    }
+
+    private queryErrorRussian(error: string): string {
+        return (
+            {
+                "Unexpected closing parenthesis": "Лишняя закрывающая скобка",
+                "Unclosed quote": "Незакрытая кавычка",
+                "Unclosed parenthesis": "Незакрытая скобка",
+            }[error] ?? error
+        );
+    }
+
+    private applySavedQuery(saved: SavedCardQuery): void {
+        const view = saved.view;
+        this.query = saved.query;
+        this.filter = (view?.filter as CardBrowserFilter | undefined) ?? "all";
+        this.deck = view?.deck ?? "all";
+        this.tag = view?.tag ?? "all";
+        this.flag = view?.flag ?? "all";
+        this.cardType = view?.cardType ?? "all";
+        this.sort = (view?.sort as CardBrowserSort | undefined) ?? "due";
+        this.sortDirection = view?.sortDirection ?? "asc";
+        if (view?.columns?.length) {
+            this.plugin.dataManager.data.cardBrowserColumns = [...view.columns];
+            void this.plugin.dataManager.savePluginData();
+        }
+        this.render();
     }
 
     private renderSavedQueries(): void {
@@ -754,7 +947,7 @@ export class CardBrowserView extends ItemView {
         for (const query of saved) {
             const chip = row.createDiv("sr-card-browser-saved-query");
             const apply = chip.createEl("button", { text: query.name });
-            apply.addEventListener("click", () => this.setQuery(query.query));
+            apply.addEventListener("click", () => this.applySavedQuery(query));
             if (query.dynamic) {
                 const play = chip.createEl("button", {
                     attr: {
@@ -789,6 +982,12 @@ export class CardBrowserView extends ItemView {
             this.sort,
             this.sortDirection,
         );
+        const queryError = validateCardBrowserQuery(this.query);
+        if (queryError) {
+            const error = this.resultsEl.createDiv("sr-card-browser-query-error");
+            setIcon(error.createSpan(), "triangle-alert");
+            error.createSpan({ text: uiText(queryError, this.queryErrorRussian(queryError)) });
+        }
         const summary = this.resultsEl.createDiv("sr-card-browser-summary");
         summary.createSpan({
             text: t("CARD_BROWSER_COUNT", {
@@ -891,10 +1090,17 @@ export class CardBrowserView extends ItemView {
         });
         for (const column of this.visibleColumns) {
             const cell = row.createDiv(`sr-card-browser-cell is-${column}`);
+            cell.dataset.column = column;
             this.renderCell(cell, record, column);
             cell.addEventListener("click", () => this.openInspector(record));
         }
         const actions = row.createDiv("sr-card-browser-row-actions");
+        if (record.noteId) {
+            new ButtonComponent(actions)
+                .setIcon("pencil-line")
+                .setTooltip(uiText("Edit in table", "Изменить в таблице"))
+                .onClick(() => this.beginInlineEdit(row, record));
+        }
         const flag = new ButtonComponent(actions)
             .setIcon("flag")
             .setTooltip(this.getFlagOptions(false)[String(record.flag)])
@@ -908,6 +1114,90 @@ export class CardBrowserView extends ItemView {
         row.addEventListener("contextmenu", (event) => this.openCardMenu(event, record));
     }
 
+    private beginInlineEdit(row: HTMLElement, record: CardBrowserRecord): void {
+        const snapshot = this.plugin.dataManager.collectionStore.getCollectionSnapshot();
+        const note = record.noteId ? snapshot.notes[record.noteId] : undefined;
+        const noteType = note ? snapshot.noteTypes[note.noteTypeId] : undefined;
+        if (!note || note.source.kind !== "managed" || !noteType) {
+            void this.plugin.uiManager.openNativeCardEditor(record.card, record.deckNames[0]);
+            return;
+        }
+        const orderedFields = [...noteType.fields].sort(
+            (left, right) => left.ordinal - right.ordinal,
+        );
+        const questionField = orderedFields[0];
+        const answerField = orderedFields[1];
+        const question = row.querySelector<HTMLElement>('[data-column="question"]');
+        const answer = row.querySelector<HTMLElement>('[data-column="answer"]');
+        const tags = row.querySelector<HTMLElement>('[data-column="tags"]');
+        if (!question || !questionField) {
+            void this.plugin.uiManager.openNativeCardEditor(record.card, record.deckNames[0]);
+            return;
+        }
+        row.addClass("is-inline-editing");
+        const editable = [question, answer, tags].filter((element): element is HTMLElement =>
+            Boolean(element),
+        );
+        for (const element of editable) {
+            element.contentEditable = "true";
+            element.setAttribute("role", "textbox");
+            element.addEventListener("click", (event) => event.stopPropagation());
+        }
+        question.setText(note.fields[questionField.id] ?? "");
+        if (answer && answerField) answer.setText(note.fields[answerField.id] ?? "");
+        if (tags) tags.setText(note.tags.map((tag) => `#${tag}`).join(" "));
+        const actions = row.querySelector<HTMLElement>(".sr-card-browser-row-actions");
+        if (!actions) return;
+        actions.empty();
+        new ButtonComponent(actions)
+            .setIcon("check")
+            .setTooltip(t("SAVE"))
+            .setCta()
+            .onClick(
+                () =>
+                    void this.saveInlineEdit(
+                        record,
+                        note,
+                        questionField.id,
+                        answerField?.id,
+                        question.innerText,
+                        answer?.innerText ?? "",
+                        tags?.innerText ?? note.tags.join(" "),
+                    ),
+            );
+        new ButtonComponent(actions)
+            .setIcon("x")
+            .setTooltip(t("CANCEL"))
+            .onClick(() => this.renderVirtualWindow(true));
+        question.focus();
+    }
+
+    private async saveInlineEdit(
+        record: CardBrowserRecord,
+        note: CollectionNote,
+        questionFieldId: string,
+        answerFieldId: string | undefined,
+        question: string,
+        answer: string,
+        tagText: string,
+    ): Promise<void> {
+        const fields = { ...note.fields, [questionFieldId]: question.trim() };
+        if (answerFieldId) fields[answerFieldId] = answer.trim();
+        const tags = tagText
+            .split(/[\s,]+/)
+            .map((tag) => tag.replace(/^#+/, "").trim())
+            .filter(Boolean);
+        await new NativeCardStore(this.plugin).updateStructuredNote(note, {
+            deckPath: record.deckNames[0] ?? "",
+            noteTypeId: note.noteTypeId,
+            fields,
+            tags,
+        });
+        this.recordCache = null;
+        new Notice(uiText("Card updated.", "Карточка обновлена."));
+        this.render();
+    }
+
     private renderCell(
         cell: HTMLElement,
         record: CardBrowserRecord,
@@ -919,12 +1209,15 @@ export class CardBrowserView extends ItemView {
             if (record.diagnostics?.length && column === "question") {
                 const badges = cell.createSpan("sr-card-browser-diagnostics");
                 for (const diagnostic of record.diagnostics) {
+                    const labels: Record<string, string> = {
+                        duplicate: uiText("Duplicate", "Дубликат"),
+                        empty: uiText("Empty", "Пустая"),
+                        orphan: uiText("No source", "Нет источника"),
+                        "missing-media": uiText("Missing media", "Нет медиа"),
+                    };
                     badges.createSpan({
                         cls: `is-${diagnostic}`,
-                        text:
-                            diagnostic === "duplicate"
-                                ? uiText("Duplicate", "Дубликат")
-                                : uiText("Empty", "Пустая"),
+                        text: labels[diagnostic],
                     });
                 }
             }
@@ -953,6 +1246,21 @@ export class CardBrowserView extends ItemView {
                     : `${Math.round(record.retention * 100)}%`,
             );
         }
+        if (column === "difficulty") {
+            cell.setText(
+                record.difficulty === null || record.difficulty === undefined
+                    ? "—"
+                    : record.difficulty.toFixed(1),
+            );
+        }
+        if (column === "stability") {
+            cell.setText(
+                record.stability === null || record.stability === undefined
+                    ? "—"
+                    : `${Math.round(record.stability)}d`,
+            );
+        }
+        if (column === "created") cell.setText(formatDate(record.createdAt));
         if (column === "note") cell.setText(record.notePath || "—");
         if (column === "tags") cell.setText(record.tags.map((tag) => `#${tag}`).join(" ") || "—");
         if (column === "last-review") cell.setText(formatDate(record.lastReviewAt));
@@ -976,6 +1284,9 @@ export class CardBrowserView extends ItemView {
             reps: "72px",
             lapses: "72px",
             retention: "92px",
+            difficulty: "92px",
+            stability: "92px",
+            created: "160px",
             note: "minmax(180px, 1.3fr)",
             tags: "minmax(150px, 1fr)",
             "last-review": "160px",
@@ -997,6 +1308,9 @@ export class CardBrowserView extends ItemView {
             reps: uiText("Reviews", "Повторения"),
             lapses: uiText("Lapses", "Ошибки"),
             retention: uiText("Retention", "Сохранение"),
+            difficulty: uiText("Difficulty", "Сложность"),
+            stability: uiText("Stability", "Стабильность"),
+            created: uiText("Created", "Создана"),
             note: uiText("Source", "Источник"),
             tags: uiText("Tags", "Теги"),
             "last-review": uiText("Last review", "Последнее повторение"),
@@ -1013,6 +1327,9 @@ export class CardBrowserView extends ItemView {
             reps: "reps",
             lapses: "lapses",
             retention: "retention",
+            difficulty: "difficulty",
+            stability: "stability",
+            created: "created",
             note: "note",
             "last-review": "last-review",
         };
@@ -1052,7 +1369,6 @@ export class CardBrowserView extends ItemView {
 
     private openSaveQuery(): void {
         const query = this.query.trim();
-        if (!query) return;
         new SavedQueryModal(
             this.app,
             query,
@@ -1062,12 +1378,23 @@ export class CardBrowserView extends ItemView {
 
     private async saveQuery(name: string, query: string, dynamic: boolean): Promise<void> {
         const now = Date.now();
+        const view: NonNullable<SavedCardQuery["view"]> = {
+            filter: this.filter,
+            deck: this.deck,
+            tag: this.tag,
+            flag: this.flag,
+            cardType: this.cardType,
+            sort: this.sort,
+            sortDirection: this.sortDirection,
+            columns: [...this.visibleColumns],
+        };
         const existing = this.plugin.dataManager.data.savedCardQueries.find(
             (candidate) => candidate.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
         );
         if (existing) {
             existing.query = query;
             existing.dynamic = dynamic;
+            existing.view = view;
             existing.updatedAt = now;
         } else {
             this.plugin.dataManager.data.savedCardQueries.push({
@@ -1075,6 +1402,7 @@ export class CardBrowserView extends ItemView {
                 name,
                 query,
                 dynamic,
+                view,
                 createdAt: now,
                 updatedAt: now,
             });
@@ -1090,7 +1418,7 @@ export class CardBrowserView extends ItemView {
             item
                 .setTitle(uiText("Apply", "Применить"))
                 .setIcon("search")
-                .onClick(() => this.setQuery(query.query)),
+                .onClick(() => this.applySavedQuery(query)),
         );
         if (query.dynamic) {
             menu.addItem((item) =>
@@ -1144,7 +1472,19 @@ export class CardBrowserView extends ItemView {
     }
 
     private async studySavedQuery(query: SavedCardQuery): Promise<void> {
-        await this.startRecordsReview(filterCardBrowserRecords(this.records, query.query, "all"));
+        const view = query.view;
+        await this.startRecordsReview(
+            filterCardBrowserRecords(
+                this.records,
+                query.query,
+                (view?.filter as CardBrowserFilter | undefined) ?? "all",
+                view?.deck ?? "all",
+                null,
+                view?.tag ?? "all",
+                view?.flag ?? "all",
+                view?.cardType ?? "all",
+            ),
+        );
     }
 
     private async startFilteredReview(): Promise<void> {
@@ -1224,6 +1564,12 @@ export class CardBrowserView extends ItemView {
         );
         menu.addItem((item) =>
             item
+                .setTitle(uiText("Move source files", "Переместить файлы-источники"))
+                .setIcon("file-output")
+                .onClick(() => this.openMoveSourceFiles(records)),
+        );
+        menu.addItem((item) =>
+            item
                 .setTitle(uiText("Assign knowledge area", "Назначить область знаний"))
                 .setIcon("library-big")
                 .onClick(() => this.openKnowledgeAreaPicker(records)),
@@ -1236,6 +1582,12 @@ export class CardBrowserView extends ItemView {
         );
         menu.addItem((item) =>
             item
+                .setTitle(uiText("Change card template", "Изменить шаблон карточек"))
+                .setIcon("panels-top-left")
+                .onClick(() => this.openTemplatePicker(records)),
+        );
+        menu.addItem((item) =>
+            item
                 .setTitle(uiText("Find and replace", "Найти и заменить"))
                 .setIcon("replace")
                 .onClick(() => this.openFindReplace(records)),
@@ -1245,6 +1597,16 @@ export class CardBrowserView extends ItemView {
                 .setTitle(t("EDIT_TAGS"))
                 .setIcon("tags")
                 .onClick(() => this.openTagsEditor(records)),
+        );
+        const duplicateRecords = records.filter((record) =>
+            record.diagnostics?.includes("duplicate"),
+        );
+        menu.addItem((item) =>
+            item
+                .setTitle(uiText("Merge exact duplicates", "Объединить точные дубликаты"))
+                .setIcon("combine")
+                .setDisabled(duplicateRecords.length < 2)
+                .onClick(() => this.confirmMergeDuplicates(duplicateRecords)),
         );
         menu.addSeparator();
         menu.addItem((item) =>
@@ -1377,6 +1739,84 @@ export class CardBrowserView extends ItemView {
         }
         new Notice(uiText(`${updated} notes converted.`, `Преобразовано заметок: ${updated}.`));
         this.selectedIds.clear();
+        this.render();
+    }
+
+    private openTemplatePicker(records: CardBrowserRecord[]): void {
+        const snapshot = this.plugin.dataManager.collectionStore.getCollectionSnapshot();
+        const typeIds = new Set(records.map((record) => record.noteTypeId).filter(Boolean));
+        const noteTypes = [...typeIds]
+            .map((id) => snapshot.noteTypes[id ?? ""])
+            .filter((type): type is NoteTypeDefinition => Boolean(type && !type.deletedAt));
+        const choices = noteTypes.flatMap((type) => [
+            {
+                id: `${type.id}\u0000*`,
+                name: uiText(`All ${type.name} templates`, `Все шаблоны «${type.name}»`),
+                detail: uiText("Generate every enabled variant", "Создать все включённые варианты"),
+            },
+            ...type.templates
+                .filter((template) => template.enabled)
+                .map((template) => ({
+                    id: `${type.id}\u0000${template.id}`,
+                    name: template.name,
+                    detail: type.name,
+                })),
+        ]);
+        if (choices.length === 0) {
+            new Notice(
+                uiText(
+                    "No editable templates in the selection.",
+                    "В выборке нет доступных шаблонов.",
+                ),
+            );
+            return;
+        }
+        new ChoiceModal(
+            this.app,
+            uiText("Card template", "Шаблон карточек"),
+            uiText(
+                "The choice is stored with each Markdown note and survives reindexing.",
+                "Выбор хранится в каждой Markdown-заметке и сохраняется после переиндексации.",
+            ),
+            choices,
+            (id) => {
+                const [noteTypeId, templateId] = id.split("\u0000");
+                void this.changeTemplates(records, noteTypeId, templateId);
+            },
+        ).open();
+    }
+
+    private async changeTemplates(
+        records: CardBrowserRecord[],
+        noteTypeId: string,
+        templateId: string,
+    ): Promise<void> {
+        const snapshot = this.plugin.dataManager.collectionStore.getCollectionSnapshot();
+        const notes = this.uniqueNotes(records, snapshot.notes).filter(
+            (note) => note.noteTypeId === noteTypeId && note.source.kind === "managed",
+        );
+        let changed = 0;
+        for (const note of notes) {
+            const externalData = { ...(note.externalData ?? {}) };
+            if (templateId === "*") delete externalData.msreTemplateIds;
+            else externalData.msreTemplateIds = [templateId];
+            const deck = records.find((record) => record.noteId === note.id)?.deckNames[0] ?? "";
+            try {
+                await new NativeCardStore(this.plugin).updateStructuredNote(note, {
+                    deckPath: deck,
+                    noteTypeId,
+                    fields: note.fields,
+                    tags: note.tags,
+                    externalData,
+                });
+                changed++;
+            } catch {
+                // Continue changing compatible managed notes.
+            }
+        }
+        this.recordCache = null;
+        this.selectedIds.clear();
+        new Notice(uiText(`${changed} notes updated.`, `Обновлено заметок: ${changed}.`));
         this.render();
     }
 
@@ -1534,6 +1974,32 @@ export class CardBrowserView extends ItemView {
         this.render();
     }
 
+    private openMoveSourceFiles(records: CardBrowserRecord[]): void {
+        new TextInputModal(
+            this.app,
+            uiText("Move source files", "Переместить файлы-источники"),
+            uiText("Target vault folder", "Целевая папка хранилища"),
+            "Spaced Repetition/Cards",
+            (folder) => void this.moveSourceFiles(records, folder),
+        ).open();
+    }
+
+    private async moveSourceFiles(records: CardBrowserRecord[], folder: string): Promise<void> {
+        const result = await new NativeCardStore(this.plugin).moveCardSourceFiles(
+            this.cardSources(records),
+            folder,
+        );
+        this.selectedIds.clear();
+        new Notice(
+            uiText(
+                `${result.moved} source files moved${result.skipped ? `, ${result.skipped} skipped` : ""}.`,
+                `Перемещено файлов: ${result.moved}${result.skipped ? `, пропущено: ${result.skipped}` : ""}.`,
+            ),
+        );
+        this.recordCache = null;
+        this.render();
+    }
+
     private openTagsEditor(records: CardBrowserRecord[]): void {
         const shared = records.every(
             (record) => record.tags.join("\u0000") === records[0]?.tags.join("\u0000"),
@@ -1671,6 +2137,61 @@ export class CardBrowserView extends ItemView {
                 await this.plugin.dataManager.sync();
                 this.selectedIds.clear();
                 new Notice(t("CARDS_DELETED"));
+                this.render();
+            },
+        ).open();
+    }
+
+    private confirmMergeDuplicates(records: CardBrowserRecord[]): void {
+        const groups = new Map<string, CardBrowserRecord[]>();
+        for (const record of records) {
+            const key = `${compactCardText(record.front).toLocaleLowerCase()}\u0000${compactCardText(
+                record.back,
+            ).toLocaleLowerCase()}`;
+            groups.set(key, [...(groups.get(key) ?? []), record]);
+        }
+        const duplicateGroups = [...groups.values()].filter((group) => group.length > 1);
+        if (duplicateGroups.length === 0) return;
+        const removeCount = duplicateGroups.reduce((total, group) => total + group.length - 1, 0);
+        new ConfirmationModal(
+            this.app,
+            uiText("Merge exact duplicates", "Объединить точные дубликаты"),
+            uiText(
+                `Keep the most studied card in each group, combine tags, and remove ${removeCount} duplicate notes. Review history of the retained cards is preserved.`,
+                `В каждой группе останется наиболее изученная карточка, теги объединятся, а ${removeCount} дубликатов будут удалены. История оставшихся карточек сохранится.`,
+            ),
+            t("CANCEL"),
+            async () => {
+                for (const group of duplicateGroups) {
+                    const ordered = [...group].sort(
+                        (left, right) =>
+                            (right.reps ?? 0) - (left.reps ?? 0) ||
+                            (right.interval ?? 0) - (left.interval ?? 0),
+                    );
+                    const [winner, ...duplicates] = ordered;
+                    const tags = [...new Set(group.flatMap((record) => record.tags))];
+                    await new NativeCardStore(this.plugin).setCardTags(
+                        this.cardSources([winner]),
+                        tags,
+                    );
+                    const winnerQuestion = winner.card.question;
+                    const questions = new Set(
+                        duplicates
+                            .map((record) => record.card.question)
+                            .filter((question) => question !== winnerQuestion),
+                    );
+                    for (const question of questions)
+                        await DataStore.getInstance().delete(question);
+                }
+                await this.plugin.dataManager.sync();
+                this.recordCache = null;
+                this.selectedIds.clear();
+                new Notice(
+                    uiText(
+                        `${removeCount} duplicate cards merged.`,
+                        `Объединено дубликатов: ${removeCount}.`,
+                    ),
+                );
                 this.render();
             },
         ).open();

@@ -21,6 +21,7 @@ import {
     CollectionConflict,
     CollectionData,
     CollectionDeck,
+    CollectionEditHistoryEntry,
     CollectionEntityKind,
     CollectionIntegrityIssue,
     CollectionIntegrityReport,
@@ -181,6 +182,7 @@ function emptyCollection(): CollectionData {
         decks: { [defaultDeck.id]: defaultDeck },
         notes: {},
         cards: {},
+        editHistory: {},
         conflicts: {},
     };
 }
@@ -438,6 +440,7 @@ export function migrateCollection(value: unknown): CollectionData {
                 ];
             }),
         ),
+        editHistory: asRecord<CollectionEditHistoryEntry>(raw.editHistory),
         conflicts: asRecord<CollectionConflict>(raw.conflicts),
     };
     return migrated;
@@ -582,6 +585,10 @@ export function mergeCollections(
     const decks = mergeEntityRecords("deck", left.decks, right.decks, equalTimestampWinner);
     const notes = mergeEntityRecords("note", left.notes, right.notes, equalTimestampWinner);
     const cards = mergeEntityRecords("card", left.cards, right.cards, equalTimestampWinner);
+    const editHistory: Record<string, CollectionEditHistoryEntry> = {
+        ...right.editHistory,
+        ...left.editHistory,
+    };
     return {
         schemaVersion: COLLECTION_SCHEMA_VERSION,
         revision: Math.max(left.revision, right.revision),
@@ -591,6 +598,7 @@ export function mergeCollections(
         decks: decks.records,
         notes: notes.records,
         cards: cards.records,
+        editHistory,
         conflicts: {
             ...left.conflicts,
             ...right.conflicts,
@@ -650,6 +658,7 @@ export function formatCollection(data: CollectionData): string {
         decks: sortRecord(data.decks),
         notes: sortRecord(data.notes),
         cards: sortRecord(data.cards),
+        editHistory: sortRecord(data.editHistory),
         conflicts: sortRecord(data.conflicts),
     };
     return `# MSRE collection data
@@ -760,6 +769,14 @@ export class CollectionStore {
 
     getCollectionSnapshot(): CollectionData {
         return cloneJson(this.collection);
+    }
+
+    getNoteEditHistory(noteId: string): CollectionEditHistoryEntry[] {
+        return Object.values(this.collection.editHistory)
+            .reverse()
+            .filter((entry) => entry.noteId === noteId)
+            .sort((left, right) => right.changedAt - left.changedAt)
+            .map(cloneJson);
     }
 
     /**
@@ -1642,12 +1659,14 @@ export class CollectionStore {
             }
         }
         const timestamp = this.now();
+        const before = cloneJson(note);
         note.fields = { ...input.fields };
         note.tags = normalizeTags(input.tags ?? note.tags);
         note.source = { ...input.source };
         note.externalIds = input.externalIds ? { ...input.externalIds } : note.externalIds;
         note.externalData = input.externalData ? cloneJson(input.externalData) : note.externalData;
         note.updatedAt = timestamp;
+        this.recordNoteEdit(before, note, "edit", timestamp);
         const deck = this.ensureDeckPathInMemory(input.deckPath, timestamp);
         this.replaceGeneratedCards(
             note,
@@ -1734,9 +1753,11 @@ export class CollectionStore {
         }
         await this.writeBackupSnapshot("before-note-conversion", this.collection, this.reviewLog);
         const timestamp = this.now();
+        const before = cloneJson(note);
         note.noteTypeId = target.id;
         note.fields = fields;
         note.updatedAt = timestamp;
+        this.recordNoteEdit(before, note, "convert", timestamp);
         const deck = this.ensureDeckPathInMemory(deckPath, timestamp);
         this.replaceGeneratedCards(
             note,
@@ -1830,12 +1851,14 @@ export class CollectionStore {
         const existing = this.findNoteBySource(input.sourcePath, input.questionId);
         if (!existing) return await this.createNativeNote(input);
         const timestamp = this.now();
+        const before = cloneJson(existing);
         existing.noteTypeId = noteTypeIdForNativeType(input.type);
         existing.fields = fieldsForNativeInput(input);
         existing.answerMode = input.answerMode ?? existing.answerMode ?? "reveal";
         existing.tags = normalizeTags(input.tags ?? existing.tags);
         existing.source.questionId = input.questionId;
         existing.updatedAt = timestamp;
+        this.recordNoteEdit(before, existing, "edit", timestamp);
         const deck = this.ensureDeckPathInMemory(input.deckPath, timestamp);
         this.replaceGeneratedCards(
             existing,
@@ -1880,8 +1903,10 @@ export class CollectionStore {
         for (const input of inputs) {
             const note = this.findNoteBySource(input.sourcePath, input.questionId);
             if (!note || changed.has(note.id)) continue;
+            const before = cloneJson(note);
             note.tags = normalizedTags;
             note.updatedAt = timestamp;
+            this.recordNoteEdit(before, note, "tags", timestamp);
             changed.add(note.id);
         }
         if (changed.size > 0) await this.persistCollection();
@@ -2107,8 +2132,17 @@ export class CollectionStore {
             variantId: string;
             empty?: boolean;
         }> = [];
+        const selectedTemplateIds = Array.isArray(note.externalData?.msreTemplateIds)
+            ? (note.externalData.msreTemplateIds as unknown[]).filter(
+                  (id): id is string => typeof id === "string",
+              )
+            : [];
         for (const rawTemplate of noteType.templates
-            .filter((template) => template.enabled)
+            .filter(
+                (template) =>
+                    template.enabled &&
+                    (selectedTemplateIds.length === 0 || selectedTemplateIds.includes(template.id)),
+            )
             .sort((left, right) => left.ordinal - right.ordinal)) {
             const template = normalizeTemplate(rawTemplate, noteType.kind);
             if (!templateConditionMatches(note, template)) continue;
@@ -2286,6 +2320,51 @@ export class CollectionStore {
         };
         await this.storage.writeBackup(path, JSON.stringify(backup, null, 2));
         return { path, createdAt, reason, schemaVersion };
+    }
+
+    private recordNoteEdit(
+        before: CollectionNote,
+        after: CollectionNote,
+        action: CollectionEditHistoryEntry["action"],
+        changedAt: number,
+    ): void {
+        const templateIds = (note: CollectionNote): string[] =>
+            Array.isArray(note.externalData?.msreTemplateIds)
+                ? (note.externalData.msreTemplateIds as unknown[]).filter(
+                      (id): id is string => typeof id === "string",
+                  )
+                : [];
+        const beforeTemplateIds = templateIds(before);
+        const afterTemplateIds = templateIds(after);
+        const templatesChanged =
+            canonicalJson(beforeTemplateIds) !== canonicalJson(afterTemplateIds);
+        if (
+            before.noteTypeId === after.noteTypeId &&
+            canonicalJson(before.fields) === canonicalJson(after.fields) &&
+            canonicalJson(before.tags) === canonicalJson(after.tags) &&
+            !templatesChanged
+        ) {
+            return;
+        }
+        const id = this.createId("edit");
+        this.collection.editHistory[id] = {
+            id,
+            noteId: after.id,
+            changedAt,
+            action: templatesChanged && action === "edit" ? "template" : action,
+            beforeNoteTypeId: before.noteTypeId,
+            afterNoteTypeId: after.noteTypeId,
+            beforeFields: cloneJson(before.fields),
+            afterFields: cloneJson(after.fields),
+            beforeTags: [...before.tags],
+            afterTags: [...after.tags],
+            beforeTemplateIds,
+            afterTemplateIds,
+        };
+        const noteEntries = Object.values(this.collection.editHistory)
+            .filter((entry) => entry.noteId === after.id)
+            .sort((left, right) => right.changedAt - left.changedAt);
+        for (const stale of noteEntries.slice(100)) delete this.collection.editHistory[stale.id];
     }
 
     private async persistCollection(): Promise<void> {

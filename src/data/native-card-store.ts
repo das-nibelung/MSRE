@@ -163,6 +163,20 @@ export function normalizeManagedDeckPath(value: string): string {
         .join("/");
 }
 
+function noteTypeForTemplateSelection(
+    noteType: NoteTypeDefinition,
+    externalData: Record<string, unknown> | undefined,
+): NoteTypeDefinition {
+    const selected = Array.isArray(externalData?.msreTemplateIds)
+        ? externalData.msreTemplateIds.filter((id): id is string => typeof id === "string")
+        : [];
+    if (selected.length === 0) return noteType;
+    return {
+        ...noteType,
+        templates: noteType.templates.filter((template) => selected.includes(template.id)),
+    };
+}
+
 function getClozeWrapper(settings: SRSettings): [string, string] | null {
     if (settings.clozePatterns.some((pattern) => pattern.startsWith("=="))) return ["==", "=="];
     if (settings.clozePatterns.some((pattern) => pattern.startsWith("**"))) return ["**", "**"];
@@ -468,6 +482,7 @@ export class NativeCardStore {
         return this.plugin.dataManager.data.knowledgeAreas.map((area) => ({
             ...area,
             deckPaths: [...area.deckPaths],
+            goal: area.goal ? { ...area.goal } : undefined,
             scheduling: area.scheduling
                 ? {
                       ...area.scheduling,
@@ -485,12 +500,21 @@ export class NativeCardStore {
         }));
     }
 
-    async createKnowledgeArea(name: string): Promise<KnowledgeArea> {
+    async createKnowledgeArea(
+        name: string,
+        options: {
+            parentId?: string | null;
+            kind?: "area" | "project";
+            goal?: KnowledgeArea["goal"];
+        } = {},
+    ): Promise<KnowledgeArea> {
         const normalizedName = name.trim().replace(/\s+/g, " ");
         if (!normalizedName) throw new Error("invalid-area-name");
 
         const duplicate = this.plugin.dataManager.data.knowledgeAreas.find(
-            (area) => area.name.toLocaleLowerCase() === normalizedName.toLocaleLowerCase(),
+            (area) =>
+                area.name.toLocaleLowerCase() === normalizedName.toLocaleLowerCase() &&
+                (area.parentId ?? null) === (options.parentId ?? null),
         );
         if (duplicate) return duplicate;
 
@@ -499,6 +523,16 @@ export class NativeCardStore {
             name: normalizedName,
             deckPaths: [],
             pinned: false,
+            parentId:
+                options.parentId &&
+                this.plugin.dataManager.data.knowledgeAreas.some(
+                    (candidate) => candidate.id === options.parentId,
+                )
+                    ? options.parentId
+                    : null,
+            kind: options.kind ?? "area",
+            goal: options.goal,
+            archivedAt: null,
         };
         this.plugin.dataManager.data.knowledgeAreas.push(area);
         await this.plugin.dataManager.savePluginData();
@@ -519,6 +553,25 @@ export class NativeCardStore {
         await this.plugin.dataManager.savePluginData();
     }
 
+    async updateKnowledgeArea(
+        id: string,
+        patch: Partial<Pick<KnowledgeArea, "parentId" | "kind" | "goal" | "archivedAt" | "pinned">>,
+    ): Promise<KnowledgeArea> {
+        const area = this.requireKnowledgeArea(id);
+        if (patch.parentId !== undefined) {
+            const parentExists = this.plugin.dataManager.data.knowledgeAreas.some(
+                (candidate) => candidate.id === patch.parentId && candidate.id !== id,
+            );
+            area.parentId = parentExists ? patch.parentId : null;
+        }
+        if (patch.kind !== undefined) area.kind = patch.kind;
+        if (patch.goal !== undefined) area.goal = patch.goal;
+        if (patch.archivedAt !== undefined) area.archivedAt = patch.archivedAt;
+        if (patch.pinned !== undefined) area.pinned = patch.pinned;
+        await this.plugin.dataManager.savePluginData();
+        return area;
+    }
+
     async setKnowledgeAreaScheduling(
         id: string,
         scheduling: KnowledgeArea["scheduling"],
@@ -532,6 +585,9 @@ export class NativeCardStore {
         const index = areas.findIndex((area) => area.id === id);
         if (index < 0) return;
         areas.splice(index, 1);
+        for (const child of areas) {
+            if (child.parentId === id) child.parentId = null;
+        }
         await this.plugin.dataManager.savePluginData();
     }
 
@@ -666,6 +722,41 @@ export class NativeCardStore {
         await this.plugin.dataManager.collectionStore.moveNotesBySource(sources, normalizedDeck);
         await this.plugin.dataManager.sync();
         this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+    }
+
+    /** Moves the Markdown source files while preserving card/note identities and schedules. */
+    async moveCardSourceFiles(
+        sources: NativeCardSource[],
+        targetFolder: string,
+    ): Promise<{ moved: number; skipped: number }> {
+        const folder = normalizePath(targetFolder.trim().replace(/\/+$/g, ""));
+        if (!folder) throw new Error("invalid-target-folder");
+        await this.ensureFolder(folder);
+        const paths = [...new Set(sources.map((source) => source.sourcePath).filter(Boolean))];
+        let moved = 0;
+        let skipped = 0;
+        for (const sourcePath of paths) {
+            const file = this.plugin.app.vault.getAbstractFileByPath(sourcePath);
+            if (!(file instanceof TFile)) {
+                skipped++;
+                continue;
+            }
+            let target = normalizePath(`${folder}/${file.name}`);
+            let suffix = 2;
+            while (target !== sourcePath && this.plugin.app.vault.getAbstractFileByPath(target)) {
+                target = normalizePath(`${folder}/${file.basename}-${suffix}.${file.extension}`);
+                suffix++;
+            }
+            if (target === sourcePath) continue;
+            await this.plugin.app.vault.rename(file, target);
+            await this.plugin.dataManager.collectionStore.renameSourcePath(sourcePath, target);
+            moved++;
+        }
+        if (moved > 0) {
+            await this.plugin.dataManager.sync();
+            this.plugin.uiManager.tabViewManager.refreshCardBrowser();
+        }
+        return { moved, skipped };
     }
 
     async setCardTags(sources: NativeCardSource[], tags: string[]): Promise<void> {
@@ -1089,8 +1180,10 @@ export class NativeCardStore {
         const rootTag = (settings.flashcardTags[0] ?? FALLBACK_ROOT_TAG).replace(/\/+$/g, "");
         const tag = normalizedDeck ? `${rootTag}/${normalizedDeck}` : rootTag;
         const baseQuestionId = note.source.questionId ?? `^sr-data-id-${note.id}`;
+        const externalData = draft.externalData ?? note.externalData;
+        const selectedNoteType = noteTypeForTemplateSelection(noteType, externalData);
         const { body, legacyQuestionIds, legacyStableIds } = serializeStructuredNoteBody(
-            noteType,
+            selectedNoteType,
             draft.fields,
             settings,
             baseQuestionId,
@@ -1106,7 +1199,7 @@ export class NativeCardStore {
             legacyQuestionIds,
             legacyStableIds,
             externalIds: draft.externalIds ?? note.externalIds,
-            externalData: draft.externalData ?? note.externalData,
+            externalData,
         });
         if (note.noteTypeId !== noteType.id) {
             const previousType = collection.getNoteType(note.noteTypeId);
@@ -1138,7 +1231,7 @@ export class NativeCardStore {
             deckPath: normalizedDeck,
             source: { ...note.source, questionId: baseQuestionId },
             externalIds: draft.externalIds ?? note.externalIds,
-            externalData: draft.externalData ?? note.externalData,
+            externalData,
             legacyQuestionIds,
             legacyStableIds,
         });
@@ -1171,7 +1264,7 @@ export class NativeCardStore {
             const tag = deckPath ? `${rootTag}/${deckPath}` : rootTag;
             const baseQuestionId = note.source.questionId ?? `^sr-data-id-${note.id}`;
             const { body, legacyQuestionIds, legacyStableIds } = serializeStructuredNoteBody(
-                noteType,
+                noteTypeForTemplateSelection(noteType, note.externalData),
                 note.fields,
                 settings,
                 baseQuestionId,

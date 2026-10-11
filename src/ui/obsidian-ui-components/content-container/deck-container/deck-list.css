@@ -155,6 +155,7 @@
     }
 
     & .sr-knowledge-area-card {
+        margin-inline-start: min(calc(var(--sr-area-depth, 0) * 18px), 72px);
         overflow: hidden;
         border: 1px solid var(--background-modifier-border);
         border-radius: calc(var(--radius-l) + 3px);
@@ -167,6 +168,19 @@
                 var(--interactive-accent) 28%,
                 var(--background-modifier-border)
             );
+        }
+
+        &.is-project {
+            border-color: color-mix(
+                in srgb,
+                var(--interactive-accent) 20%,
+                var(--background-modifier-border)
+            );
+        }
+
+        &.is-archived {
+            opacity: 0.62;
+            filter: saturate(0.55);
         }
 
         &.is-collapsed .sr-knowledge-area-body {

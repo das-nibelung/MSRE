@@ -2,10 +2,12 @@ import { Card } from "src/data/data-structures/card/card";
 import {
     annotateCardBrowserDiagnostics,
     CardBrowserRecord,
+    extractCardMediaPaths,
     filterCardBrowserRecords,
     getCardBrowserDeckNames,
     getCardBrowserTags,
     sortCardBrowserRecords,
+    validateCardBrowserQuery,
 } from "src/ui/card-browser/card-browser-model";
 
 function record(overrides: Partial<CardBrowserRecord>): CardBrowserRecord {
@@ -188,6 +190,77 @@ describe("card browser filtering", () => {
         }
     });
 
+    it("supports boolean groups, negation and parentheses", () => {
+        const medicine = record({
+            id: "medicine",
+            deckNames: ["Medicine"],
+            tags: ["exam"],
+            state: "due",
+        });
+        const law = record({ id: "law", deckNames: ["Law"], tags: ["archive"] });
+        const candidates = [medicine, law];
+
+        expect(filterCardBrowserRecords(candidates, "deck:Medicine OR deck:Law", "all")).toEqual(
+            candidates,
+        );
+        expect(
+            filterCardBrowserRecords(candidates, "(deck:Medicine OR deck:Law) -tag:archive", "all"),
+        ).toEqual([medicine]);
+        expect(filterCardBrowserRecords(candidates, "NOT is:due", "all")).toEqual([law]);
+    });
+
+    it("filters by dates, rating and FSRS memory state", () => {
+        const advanced = record({
+            id: "advanced",
+            createdAt: Date.parse("2026-10-01T12:00:00Z"),
+            updatedAt: Date.parse("2026-10-08T12:00:00Z"),
+            lastReviewAt: Date.parse("2026-10-10T12:00:00Z"),
+            dueDate: "2026-10-12",
+            lastRating: 3,
+            difficulty: 6.2,
+            stability: 28,
+        });
+        for (const query of [
+            "created:2026-10-01",
+            "updated:>=2026-10-08",
+            "reviewed:2026-10-10",
+            "due:2026-10-12",
+            "rating:good",
+            "difficulty:>6 stability:>=28",
+        ]) {
+            expect(filterCardBrowserRecords([advanced], query, "all"), query).toEqual([advanced]);
+        }
+    });
+
+    it("finds orphan cards and missing local media", () => {
+        const broken = record({
+            id: "broken",
+            hasSource: false,
+            hasMedia: true,
+            missingMediaPaths: ["media/missing.png"],
+        });
+        const [annotated] = annotateCardBrowserDiagnostics([broken]);
+        expect(filterCardBrowserRecords([annotated], "is:orphan", "all")).toEqual([annotated]);
+        expect(filterCardBrowserRecords([annotated], "has:missing-media", "all")).toEqual([
+            annotated,
+        ]);
+        expect(filterCardBrowserRecords([annotated], "-has:source", "all")).toEqual([annotated]);
+    });
+
+    it("extracts Obsidian, Markdown and HTML media paths", () => {
+        expect(
+            extractCardMediaPaths(
+                '![[diagram.png|300]] ![x](audio/term.mp3) <video src="clips/demo.mp4">',
+            ),
+        ).toEqual(["diagram.png", "audio/term.mp3", "clips/demo.mp4"]);
+    });
+
+    it("validates incomplete queries without throwing", () => {
+        expect(validateCardBrowserQuery('(deck:"Medicine')).toBe("Unclosed quote");
+        expect(validateCardBrowserQuery("deck:Medicine)")).toBe("Unexpected closing parenthesis");
+        expect(validateCardBrowserQuery("(deck:Medicine OR deck:Law)")).toBeNull();
+    });
+
     it("marks duplicate and empty cards for diagnostics and query filtering", () => {
         const duplicateA = record({ id: "duplicate-a", front: "Same", back: "Answer" });
         const duplicateB = record({ id: "duplicate-b", front: " same ", back: "answer" });
@@ -214,5 +287,26 @@ describe("card browser filtering", () => {
         expect(sortCardBrowserRecords(candidates, "retention", "desc").map(({ id }) => id)).toEqual(
             ["high", "low"],
         );
+    });
+
+    it("filters a 100,000-card collection without recursive evaluation", () => {
+        const large = Array.from({ length: 100_000 }, (_, index) =>
+            record({
+                id: `large-${index}`,
+                deckNames: [index % 2 === 0 ? "Medicine" : "Law"],
+                tags: index % 100 === 0 ? ["exam"] : [],
+                reps: index % 30,
+            }),
+        );
+        const result = filterCardBrowserRecords(large, "deck:Medicine tag:exam reps:>=10", "all");
+        expect(result.length).toBeGreaterThan(0);
+        expect(
+            result.every(
+                (candidate) =>
+                    candidate.deckNames[0] === "Medicine" &&
+                    candidate.tags.includes("exam") &&
+                    (candidate.reps ?? 0) >= 10,
+            ),
+        ).toBe(true);
     });
 });

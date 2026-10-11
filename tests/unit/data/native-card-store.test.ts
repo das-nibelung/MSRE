@@ -987,8 +987,19 @@ describe("native card storage", () => {
         const store = new NativeCardStore(plugin);
 
         const medicine = await store.createKnowledgeArea("  Medicine  ");
+        const exam = await store.createKnowledgeArea("Board exam", {
+            parentId: medicine.id,
+            kind: "project",
+            goal: { targetDate: "2027-06-01", cardsPerDay: 40 },
+        });
         await store.assignDeckToKnowledgeArea("Medicine/Cardiology", medicine.id);
         await store.setKnowledgeAreaPinned(medicine.id, true);
+        await store.updateKnowledgeArea(exam.id, {
+            parentId: medicine.id,
+            kind: "project",
+            goal: { targetDate: "2027-06-01", cardsPerDay: 40, minutesPerDay: 30 },
+            pinned: true,
+        });
 
         expect(store.getKnowledgeAreas()).toEqual([
             expect.objectContaining({
@@ -997,12 +1008,30 @@ describe("native card storage", () => {
                 deckPaths: ["Medicine/Cardiology"],
                 pinned: true,
             }),
+            expect.objectContaining({
+                id: exam.id,
+                parentId: medicine.id,
+                kind: "project",
+                goal: {
+                    targetDate: "2027-06-01",
+                    cardsPerDay: 40,
+                    minutesPerDay: 30,
+                },
+                pinned: true,
+            }),
         ]);
+
+        await store.updateKnowledgeArea(exam.id, { archivedAt: 500 });
+        expect(store.getKnowledgeAreas()[1].archivedAt).toBe(500);
 
         await store.unassignDeckFromKnowledgeAreas("Medicine/Cardiology");
         expect(store.getKnowledgeAreas()[0].deckPaths).toEqual([]);
         await store.removeKnowledgeArea(medicine.id);
+        expect(store.getKnowledgeAreas()).toEqual([
+            expect.objectContaining({ id: exam.id, parentId: null }),
+        ]);
+        await store.removeKnowledgeArea(exam.id);
         expect(store.getKnowledgeAreas()).toEqual([]);
-        expect(savePluginData).toHaveBeenCalledTimes(5);
+        expect(savePluginData).toHaveBeenCalledTimes(9);
     });
 });

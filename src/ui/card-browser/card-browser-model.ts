@@ -1,4 +1,9 @@
-import { CardFlag, CardLifecycleState, ReviewLogEntry } from "src/data/collection/collection-types";
+import {
+    CardFlag,
+    CardLifecycleState,
+    CollectionEditHistoryEntry,
+    ReviewLogEntry,
+} from "src/data/collection/collection-types";
 import { Card } from "src/data/data-structures/card/card";
 import { CardType } from "src/data/data-structures/card/questions/question";
 
@@ -14,10 +19,13 @@ export type CardBrowserSort =
     | "reps"
     | "lapses"
     | "retention"
+    | "difficulty"
+    | "stability"
+    | "created"
     | "last-review";
 export type CardBrowserSortDirection = "asc" | "desc";
 export type CardBrowserCardType = "basic" | "reversed" | "cloze";
-export type CardBrowserDiagnostic = "duplicate" | "empty";
+export type CardBrowserDiagnostic = "duplicate" | "empty" | "orphan" | "missing-media";
 export type CardBrowserColumn =
     | "question"
     | "answer"
@@ -31,6 +39,9 @@ export type CardBrowserColumn =
     | "reps"
     | "lapses"
     | "retention"
+    | "difficulty"
+    | "stability"
+    | "created"
     | "note"
     | "tags"
     | "last-review";
@@ -48,6 +59,9 @@ export const CARD_BROWSER_COLUMNS: CardBrowserColumn[] = [
     "reps",
     "lapses",
     "retention",
+    "difficulty",
+    "stability",
+    "created",
     "note",
     "tags",
     "last-review",
@@ -87,9 +101,17 @@ export interface CardBrowserRecord {
     reps?: number;
     lapses?: number;
     retention?: number | null;
+    difficulty?: number | null;
+    stability?: number | null;
+    createdAt?: number | null;
+    updatedAt?: number | null;
     lastReviewAt?: number | null;
+    lastRating?: number | null;
     hasMedia?: boolean;
+    hasSource?: boolean;
+    missingMediaPaths?: string[];
     history?: ReviewLogEntry[];
+    editHistory?: CollectionEditHistoryEntry[];
     diagnostics?: CardBrowserDiagnostic[];
 }
 
@@ -97,6 +119,11 @@ interface QueryTerm {
     key: string | null;
     value: string;
 }
+
+type QueryExpression =
+    | { type: "term"; term: QueryTerm }
+    | { type: "not"; child: QueryExpression }
+    | { type: "and" | "or"; children: QueryExpression[] };
 
 function normalizeForSearch(value: string): string {
     return value
@@ -118,16 +145,96 @@ function unquote(value: string): string {
     return trimmed;
 }
 
-function tokenizeQuery(query: string): QueryTerm[] {
-    const tokens = query.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
-    return tokens.map((token) => {
-        const separator = token.indexOf(":");
-        if (separator <= 0) return { key: null, value: unquote(token) };
-        return {
-            key: token.slice(0, separator).toLocaleLowerCase(),
-            value: unquote(token.slice(separator + 1)),
-        };
-    });
+function lexQuery(query: string): string[] {
+    const tokens: string[] = [];
+    let buffer = "";
+    let quote = "";
+    const flush = (): void => {
+        if (buffer) tokens.push(buffer);
+        buffer = "";
+    };
+    for (const character of query.trim()) {
+        if (quote) {
+            buffer += character;
+            if (character === quote) quote = "";
+            continue;
+        }
+        if (character === '"' || character === "'") {
+            quote = character;
+            buffer += character;
+        } else if (character === "(" || character === ")" || character === "|") {
+            flush();
+            tokens.push(character);
+        } else if (/\s/.test(character)) flush();
+        else buffer += character;
+    }
+    flush();
+    return tokens;
+}
+
+function toQueryTerm(token: string): QueryTerm {
+    const separator = token.indexOf(":");
+    if (separator <= 0) return { key: null, value: unquote(token) };
+    return {
+        key: token.slice(0, separator).toLocaleLowerCase(),
+        value: unquote(token.slice(separator + 1)),
+    };
+}
+
+/** Parses a compact Anki-style query with implicit AND, OR, NOT and parentheses. */
+export function parseCardBrowserQuery(query: string): QueryExpression | null {
+    const tokens = lexQuery(query);
+    let position = 0;
+    const parseUnary = (): QueryExpression | null => {
+        const token = tokens[position];
+        if (!token) return null;
+        if (token.toLocaleUpperCase() === "NOT") {
+            position++;
+            const child = parseUnary();
+            return child ? { type: "not", child } : null;
+        }
+        if (token === "(") {
+            position++;
+            const child = parseOr();
+            if (tokens[position] === ")") position++;
+            return child;
+        }
+        if (token === ")" || token === "|" || token.toLocaleUpperCase() === "OR") return null;
+        position++;
+        if (token.startsWith("-") && token.length > 1) {
+            return { type: "not", child: { type: "term", term: toQueryTerm(token.slice(1)) } };
+        }
+        return { type: "term", term: toQueryTerm(token) };
+    };
+    const parseAnd = (): QueryExpression | null => {
+        const children: QueryExpression[] = [];
+        while (position < tokens.length) {
+            const token = tokens[position];
+            if (token === ")" || token === "|" || token.toLocaleUpperCase() === "OR") break;
+            if (token.toLocaleUpperCase() === "AND") {
+                position++;
+                continue;
+            }
+            const child = parseUnary();
+            if (!child) break;
+            children.push(child);
+        }
+        if (children.length === 0) return null;
+        return children.length === 1 ? children[0] : { type: "and", children };
+    };
+    const parseOr = (): QueryExpression | null => {
+        const children: QueryExpression[] = [];
+        const first = parseAnd();
+        if (first) children.push(first);
+        while (tokens[position] === "|" || tokens[position]?.toLocaleUpperCase() === "OR") {
+            position++;
+            const child = parseAnd();
+            if (child) children.push(child);
+        }
+        if (children.length === 0) return null;
+        return children.length === 1 ? children[0] : { type: "or", children };
+    };
+    return parseOr();
 }
 
 function compareNumber(actual: number | null | undefined, expression: string): boolean {
@@ -140,6 +247,38 @@ function compareNumber(actual: number | null | undefined, expression: string): b
     if (match[1] === ">") return actual > expected;
     if (match[1] === ">=") return actual >= expected;
     return actual === expected;
+}
+
+function dateValue(value: string, now: number): number | null {
+    const normalized = value.trim().toLocaleLowerCase();
+    const date = new Date(now);
+    date.setHours(0, 0, 0, 0);
+    if (normalized === "today") return date.getTime();
+    if (normalized === "yesterday") return date.getTime() - 86_400_000;
+    if (normalized === "tomorrow") return date.getTime() + 86_400_000;
+    const timestamp = Date.parse(normalized);
+    return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function compareDate(
+    actual: number | string | null | undefined,
+    expression: string,
+    now: number = Date.now(),
+): boolean {
+    if (actual === null || actual === undefined) return false;
+    const actualValue = typeof actual === "number" ? actual : Date.parse(actual);
+    if (!Number.isFinite(actualValue)) return false;
+    const recent = expression.trim().match(/^(\d+)d$/i);
+    if (recent) return actualValue >= now - Number(recent[1]) * 86_400_000 && actualValue <= now;
+    const match = expression.trim().match(/^(<=|>=|<|>|=)?\s*(.+)$/);
+    const expected = match ? dateValue(match[2], now) : null;
+    if (!match || expected === null) return false;
+    const operator = match[1] ?? "=";
+    if (operator === "<") return actualValue < expected;
+    if (operator === "<=") return actualValue < expected + 86_400_000;
+    if (operator === ">") return actualValue >= expected + 86_400_000;
+    if (operator === ">=") return actualValue >= expected;
+    return actualValue >= expected && actualValue < expected + 86_400_000;
 }
 
 function includesNormalized(values: Array<string | undefined>, expected: string): boolean {
@@ -163,6 +302,15 @@ function flagValue(value: string): number | null {
     if (normalized in names) return names[normalized];
     const numeric = Number(normalized);
     return Number.isInteger(numeric) && numeric >= 0 && numeric <= 7 ? numeric : null;
+}
+
+function ratingValue(value: string): number | null {
+    const normalized = normalizeForSearch(value);
+    const names: Record<string, number> = { again: 1, hard: 2, good: 3, easy: 4 };
+    return (
+        names[normalized] ??
+        (compareNumber(Number(normalized), normalized) ? Number(normalized) : null)
+    );
 }
 
 function matchesQueryTerm(record: CardBrowserRecord, term: QueryTerm): boolean {
@@ -194,8 +342,22 @@ function matchesQueryTerm(record: CardBrowserRecord, term: QueryTerm): boolean {
     if (term.key === "reps") return compareNumber(record.reps, term.value);
     if (term.key === "lapses") return compareNumber(record.lapses, term.value);
     if (term.key === "retention") return compareNumber(record.retention, term.value);
+    if (term.key === "difficulty") return compareNumber(record.difficulty, term.value);
+    if (term.key === "stability") return compareNumber(record.stability, term.value);
+    if (term.key === "ease") return compareNumber(record.ease, term.value);
+    if (term.key === "rating") return ratingValue(term.value) === record.lastRating;
+    if (term.key === "created") return compareDate(record.createdAt, term.value);
+    if (term.key === "updated") return compareDate(record.updatedAt, term.value);
+    if (term.key === "reviewed" || term.key === "review") {
+        return compareDate(record.lastReviewAt, term.value);
+    }
+    if (term.key === "due") return compareDate(record.dueDate, term.value);
     if (term.key === "has") {
-        return normalizeForSearch(term.value) === "media" ? record.hasMedia === true : false;
+        const value = normalizeForSearch(term.value);
+        if (value === "media") return record.hasMedia === true;
+        if (value === "source") return record.hasSource !== false;
+        if (value === "missing-media") return Boolean(record.missingMediaPaths?.length);
+        return false;
     }
     if (term.key === "is") {
         const value = normalizeForSearch(term.value);
@@ -204,14 +366,26 @@ function matchesQueryTerm(record: CardBrowserRecord, term: QueryTerm): boolean {
         if (value === "new" || value === "due" || value === "scheduled") {
             return record.lifecycleState === "active" && record.state === value;
         }
-        if (value === "duplicate" || value === "empty") {
+        if (
+            value === "duplicate" ||
+            value === "empty" ||
+            value === "orphan" ||
+            value === "missing-media"
+        ) {
             return record.diagnostics?.includes(value) ?? false;
         }
         return false;
     }
     if (term.key === "field") {
         const match = term.value.match(/^([^=]+)=(.*)$/);
-        if (!match) return false;
+        if (!match) {
+            const requestedName = normalizeForSearch(term.value);
+            return Object.keys(record.fields ?? {}).some(
+                (id) =>
+                    normalizeForSearch(id) === requestedName ||
+                    normalizeForSearch(record.fieldNames?.[id] ?? "") === requestedName,
+            );
+        }
         const requestedName = normalizeForSearch(match[1]);
         const expected = unquote(match[2]);
         const fields = record.fields ?? {};
@@ -224,6 +398,51 @@ function matchesQueryTerm(record: CardBrowserRecord, term: QueryTerm): boolean {
         );
     }
     return false;
+}
+
+function matchesExpression(record: CardBrowserRecord, expression: QueryExpression | null): boolean {
+    if (!expression) return true;
+    if (expression.type === "term") return matchesQueryTerm(record, expression.term);
+    if (expression.type === "not") return !matchesExpression(record, expression.child);
+    if (expression.type === "and") {
+        return expression.children.every((child) => matchesExpression(record, child));
+    }
+    return expression.children.some((child) => matchesExpression(record, child));
+}
+
+/** Returns a human-readable syntax error without throwing while the user is typing. */
+export function validateCardBrowserQuery(query: string): string | null {
+    let quote = "";
+    let depth = 0;
+    for (const character of query) {
+        if (quote) {
+            if (character === quote) quote = "";
+            continue;
+        }
+        if (character === '"' || character === "'") quote = character;
+        if (character === "(") depth++;
+        if (character === ")") depth--;
+        if (depth < 0) return "Unexpected closing parenthesis";
+    }
+    if (quote) return "Unclosed quote";
+    if (depth > 0) return "Unclosed parenthesis";
+    return null;
+}
+
+export function extractCardMediaPaths(value: string): string[] {
+    const paths = new Set<string>();
+    for (const match of value.matchAll(/!\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)) {
+        if (match[1]?.trim()) paths.add(match[1].trim());
+    }
+    for (const match of value.matchAll(/!\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)/g)) {
+        if (match[1]?.trim() && !/^(?:https?:|data:)/i.test(match[1])) paths.add(match[1].trim());
+    }
+    for (const match of value.matchAll(
+        /<(?:img|audio|video|source)\b[^>]*\bsrc=["']([^"']+)["']/gi,
+    )) {
+        if (match[1]?.trim() && !/^(?:https?:|data:)/i.test(match[1])) paths.add(match[1].trim());
+    }
+    return [...paths];
 }
 
 function getCardState(card: Card): CardBrowserState {
@@ -280,6 +499,8 @@ export function annotateCardBrowserDiagnostics(records: CardBrowserRecord[]): Ca
         const diagnostics: CardBrowserDiagnostic[] = [];
         if (duplicateIds.has(record.id)) diagnostics.push("duplicate");
         if (!hasText && !record.hasMedia) diagnostics.push("empty");
+        if (record.hasSource === false) diagnostics.push("orphan");
+        if (record.missingMediaPaths?.length) diagnostics.push("missing-media");
         return { ...record, diagnostics };
     });
 }
@@ -294,7 +515,7 @@ export function filterCardBrowserRecords(
     flag: string = "all",
     cardType: string = "all",
 ): CardBrowserRecord[] {
-    const terms = tokenizeQuery(query);
+    const expression = parseCardBrowserQuery(query);
     return records.filter((record) => {
         if (filter === "suspended" || filter === "buried") {
             if (record.lifecycleState !== filter) return false;
@@ -306,7 +527,7 @@ export function filterCardBrowserRecords(
         if (tag !== "all" && !record.tags.includes(tag)) return false;
         if (flag !== "all" && record.flag !== Number(flag)) return false;
         if (cardType !== "all" && record.cardType !== cardType) return false;
-        return terms.every((term) => matchesQueryTerm(record, term));
+        return matchesExpression(record, expression);
     });
 }
 
@@ -344,6 +565,9 @@ export function sortCardBrowserRecords(
         if (sort === "reps") result = (left.reps ?? 0) - (right.reps ?? 0);
         if (sort === "lapses") result = (left.lapses ?? 0) - (right.lapses ?? 0);
         if (sort === "retention") result = (left.retention ?? -1) - (right.retention ?? -1);
+        if (sort === "difficulty") result = (left.difficulty ?? -1) - (right.difficulty ?? -1);
+        if (sort === "stability") result = (left.stability ?? -1) - (right.stability ?? -1);
+        if (sort === "created") result = (left.createdAt ?? 0) - (right.createdAt ?? 0);
         if (sort === "last-review") result = (left.lastReviewAt ?? 0) - (right.lastReviewAt ?? 0);
         if (sort === "due") {
             result = stateOrder[left.state] - stateOrder[right.state];

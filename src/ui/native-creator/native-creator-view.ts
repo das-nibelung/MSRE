@@ -176,6 +176,9 @@ export class NativeCreatorView extends ItemView {
     private editingAreaId: string | null = null;
     private areaName = "";
     private areaScheduling: NonNullable<KnowledgeArea["scheduling"]> = {};
+    private areaParentId: string | null = null;
+    private areaKind: "area" | "project" = "area";
+    private areaGoal: NonNullable<KnowledgeArea["goal"]> = {};
     private noteTypeDraft: NoteTypeEditorDraft | null = null;
     private selectedNoteTypeId = BASIC_NOTE_TYPE_ID;
     private customFieldValues: Record<string, string> = {};
@@ -335,6 +338,12 @@ export class NativeCreatorView extends ItemView {
                       ?.scheduling ?? {}),
               }
             : {};
+        const editingArea = this.editingAreaId
+            ? this.store.getKnowledgeAreas().find((area) => area.id === this.editingAreaId)
+            : undefined;
+        this.areaParentId = editingArea?.parentId ?? request.targetAreaId ?? null;
+        this.areaKind = editingArea?.kind ?? "area";
+        this.areaGoal = { ...(editingArea?.goal ?? {}) };
         if (request.mode === "deck-options") this.loadDeckOptionsDraft();
         if (this.editingCard) {
             const sourcePath = this.editingCard.storageInfo?.notePath ?? "";
@@ -3332,6 +3341,87 @@ export class NativeCreatorView extends ItemView {
             if (event.key === "Enter") void this.saveKnowledgeArea();
         });
 
+        const organization = surface.createDiv("sr-native-options-section");
+        organization.createEl("h2", { text: this.creatorText("Organization", "Организация") });
+        organization.createEl("p", {
+            text: this.creatorText(
+                "Nest areas and use projects for knowledge with a concrete outcome.",
+                "Вкладывайте области друг в друга, а проекты используйте для конкретной цели.",
+            ),
+        });
+        this.createChoiceControl(organization, this.creatorText("Kind", "Тип"), [
+            {
+                label: this.creatorText("Area", "Область"),
+                active: this.areaKind === "area",
+                action: () => (this.areaKind = "area"),
+            },
+            {
+                label: this.creatorText("Project", "Проект"),
+                active: this.areaKind === "project",
+                action: () => (this.areaKind = "project"),
+            },
+        ]);
+        const parentGroup = this.createFieldGroup(
+            organization,
+            this.creatorText("Parent area", "Родительская область"),
+            this.creatorText(
+                "Leave empty to keep it at the top level.",
+                "Оставьте пустым для верхнего уровня.",
+            ),
+        );
+        const parent = parentGroup.createEl("select", {
+            cls: "sr-native-input",
+            attr: { "aria-label": this.creatorText("Parent area", "Родительская область") },
+        });
+        parent.createEl("option", {
+            text: this.creatorText("Top level", "Верхний уровень"),
+            attr: { value: "" },
+        });
+        for (const area of this.store
+            .getKnowledgeAreas()
+            .filter((area) => area.id !== this.editingAreaId && !area.archivedAt)) {
+            parent.createEl("option", { text: area.name, attr: { value: area.id } });
+        }
+        parent.value = this.areaParentId ?? "";
+        parent.addEventListener("change", () => (this.areaParentId = parent.value || null));
+
+        const goal = surface.createDiv("sr-native-options-section");
+        goal.createEl("h2", { text: this.creatorText("Study goal", "Учебная цель") });
+        const goalGrid = goal.createDiv("sr-native-options-grid");
+        const targetDate = this.createFieldGroup(
+            goalGrid,
+            this.creatorText("Target date", "Срок"),
+            this.creatorText("Optional", "Необязательно"),
+        ).createEl("input", { cls: "sr-native-input", attr: { type: "date" } });
+        targetDate.value = this.areaGoal.targetDate ?? "";
+        targetDate.addEventListener("change", () => {
+            this.areaGoal.targetDate = targetDate.value || undefined;
+        });
+        this.createNumberControl(
+            goalGrid,
+            this.creatorText("Cards per day", "Карточек в день"),
+            this.areaGoal.cardsPerDay ?? 20,
+            0,
+            10000,
+            (value) => (this.areaGoal.cardsPerDay = value),
+        );
+        this.createNumberControl(
+            goalGrid,
+            this.creatorText("Minutes per day", "Минут в день"),
+            this.areaGoal.minutesPerDay ?? 20,
+            0,
+            1440,
+            (value) => (this.areaGoal.minutesPerDay = value),
+        );
+        this.createNumberControl(
+            goalGrid,
+            this.creatorText("Target retention, %", "Целевое сохранение, %"),
+            Math.round((this.areaGoal.targetRetention ?? 0.9) * 100),
+            70,
+            99,
+            (value) => (this.areaGoal.targetRetention = value / 100),
+        );
+
         const scheduler = surface.createDiv("sr-native-options-section");
         scheduler.createEl("h2", { text: "Scheduler override" });
         scheduler.createEl("p", {
@@ -6320,9 +6410,18 @@ export class NativeCreatorView extends ItemView {
                     this.editingAreaId,
                     this.areaScheduling,
                 );
+                await this.store.updateKnowledgeArea(this.editingAreaId, {
+                    parentId: this.areaParentId,
+                    kind: this.areaKind,
+                    goal: this.areaGoal,
+                });
                 new Notice(t("KNOWLEDGE_AREA_UPDATED"));
             } else {
-                const area = await this.store.createKnowledgeArea(this.areaName);
+                const area = await this.store.createKnowledgeArea(this.areaName, {
+                    parentId: this.areaParentId,
+                    kind: this.areaKind,
+                    goal: this.areaGoal,
+                });
                 await this.store.setKnowledgeAreaScheduling(area.id, this.areaScheduling);
                 new Notice(t("KNOWLEDGE_AREA_CREATED"));
             }

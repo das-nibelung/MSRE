@@ -151,6 +151,7 @@ describe("scheduler analytics", () => {
                 decks: {},
                 notes: {},
                 cards: {},
+                editHistory: {},
                 conflicts: {},
             },
             emptyLog,
