@@ -18,6 +18,10 @@ export const OCCLUSION_SOURCE_FIELD_ID = "source";
 export const OCCLUSION_MASKS_FIELD_ID = "masks";
 export const OCCLUSION_ASSETS_FIELD_ID = "assets";
 export const OCCLUSION_MODE_FIELD_ID = "mode";
+export const OCCLUSION_HEADER_FIELD_ID = "header";
+export const OCCLUSION_EXTRA_FIELD_ID = "occlusion-extra";
+export const OCCLUSION_COMMENTS_FIELD_ID = "comments";
+export const OCCLUSION_REFERENCE_FIELD_ID = "reference";
 
 const createdAt = 0;
 
@@ -137,7 +141,7 @@ export function getBuiltinNoteTypes(): NoteTypeDefinition[] {
         },
         {
             id: IMAGE_OCCLUSION_NOTE_TYPE_ID,
-            version: 1,
+            version: 2,
             name: "Image Occlusion",
             kind: "image-occlusion",
             fields: [
@@ -145,16 +149,23 @@ export function getBuiltinNoteTypes(): NoteTypeDefinition[] {
                 field(OCCLUSION_MASKS_FIELD_ID, "Masks", 1),
                 field(OCCLUSION_ASSETS_FIELD_ID, "Assets", 2),
                 field(OCCLUSION_MODE_FIELD_ID, "Mode", 3),
+                field(OCCLUSION_HEADER_FIELD_ID, "Header", 4),
+                field(OCCLUSION_EXTRA_FIELD_ID, "Extra", 5),
+                field(OCCLUSION_COMMENTS_FIELD_ID, "Comments", 6),
+                field(OCCLUSION_REFERENCE_FIELD_ID, "Reference", 7),
             ],
             templates: [
-                template(
-                    "builtin-image-occlusion-card",
-                    "Occlusion",
-                    0,
-                    "{{Source}}",
-                    "{{Source}}",
-                    "image-occlusion",
-                ),
+                {
+                    ...template(
+                        "builtin-image-occlusion-card",
+                        "Occlusion",
+                        0,
+                        "{{Source}}",
+                        "{{Source}}",
+                        "image-occlusion",
+                    ),
+                    answerMode: "image-labels",
+                },
             ],
             css: "",
             createdAt,

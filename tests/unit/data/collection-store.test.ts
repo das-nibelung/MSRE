@@ -188,6 +188,35 @@ describe("Anki-style collection store", () => {
         expect(cards.map((card) => card.legacyStableId)).toEqual(["^anatomy-1:0", "^anatomy-2:0"]);
     });
 
+    it("creates one stable image-occlusion card for every mask group", async () => {
+        const store = new CollectionStore(new MemoryStorage(), () => 176, idFactory);
+        const note = await store.createNote({
+            noteTypeId: IMAGE_OCCLUSION_NOTE_TYPE_ID,
+            fields: {
+                source: "Media/anatomy.png",
+                masks: JSON.stringify([
+                    { id: "left", groupId: "ventricles", label: "Left ventricle" },
+                    { id: "right", groupId: "ventricles", label: "Right ventricle" },
+                    { id: "aorta", label: "Aorta" },
+                ]),
+                assets: "[]",
+                mode: "hide-one",
+            },
+            deckPath: "Medicine/Anatomy",
+            source: { kind: "managed", path: "Cards/grouped.md", questionId: "^grouped" },
+            legacyQuestionIds: { 0: "^grouped-1", 1: "^grouped-2" },
+        });
+
+        const cards = Object.values(store.getCollectionSnapshot().cards).filter(
+            (card) => card.noteId === note.id && !card.deletedAt,
+        );
+        expect(cards.map((card) => card.variantId)).toEqual(["ventricles", "aorta"]);
+        expect(cards.map((card) => card.stableKey)).toEqual([
+            `${note.id}::builtin-image-occlusion-card::ventricles`,
+            `${note.id}::builtin-image-occlusion-card::aorta`,
+        ]);
+    });
+
     it("keeps review history linked to stable note and card ids", async () => {
         const storage = new MemoryStorage();
         const store = new CollectionStore(storage, () => 200, idFactory);
@@ -527,7 +556,7 @@ describe("Anki-style collection store", () => {
         newer.notes.n1.updatedAt = 2;
 
         const merged = mergeCollections(older, newer);
-        expect(merged.schemaVersion).toBe(8);
+        expect(merged.schemaVersion).toBe(9);
         expect(merged.notes.n1.fields.front).toBe("new");
         expect(merged.cards.c1.buriedUntil).toBeNull();
         expect(merged.cards.c1.flag).toBe(0);
@@ -541,7 +570,7 @@ describe("Anki-style collection store", () => {
     });
 
     it("migrates schema v4 cards to stable template variants", () => {
-        expect(parseCollection("plain Markdown without managed JSON").schemaVersion).toBe(8);
+        expect(parseCollection("plain Markdown without managed JSON").schemaVersion).toBe(9);
         const migrated = migrateCollection({
             schemaVersion: 4,
             revision: 1,
@@ -592,7 +621,7 @@ describe("Anki-style collection store", () => {
             },
         });
 
-        expect(migrated.schemaVersion).toBe(8);
+        expect(migrated.schemaVersion).toBe(9);
         expect(migrated.noteTypes.custom.version).toBe(1);
         expect(migrated.noteTypes.custom.templates[0].version).toBe(1);
         expect(migrated.noteTypes.custom.templates[0].generator).toBe("standard");
@@ -775,8 +804,8 @@ describe("Anki-style collection store", () => {
         const store = new CollectionStore(storage, () => 700, idFactory);
 
         await store.initialize();
-        expect(store.getCollectionSnapshot().schemaVersion).toBe(8);
-        expect((await store.listBackups())[0].reason).toBe("before-schema-4-to-8");
+        expect(store.getCollectionSnapshot().schemaVersion).toBe(9);
+        expect((await store.listBackups())[0].reason).toBe("before-schema-4-to-9");
         expect((await store.listBackups())[0].schemaVersion).toBe(4);
 
         storage.backups.set("empty.json", "");

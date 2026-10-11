@@ -4,8 +4,12 @@ import { canonicalAnswerMode } from "src/data/collection/answer-evaluator";
 import {
     IMAGE_OCCLUSION_NOTE_TYPE_ID,
     OCCLUSION_ASSETS_FIELD_ID,
+    OCCLUSION_COMMENTS_FIELD_ID,
+    OCCLUSION_EXTRA_FIELD_ID,
+    OCCLUSION_HEADER_FIELD_ID,
     OCCLUSION_MASKS_FIELD_ID,
     OCCLUSION_MODE_FIELD_ID,
+    OCCLUSION_REFERENCE_FIELD_ID,
     OCCLUSION_SOURCE_FIELD_ID,
 } from "src/data/collection/builtin-note-types";
 import { CollectionNote, NoteTypeDefinition } from "src/data/collection/collection-types";
@@ -43,9 +47,17 @@ export interface StructuredNoteDraft {
 
 export interface ImageOcclusionAssetDraft {
     maskId: string;
+    maskIds?: string[];
     questionPath: string;
     answerPath: string;
     label: string;
+    acceptedLabels?: string[];
+    answers?: Array<{
+        id: string;
+        label: string;
+        acceptedLabels: string[];
+        concepts: string[];
+    }>;
 }
 
 export interface ImageOcclusionNoteDraft {
@@ -54,6 +66,10 @@ export interface ImageOcclusionNoteDraft {
     masksJson: string;
     mode: "hide-one" | "hide-all";
     assets: ImageOcclusionAssetDraft[];
+    header?: string;
+    extra?: string;
+    comments?: string;
+    reference?: string;
     tags?: string[];
 }
 
@@ -61,15 +77,36 @@ export function serializeImageOcclusionBody(
     assets: ImageOcclusionAssetDraft[],
     baseQuestionId: string,
     separator: string,
+    details: Pick<ImageOcclusionNoteDraft, "header" | "extra" | "comments" | "reference"> = {},
 ): { body: string; legacyQuestionIds: Record<number, string> } {
     const legacyQuestionIds: Record<number, string> = {};
     const cards = assets.map((asset, index) => {
         const questionId = `${baseQuestionId}-${index + 1}`;
         legacyQuestionIds[index] = questionId;
-        const label = asset.label.trim();
+        const accepted = [asset.label, ...(asset.acceptedLabels ?? [])]
+            .map((label) => label.trim())
+            .filter(Boolean);
+        const label = accepted[0] ?? "";
         const marker = label ? `\n<!-- sr-typed-answer: ${encodeURIComponent(label)} -->` : "";
-        const answer = [`![[${asset.answerPath}]]`, label].filter(Boolean).join("\n\n");
-        return `![[${asset.questionPath}]]\n${separator}\n${answer}${marker} ${questionId}`;
+        const answerMetadata = asset.answers?.length
+            ? `\n<!-- sr-occlusion-answers: ${encodeURIComponent(JSON.stringify(asset.answers))} -->`
+            : "";
+        const question = [details.header?.trim(), `![[${asset.questionPath}]]`]
+            .filter(Boolean)
+            .join("\n\n");
+        const answer = [
+            `![[${asset.answerPath}]]`,
+            asset.answers
+                ?.map((part) => part.label.trim())
+                .filter(Boolean)
+                .join(" · ") || label,
+            details.extra?.trim(),
+            details.comments?.trim(),
+            details.reference?.trim() ? `Source: ${details.reference.trim()}` : "",
+        ]
+            .filter(Boolean)
+            .join("\n\n");
+        return `${question}\n${separator}\n${answer}${marker}${answerMetadata} ${questionId}`;
     });
     return { body: cards.join("\n\n"), legacyQuestionIds };
 }
@@ -701,6 +738,7 @@ export class NativeCardStore {
             draft.assets,
             baseQuestionId,
             this.plugin.dataManager.data.settings.multilineCardSeparator,
+            draft,
         );
         const settings = this.plugin.dataManager.data.settings;
         const rootTag = (settings.flashcardTags[0] ?? FALLBACK_ROOT_TAG).replace(/\/+$/g, "");
@@ -725,6 +763,10 @@ export class NativeCardStore {
                 [OCCLUSION_MASKS_FIELD_ID]: draft.masksJson,
                 [OCCLUSION_ASSETS_FIELD_ID]: JSON.stringify(draft.assets),
                 [OCCLUSION_MODE_FIELD_ID]: draft.mode,
+                [OCCLUSION_HEADER_FIELD_ID]: draft.header ?? "",
+                [OCCLUSION_EXTRA_FIELD_ID]: draft.extra ?? "",
+                [OCCLUSION_COMMENTS_FIELD_ID]: draft.comments ?? "",
+                [OCCLUSION_REFERENCE_FIELD_ID]: draft.reference ?? "",
             },
             tags: draft.tags,
             deckPath: normalizedDeck,
@@ -750,6 +792,7 @@ export class NativeCardStore {
             draft.assets,
             baseQuestionId,
             this.plugin.dataManager.data.settings.multilineCardSeparator,
+            draft,
         );
         const settings = this.plugin.dataManager.data.settings;
         const rootTag = (settings.flashcardTags[0] ?? FALLBACK_ROOT_TAG).replace(/\/+$/g, "");
@@ -761,6 +804,10 @@ export class NativeCardStore {
                 [OCCLUSION_MASKS_FIELD_ID]: draft.masksJson,
                 [OCCLUSION_ASSETS_FIELD_ID]: JSON.stringify(draft.assets),
                 [OCCLUSION_MODE_FIELD_ID]: draft.mode,
+                [OCCLUSION_HEADER_FIELD_ID]: draft.header ?? "",
+                [OCCLUSION_EXTRA_FIELD_ID]: draft.extra ?? "",
+                [OCCLUSION_COMMENTS_FIELD_ID]: draft.comments ?? "",
+                [OCCLUSION_REFERENCE_FIELD_ID]: draft.reference ?? "",
             },
             tags: draft.tags,
             deckPath: normalizedDeck,

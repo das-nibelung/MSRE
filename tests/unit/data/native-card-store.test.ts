@@ -1,6 +1,9 @@
 import { TFile } from "obsidian";
 
-import { getBuiltinNoteTypes } from "src/data/collection/builtin-note-types";
+import {
+    getBuiltinNoteTypes,
+    noteTypeIdForNativeType,
+} from "src/data/collection/builtin-note-types";
 import { Card } from "src/data/data-structures/card/card";
 import { CardType } from "src/data/data-structures/card/questions/question";
 import {
@@ -129,6 +132,12 @@ describe("native card storage", () => {
         const parsed = parse(text, DEFAULT_SETTINGS);
         expect(parsed).toHaveLength(1);
         expect(parsed[0].text).toContain("^sr-data-id-note-fixed");
+    });
+
+    it("maps every native card type to its built-in note type", () => {
+        expect(noteTypeIdForNativeType("basic")).toBe("builtin-basic");
+        expect(noteTypeIdForNativeType("reversed")).toBe("builtin-basic-and-reversed");
+        expect(noteTypeIdForNativeType("cloze")).toBe("builtin-cloze");
     });
 
     it("renders structured fields and converts Anki clozes for the scheduling bridge", () => {
@@ -476,9 +485,19 @@ describe("native card storage", () => {
             [
                 {
                     maskId: "heart",
+                    maskIds: ["heart-wall", "heart-cavity"],
                     questionPath: "Media/heart-question.png",
                     answerPath: "Media/heart-answer.png",
                     label: "Left ventricle",
+                    acceptedLabels: ["LV"],
+                    answers: [
+                        {
+                            id: "heart-wall",
+                            label: "Myocardium",
+                            acceptedLabels: ["cardiac muscle"],
+                            concepts: ["Wall"],
+                        },
+                    ],
                 },
                 {
                     maskId: "lung",
@@ -489,6 +508,12 @@ describe("native card storage", () => {
             ],
             "^occlusion-note",
             DEFAULT_SETTINGS.multilineCardSeparator,
+            {
+                header: "Heart anatomy",
+                extra: "Four chambers",
+                comments: "Exam diagram",
+                reference: "Atlas p. 42",
+            },
         );
 
         expect(parse(`#flashcards\n\n${result.body}\n`, DEFAULT_SETTINGS)).toHaveLength(2);
@@ -497,7 +522,29 @@ describe("native card storage", () => {
             1: "^occlusion-note-2",
         });
         expect(result.body).toContain("sr-typed-answer: Left%20ventricle");
+        expect(result.body).toContain("Heart anatomy");
+        expect(result.body).toContain("Atlas p. 42");
+        expect(result.body).toContain("sr-occlusion-answers:");
         expect(result.body).not.toContain("sr-typed-answer:  -->");
+    });
+
+    it("keeps legacy image occlusion notes valid without optional context", () => {
+        const result = serializeImageOcclusionBody(
+            [
+                {
+                    maskId: "legacy-mask",
+                    questionPath: "Media/legacy-question.png",
+                    answerPath: "Media/legacy-answer.png",
+                    label: "Legacy label",
+                },
+            ],
+            "^legacy-occlusion",
+            DEFAULT_SETTINGS.multilineCardSeparator,
+        );
+
+        expect(result.body).toContain("![[Media/legacy-question.png]]");
+        expect(result.body).toContain("![[Media/legacy-answer.png]]");
+        expect(result.body).not.toContain("Source:");
     });
 
     it("adds typed-answer mode only when the card explicitly requests it", () => {
@@ -556,10 +603,16 @@ describe("native card storage", () => {
                 },
             ],
             tags: ["anatomy"],
+            header: "Heart anatomy",
+            extra: "Clinical note",
+            comments: "Revise labels",
+            reference: "Atlas p. 42",
         };
 
         const file = await harness.store.createImageOcclusionNote(draft);
         expect(harness.createdContents.get(file.path)).toContain("sr-typed-answer: Heart");
+        expect(harness.createdContents.get(file.path)).toContain("Heart anatomy");
+        expect(harness.createdContents.get(file.path)).toContain("Atlas p. 42");
         expect(harness.collectionStore.createNote).toHaveBeenCalledWith(
             expect.objectContaining({
                 noteTypeId: "builtin-image-occlusion",
@@ -567,10 +620,12 @@ describe("native card storage", () => {
             }),
         );
         const inboxFile = await harness.store.createImageOcclusionNote({
-            ...draft,
             deckPath: "",
+            sourcePath: draft.sourcePath,
             masksJson: "[]",
+            mode: "hide-one",
             assets: [],
+            tags: [],
         });
         expect(inboxFile.path).toContain("/Cards/Inbox/");
 
@@ -588,7 +643,14 @@ describe("native card storage", () => {
                 createdAt: 1,
                 updatedAt: 1,
             },
-            { ...draft, mode: "hide-one" },
+            {
+                deckPath: draft.deckPath,
+                sourcePath: draft.sourcePath,
+                masksJson: draft.masksJson,
+                mode: "hide-one",
+                assets: draft.assets,
+                tags: draft.tags,
+            },
         );
         expect(harness.modifiedContents.get(file.path)).toContain("Heart");
         expect(harness.collectionStore.updateNote).toHaveBeenCalledWith(

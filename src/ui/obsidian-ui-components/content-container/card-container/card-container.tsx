@@ -365,14 +365,41 @@ export class CardContainer {
             let expected = template.answerFieldId
                 ? (note?.fields[template.answerFieldId]?.trim() ?? "")
                 : "";
+            let answerConfig = normalizeAnswerConfig(template.answerConfig);
             if (note?.noteTypeId === IMAGE_OCCLUSION_NOTE_TYPE_ID && !expected) {
                 try {
                     const assets = JSON.parse(
                         note.fields[OCCLUSION_ASSETS_FIELD_ID] ?? "[]",
                     ) as Array<{
                         label?: string;
+                        acceptedLabels?: string[];
+                        answers?: Array<{
+                            id: string;
+                            label: string;
+                            acceptedLabels?: string[];
+                            concepts?: string[];
+                        }>;
                     }>;
-                    expected = assets[storedCard?.ordinal ?? card.cardIdx]?.label?.trim() ?? "";
+                    const asset = assets[storedCard?.ordinal ?? card.cardIdx];
+                    expected = asset?.label?.trim() ?? "";
+                    answerConfig = {
+                        ...answerConfig,
+                        acceptedAnswers: asset?.acceptedLabels ?? [],
+                        parts:
+                            asset?.answers?.map((answer, index) => ({
+                                id: answer.id,
+                                label:
+                                    answer.concepts?.filter(Boolean).join(" · ") ||
+                                    `Region ${index + 1}`,
+                                answerFieldId: null as string | null,
+                                acceptedAnswers: [answer.label, ...(answer.acceptedLabels ?? [])]
+                                    .map((value) => value.trim())
+                                    .filter(Boolean),
+                                requiredKeywords: [] as string[],
+                                optional: false,
+                                weight: 1,
+                            })) ?? [],
+                    };
                 } catch {
                     expected = "";
                 }
@@ -380,7 +407,7 @@ export class CardContainer {
             return {
                 mode: templateMode,
                 expected,
-                config: normalizeAnswerConfig(template.answerConfig),
+                config: answerConfig,
                 values: this.answerValue,
                 fieldValues: note?.fields ?? {},
             };

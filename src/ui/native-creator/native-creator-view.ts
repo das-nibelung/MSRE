@@ -21,8 +21,12 @@ import {
     CLOZE_NOTE_TYPE_ID,
     IMAGE_OCCLUSION_NOTE_TYPE_ID,
     OCCLUSION_ASSETS_FIELD_ID,
+    OCCLUSION_COMMENTS_FIELD_ID,
+    OCCLUSION_EXTRA_FIELD_ID,
+    OCCLUSION_HEADER_FIELD_ID,
     OCCLUSION_MASKS_FIELD_ID,
     OCCLUSION_MODE_FIELD_ID,
+    OCCLUSION_REFERENCE_FIELD_ID,
     OCCLUSION_SOURCE_FIELD_ID,
     REVERSED_NOTE_TYPE_ID,
 } from "src/data/collection/builtin-note-types";
@@ -63,10 +67,16 @@ import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { DeckPickerModal } from "src/ui/deck-picker-modal";
 import {
+    cloneOcclusionMasks,
+    getOcclusionCardGroups,
     LoadedOcclusionImage,
     loadOcclusionImage,
+    normalizeOcclusionMask,
     OcclusionMask,
     OcclusionMode,
+    OcclusionPoint,
+    OcclusionShape,
+    pointInOcclusionMask,
     renderOcclusionAssets,
 } from "src/ui/native-creator/image-occlusion";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
@@ -99,6 +109,8 @@ interface NoteTypeEditorDraft {
     templates: CardTemplateDefinition[];
     css: string;
 }
+
+type OcclusionTool = OcclusionShape | "pan";
 
 export interface NativeCreatorRequest {
     mode: NativeCreatorMode;
@@ -137,7 +149,17 @@ export class NativeCreatorView extends ItemView {
     private occlusionMasks: OcclusionMask[] = [];
     private activeOcclusionMask: OcclusionMask | null = null;
     private selectedOcclusionMaskId: string | null = null;
+    private selectedOcclusionMaskIds = new Set<string>();
     private occlusionMode: OcclusionMode = "hide-all";
+    private occlusionTool: OcclusionTool = "rectangle";
+    private occlusionPolygonDraft: OcclusionPoint[] = [];
+    private occlusionUndoStack: OcclusionMask[][] = [];
+    private occlusionRedoStack: OcclusionMask[][] = [];
+    private occlusionZoom = 1;
+    private occlusionHeader = "";
+    private occlusionExtra = "";
+    private occlusionComments = "";
+    private occlusionReference = "";
     private editingOcclusionNote: CollectionNote | null = null;
     private mediaRecorder: MediaRecorder | null = null;
     private mediaRecordingChunks: Blob[] = [];
@@ -203,6 +225,7 @@ export class NativeCreatorView extends ItemView {
         this.editingCard = request.card ?? null;
         this.editingStructuredNote = null;
         this.editingOcclusionNote = null;
+        if (request.mode === "image-occlusion" && !request.card) this.resetOcclusionEditor();
         this.editingAreaId = request.editAreaId ?? null;
         if (request.mode !== "note-type") this.noteTypeDraft = null;
         this.areaName = this.editingAreaId
@@ -802,6 +825,139 @@ export class NativeCreatorView extends ItemView {
         return [value.trim(), ...embeds].filter(Boolean).join("\n\n");
     }
 
+    private rememberOcclusionState(): void {
+        this.occlusionUndoStack.push(cloneOcclusionMasks(this.occlusionMasks));
+        if (this.occlusionUndoStack.length > 60) this.occlusionUndoStack.shift();
+        this.occlusionRedoStack = [];
+    }
+
+    private undoOcclusion(): void {
+        const previous = this.occlusionUndoStack.pop();
+        if (!previous) return;
+        this.occlusionRedoStack.push(cloneOcclusionMasks(this.occlusionMasks));
+        this.occlusionMasks = previous;
+        this.syncOcclusionSelection();
+        this.render();
+    }
+
+    private redoOcclusion(): void {
+        const next = this.occlusionRedoStack.pop();
+        if (!next) return;
+        this.occlusionUndoStack.push(cloneOcclusionMasks(this.occlusionMasks));
+        this.occlusionMasks = next;
+        this.syncOcclusionSelection();
+        this.render();
+    }
+
+    private syncOcclusionSelection(): void {
+        const ids = new Set(this.occlusionMasks.map((mask) => mask.id));
+        this.selectedOcclusionMaskIds = new Set(
+            [...this.selectedOcclusionMaskIds].filter((id) => ids.has(id)),
+        );
+        if (this.selectedOcclusionMaskId && !ids.has(this.selectedOcclusionMaskId)) {
+            this.selectedOcclusionMaskId = null;
+        }
+        if (!this.selectedOcclusionMaskId) {
+            const [fallbackSelectedId] = [...this.selectedOcclusionMaskIds];
+            this.selectedOcclusionMaskId = fallbackSelectedId ?? null;
+        }
+    }
+
+    private selectedOcclusionMasks(): OcclusionMask[] {
+        const selected = this.selectedOcclusionMaskIds.size
+            ? this.selectedOcclusionMaskIds
+            : new Set(this.selectedOcclusionMaskId ? [this.selectedOcclusionMaskId] : []);
+        return this.occlusionMasks.filter((mask) => selected.has(mask.id));
+    }
+
+    private removeSelectedOcclusionMasks(): void {
+        const selected = new Set(this.selectedOcclusionMasks().map((mask) => mask.id));
+        if (!selected.size) return;
+        this.rememberOcclusionState();
+        this.occlusionMasks = this.occlusionMasks.filter((mask) => !selected.has(mask.id));
+        this.selectedOcclusionMaskIds.clear();
+        this.selectedOcclusionMaskId = null;
+        this.render();
+    }
+
+    private duplicateSelectedOcclusionMasks(): void {
+        const selected = this.selectedOcclusionMasks();
+        if (!selected.length) return;
+        this.rememberOcclusionState();
+        const copies = selected.map((mask) => {
+            const copy = cloneOcclusionMasks([mask])[0];
+            copy.id = `mask-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            copy.groupId = null;
+            copy.x = Math.min(1 - copy.width, copy.x + 0.025);
+            copy.y = Math.min(1 - copy.height, copy.y + 0.025);
+            copy.points = copy.points?.map((point) => ({
+                x: Math.min(1, point.x + 0.025),
+                y: Math.min(1, point.y + 0.025),
+            }));
+            return copy;
+        });
+        this.occlusionMasks.push(...copies);
+        this.selectedOcclusionMaskIds = new Set(copies.map((mask) => mask.id));
+        this.selectedOcclusionMaskId = copies[0]?.id ?? null;
+        this.render();
+    }
+
+    private groupSelectedOcclusionMasks(): void {
+        const selected = this.selectedOcclusionMasks();
+        if (selected.length < 2) return;
+        this.rememberOcclusionState();
+        const currentGroup = selected[0].groupId;
+        const sameGroup =
+            Boolean(currentGroup) && selected.every((mask) => mask.groupId === currentGroup);
+        const groupId = sameGroup
+            ? null
+            : `group-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        for (const mask of selected) mask.groupId = groupId;
+        this.render();
+    }
+
+    private finishOcclusionPolygon(): void {
+        if (this.occlusionPolygonDraft.length < 3) return;
+        this.rememberOcclusionState();
+        const xs = this.occlusionPolygonDraft.map((point) => point.x);
+        const ys = this.occlusionPolygonDraft.map((point) => point.y);
+        const mask: OcclusionMask = {
+            id: `mask-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            shape: "polygon",
+            x: Math.min(...xs),
+            y: Math.min(...ys),
+            width: Math.max(...xs) - Math.min(...xs),
+            height: Math.max(...ys) - Math.min(...ys),
+            points: [...this.occlusionPolygonDraft],
+            label: "",
+            acceptedLabels: [],
+            concepts: [],
+            groupId: null,
+        };
+        this.occlusionMasks.push(mask);
+        this.occlusionPolygonDraft = [];
+        this.selectedOcclusionMaskId = mask.id;
+        this.selectedOcclusionMaskIds = new Set([mask.id]);
+        this.render();
+    }
+
+    private resetOcclusionEditor(): void {
+        this.occlusionSource = null;
+        this.occlusionSourcePath = null;
+        this.occlusionMasks = [];
+        this.activeOcclusionMask = null;
+        this.selectedOcclusionMaskId = null;
+        this.selectedOcclusionMaskIds.clear();
+        this.occlusionUndoStack = [];
+        this.occlusionRedoStack = [];
+        this.occlusionPolygonDraft = [];
+        this.occlusionZoom = 1;
+        this.occlusionHeader = "";
+        this.occlusionExtra = "";
+        this.occlusionComments = "";
+        this.occlusionReference = "";
+    }
+
     private formatFileSize(bytes: number): string {
         if (bytes < 1024) return `${bytes} B`;
         if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -840,43 +996,83 @@ export class NativeCreatorView extends ItemView {
                 if (file) void this.setOcclusionSource(file);
             });
         } else {
-            const modeGroup = this.createFieldGroup(
-                surface,
-                t("OCCLUSION_MODE"),
-                t("OCCLUSION_MODE_HELP"),
-            );
-            const modePicker = modeGroup.createDiv("sr-native-card-type-switcher");
+            const overview = surface.createDiv("sr-native-occlusion-overview");
+            const modePicker = overview.createDiv("sr-native-card-type-switcher");
             for (const [mode, label] of [
                 ["hide-one", t("OCCLUSION_HIDE_ONE")],
                 ["hide-all", t("OCCLUSION_HIDE_ALL")],
             ] as const) {
                 const button = new ButtonComponent(modePicker).setButtonText(label);
                 button.buttonEl.toggleClass("is-active", this.occlusionMode === mode);
+                button.buttonEl.setAttribute("aria-pressed", String(this.occlusionMode === mode));
                 button.onClick(() => {
                     this.occlusionMode = mode;
                     this.render();
                 });
             }
+            const summary = overview.createDiv("sr-native-occlusion-summary");
+            summary.createEl("strong", {
+                text: String(getOcclusionCardGroups(this.occlusionMasks).length),
+            });
+            summary.createSpan({ text: t("OCCLUSION_CARDS_SHORT") });
+
             const toolbar = surface.createDiv("sr-native-occlusion-toolbar");
-            const copy = toolbar.createDiv();
-            copy.createEl("strong", { text: t("DRAW_MASKS") });
-            copy.createSpan({ text: t("DRAW_MASKS_HELP") });
-            const tools = toolbar.createDiv("sr-native-occlusion-tools");
-            const undo = new ButtonComponent(tools)
-                .setIcon("undo-2")
-                .setTooltip(t("UNDO_LAST_MASK"))
-                .setDisabled(this.occlusionMasks.length === 0)
-                .onClick(() => {
-                    this.occlusionMasks.pop();
-                    this.render();
-                });
-            undo.buttonEl.addClass("sr-native-icon-button");
-            const replace = new ButtonComponent(tools)
+            const drawingTools = toolbar.createDiv("sr-native-occlusion-tool-picker");
+            for (const [tool, icon, label] of [
+                ["rectangle", "square", t("OCCLUSION_RECTANGLE")],
+                ["ellipse", "circle", t("OCCLUSION_ELLIPSE")],
+                ["polygon", "spline", t("OCCLUSION_POLYGON")],
+                ["pan", "hand", t("OCCLUSION_PAN")],
+            ] as const) {
+                const button = new ButtonComponent(drawingTools)
+                    .setIcon(icon)
+                    .setTooltip(label)
+                    .onClick(() => {
+                        this.occlusionTool = tool;
+                        this.occlusionPolygonDraft = [];
+                        this.render();
+                    });
+                button.buttonEl.addClass("sr-native-icon-button");
+                button.buttonEl.toggleClass("is-active", this.occlusionTool === tool);
+                button.buttonEl.setAttribute("aria-pressed", String(this.occlusionTool === tool));
+            }
+            if (this.occlusionTool === "polygon" && this.occlusionPolygonDraft.length > 0) {
+                new ButtonComponent(drawingTools)
+                    .setIcon("check")
+                    .setTooltip(t("OCCLUSION_FINISH_POLYGON"))
+                    .setDisabled(this.occlusionPolygonDraft.length < 3)
+                    .onClick(() => this.finishOcclusionPolygon())
+                    .buttonEl.addClass("sr-native-icon-button", "is-confirm");
+            }
+
+            const historyTools = toolbar.createDiv("sr-native-occlusion-tools");
+            for (const [icon, label, disabled, action] of [
+                [
+                    "undo-2",
+                    t("UNDO"),
+                    this.occlusionUndoStack.length === 0,
+                    () => this.undoOcclusion(),
+                ],
+                [
+                    "redo-2",
+                    t("REDO"),
+                    this.occlusionRedoStack.length === 0,
+                    () => this.redoOcclusion(),
+                ],
+            ] as const) {
+                const button = new ButtonComponent(historyTools)
+                    .setIcon(icon)
+                    .setTooltip(label)
+                    .setDisabled(disabled)
+                    .onClick(action);
+                button.buttonEl.addClass("sr-native-icon-button");
+            }
+            const replace = new ButtonComponent(historyTools)
                 .setIcon("image-plus")
                 .setTooltip(t("CHOOSE_ANOTHER_IMAGE"))
                 .onClick(() => replacementInput.click());
             replace.buttonEl.addClass("sr-native-icon-button");
-            const replacementInput = tools.createEl("input", {
+            const replacementInput = historyTools.createEl("input", {
                 cls: "sr-native-media-input",
                 attr: { type: "file", accept: "image/*", tabindex: "-1" },
             });
@@ -885,55 +1081,217 @@ export class NativeCreatorView extends ItemView {
                 if (file) void this.setOcclusionSource(file);
             });
 
-            const stage = surface.createDiv("sr-native-occlusion-stage");
+            const stageShell = surface.createDiv("sr-native-occlusion-stage-shell");
+            const stage = stageShell.createDiv("sr-native-occlusion-stage");
             const canvas = stage.createEl("canvas", {
                 cls: "sr-native-occlusion-canvas",
                 attr: { "aria-label": t("IMAGE_OCCLUSION_EDITOR") },
             });
-            this.initializeOcclusionCanvas(canvas);
+            canvas.setCssProps({ width: `${Math.round(this.occlusionZoom * 100)}%` });
+            this.initializeOcclusionCanvas(canvas, stage);
+            const zoom = stageShell.createDiv("sr-native-occlusion-zoom");
+            new ButtonComponent(zoom)
+                .setIcon("minus")
+                .setTooltip(t("ZOOM_OUT"))
+                .setDisabled(this.occlusionZoom <= 0.75)
+                .onClick(() => {
+                    this.occlusionZoom = Math.max(0.75, this.occlusionZoom - 0.25);
+                    this.render();
+                })
+                .buttonEl.addClass("sr-native-icon-button");
+            zoom.createSpan({ text: `${Math.round(this.occlusionZoom * 100)}%` });
+            new ButtonComponent(zoom)
+                .setIcon("plus")
+                .setTooltip(t("ZOOM_IN"))
+                .setDisabled(this.occlusionZoom >= 3)
+                .onClick(() => {
+                    this.occlusionZoom = Math.min(3, this.occlusionZoom + 0.25);
+                    this.render();
+                })
+                .buttonEl.addClass("sr-native-icon-button");
 
-            const count = surface.createDiv("sr-native-occlusion-count");
-            count.createEl("strong", {
-                text: t("OCCLUSION_CARD_COUNT", { count: this.occlusionMasks.length }),
-            });
-            count.createSpan({ text: t("OCCLUSION_CARD_COUNT_HELP") });
+            if (this.selectedOcclusionMasks().length > 0) {
+                const selection = surface.createDiv("sr-native-occlusion-selection-bar");
+                selection.createSpan({
+                    text: t("OCCLUSION_SELECTED_COUNT", {
+                        count: this.selectedOcclusionMasks().length,
+                    }),
+                });
+                const selectionActions = selection.createDiv();
+                for (const [icon, label, action, disabled] of [
+                    ["copy", t("DUPLICATE"), () => this.duplicateSelectedOcclusionMasks(), false],
+                    [
+                        "group",
+                        t("OCCLUSION_GROUP_TOGGLE"),
+                        () => this.groupSelectedOcclusionMasks(),
+                        this.selectedOcclusionMasks().length < 2,
+                    ],
+                    ["trash-2", t("DELETE"), () => this.removeSelectedOcclusionMasks(), false],
+                ] as const) {
+                    const button = new ButtonComponent(selectionActions)
+                        .setIcon(icon)
+                        .setTooltip(label)
+                        .setDisabled(disabled)
+                        .onClick(action);
+                    button.buttonEl.addClass("sr-native-icon-button");
+                }
+            }
+
             const maskList = surface.createDiv("sr-native-occlusion-mask-list");
             this.occlusionMasks.forEach((mask, index) => {
+                const selected = this.selectedOcclusionMaskIds.has(mask.id);
+                const active = mask.id === this.selectedOcclusionMaskId;
                 const row = maskList.createDiv("sr-native-occlusion-mask-row");
-                row.toggleClass("is-selected", mask.id === this.selectedOcclusionMaskId);
-                const select = row.createEl("button", {
+                row.toggleClass("is-selected", selected || active);
+                const rowTop = row.createDiv("sr-native-occlusion-mask-row-top");
+                const select = rowTop.createEl("button", {
                     cls: "sr-native-occlusion-mask-select",
-                    text: String(index + 1),
                     attr: { type: "button", "aria-label": t("SELECT_OCCLUSION_MASK") },
                 });
+                setIcon(
+                    select,
+                    selected
+                        ? "check"
+                        : mask.shape === "ellipse"
+                          ? "circle"
+                          : mask.shape === "polygon"
+                            ? "spline"
+                            : "square",
+                );
                 select.addEventListener("click", () => {
+                    if (selected) this.selectedOcclusionMaskIds.delete(mask.id);
+                    else this.selectedOcclusionMaskIds.add(mask.id);
                     this.selectedOcclusionMaskId = mask.id;
                     this.render();
                 });
-                const label = row.createEl("input", {
-                    cls: "sr-native-input",
-                    attr: {
-                        type: "text",
-                        placeholder: t("OCCLUSION_LABEL_PLACEHOLDER"),
-                        "aria-label": t("OCCLUSION_LABEL"),
-                    },
+                const title = rowTop.createEl("button", {
+                    cls: "sr-native-occlusion-mask-title",
+                    attr: { type: "button" },
                 });
-                label.value = mask.label;
-                label.addEventListener("input", () => (mask.label = label.value));
-                const remove = new ButtonComponent(row)
+                title.createEl("strong", {
+                    text: mask.label || `${t("OCCLUSION_REGION")} ${index + 1}`,
+                });
+                title.createSpan({
+                    text: [
+                        mask.shape === "ellipse"
+                            ? t("OCCLUSION_ELLIPSE")
+                            : mask.shape === "polygon"
+                              ? t("OCCLUSION_POLYGON")
+                              : t("OCCLUSION_RECTANGLE"),
+                        mask.groupId ? t("OCCLUSION_GROUPED") : "",
+                    ]
+                        .filter(Boolean)
+                        .join(" · "),
+                });
+                title.addEventListener("click", () => {
+                    this.selectedOcclusionMaskId = active ? null : mask.id;
+                    this.selectedOcclusionMaskIds = new Set([mask.id]);
+                    this.render();
+                });
+                const remove = new ButtonComponent(rowTop)
                     .setIcon("trash-2")
                     .setTooltip(t("REMOVE_OCCLUSION_MASK"))
                     .onClick(() => {
-                        this.occlusionMasks = this.occlusionMasks.filter(
-                            (candidate) => candidate.id !== mask.id,
-                        );
-                        if (this.selectedOcclusionMaskId === mask.id) {
-                            this.selectedOcclusionMaskId = null;
-                        }
-                        this.render();
+                        this.selectedOcclusionMaskIds = new Set([mask.id]);
+                        this.selectedOcclusionMaskId = mask.id;
+                        this.removeSelectedOcclusionMasks();
                     });
                 remove.buttonEl.addClass("sr-native-icon-button");
+
+                if (active) {
+                    const fields = row.createDiv("sr-native-occlusion-mask-fields");
+                    const label = this.createOcclusionTextInput(
+                        fields,
+                        t("OCCLUSION_LABEL"),
+                        mask.label,
+                        t("OCCLUSION_LABEL_PLACEHOLDER"),
+                        (value) => (mask.label = value),
+                    );
+                    label.addClass("is-primary");
+                    this.createOcclusionTextInput(
+                        fields,
+                        t("OCCLUSION_ALTERNATIVES"),
+                        (mask.acceptedLabels ?? []).join("; "),
+                        t("OCCLUSION_ALTERNATIVES_PLACEHOLDER"),
+                        (value) =>
+                            (mask.acceptedLabels = value
+                                .split(/[;\n]/)
+                                .map((item) => item.trim())
+                                .filter(Boolean)),
+                    );
+                    this.createOcclusionTextInput(
+                        fields,
+                        t("OCCLUSION_CONCEPTS"),
+                        (mask.concepts ?? []).join(", "),
+                        t("OCCLUSION_CONCEPTS_PLACEHOLDER"),
+                        (value) =>
+                            (mask.concepts = value
+                                .split(/[,\n]/)
+                                .map((item) => item.trim())
+                                .filter(Boolean)),
+                    );
+                }
             });
+
+            if (this.canUseOcclusionOcr()) {
+                const ocr = surface.createEl("button", {
+                    cls: "sr-native-occlusion-ocr",
+                    attr: { type: "button" },
+                });
+                const icon = ocr.createSpan();
+                setIcon(icon, "scan-text");
+                ocr.createSpan({ text: t("OCCLUSION_OCR_SUGGEST") });
+                ocr.addEventListener("click", () => void this.suggestOcclusionLabels());
+            }
+
+            const metadata = surface.createEl("details", {
+                cls: "sr-native-occlusion-metadata",
+            });
+            if (
+                this.occlusionHeader ||
+                this.occlusionExtra ||
+                this.occlusionComments ||
+                this.occlusionReference
+            ) {
+                metadata.open = true;
+            }
+            metadata.createEl("summary", { text: t("OCCLUSION_CARD_CONTEXT") });
+            const metadataFields = metadata.createDiv();
+            for (const [label, value, placeholder, update] of [
+                [
+                    t("OCCLUSION_HEADER"),
+                    this.occlusionHeader,
+                    t("OCCLUSION_HEADER_PLACEHOLDER"),
+                    (next: string) => (this.occlusionHeader = next),
+                ],
+                [
+                    t("OCCLUSION_EXTRA"),
+                    this.occlusionExtra,
+                    t("OCCLUSION_EXTRA_PLACEHOLDER"),
+                    (next: string) => (this.occlusionExtra = next),
+                ],
+                [
+                    t("OCCLUSION_COMMENTS"),
+                    this.occlusionComments,
+                    t("OCCLUSION_COMMENTS_PLACEHOLDER"),
+                    (next: string) => (this.occlusionComments = next),
+                ],
+                [
+                    t("OCCLUSION_REFERENCE"),
+                    this.occlusionReference,
+                    t("OCCLUSION_REFERENCE_PLACEHOLDER"),
+                    (next: string) => (this.occlusionReference = next),
+                ],
+            ] as const) {
+                this.createOcclusionTextInput(
+                    metadataFields,
+                    label,
+                    value,
+                    placeholder,
+                    update,
+                    true,
+                );
+            }
             this.renderTagsField(surface);
         }
 
@@ -954,8 +1312,7 @@ export class NativeCreatorView extends ItemView {
                     return;
                 }
                 this.request = { mode: "card", deckPath: this.selectedDeck };
-                this.occlusionSource = null;
-                this.occlusionMasks = [];
+                this.resetOcclusionEditor();
                 this.render();
             });
         cancel.buttonEl.addClass("sr-native-secondary-action");
@@ -972,12 +1329,108 @@ export class NativeCreatorView extends ItemView {
             .onClick(() => void this.saveImageOcclusion());
     }
 
+    private createOcclusionTextInput(
+        parent: HTMLElement,
+        label: string,
+        value: string,
+        placeholder: string,
+        update: (value: string) => void,
+        multiline = false,
+    ): HTMLElement {
+        const field = parent.createEl("label", { cls: "sr-native-occlusion-inline-field" });
+        field.createSpan({ text: label });
+        const input = multiline
+            ? field.createEl("textarea", {
+                  cls: "sr-native-input",
+                  attr: { rows: "2", placeholder },
+              })
+            : field.createEl("input", {
+                  cls: "sr-native-input",
+                  attr: { type: "text", placeholder },
+              });
+        input.value = value;
+        input.addEventListener("input", () => update(input.value));
+        return field;
+    }
+
+    private getOcclusionTextDetector():
+        | (new () => {
+              detect(
+                  source: ImageBitmapSource,
+              ): Promise<Array<{ rawValue: string; boundingBox: DOMRectReadOnly }>>;
+          })
+        | undefined {
+        return (
+            globalThis as typeof globalThis & {
+                TextDetector?: new () => {
+                    detect(
+                        source: ImageBitmapSource,
+                    ): Promise<Array<{ rawValue: string; boundingBox: DOMRectReadOnly }>>;
+                };
+            }
+        ).TextDetector;
+    }
+
+    private canUseOcclusionOcr(): boolean {
+        return Boolean(this.getOcclusionTextDetector() && globalThis.createImageBitmap);
+    }
+
+    private async suggestOcclusionLabels(): Promise<void> {
+        const source = this.occlusionSource;
+        const Detector = this.getOcclusionTextDetector();
+        if (!source || !Detector || !globalThis.createImageBitmap) return;
+        try {
+            const bitmap = await createImageBitmap(source.file);
+            const detections = await new Detector().detect(bitmap);
+            bitmap.close();
+            const targets = this.selectedOcclusionMasks().length
+                ? this.selectedOcclusionMasks()
+                : this.occlusionMasks;
+            this.rememberOcclusionState();
+            let updated = 0;
+            for (const mask of targets) {
+                const matches = detections
+                    .filter((detection) => {
+                        const center = {
+                            x:
+                                (detection.boundingBox.x + detection.boundingBox.width / 2) /
+                                source.width,
+                            y:
+                                (detection.boundingBox.y + detection.boundingBox.height / 2) /
+                                source.height,
+                        };
+                        return pointInOcclusionMask(mask, center);
+                    })
+                    .map((detection) => detection.rawValue.trim())
+                    .filter(Boolean);
+                if (!matches.length) continue;
+                if (!mask.label) mask.label = matches[0];
+                mask.acceptedLabels = [...new Set([...(mask.acceptedLabels ?? []), ...matches])];
+                updated++;
+            }
+            if (!updated) this.occlusionUndoStack.pop();
+            new Notice(
+                updated ? t("OCCLUSION_OCR_UPDATED", { count: updated }) : t("OCCLUSION_OCR_EMPTY"),
+            );
+            this.render();
+        } catch (error) {
+            console.warn("Spaced Repetition: OCR suggestions unavailable", error);
+            this.error = t("OCCLUSION_OCR_FAILED");
+            this.render();
+        }
+    }
+
     private async setOcclusionSource(file: File): Promise<void> {
         try {
             this.occlusionSource = await loadOcclusionImage(file);
             this.occlusionSourcePath = null;
             this.occlusionMasks = [];
             this.selectedOcclusionMaskId = null;
+            this.selectedOcclusionMaskIds.clear();
+            this.occlusionUndoStack = [];
+            this.occlusionRedoStack = [];
+            this.occlusionPolygonDraft = [];
+            this.occlusionZoom = 1;
             this.error = "";
         } catch {
             this.error = t("OCCLUSION_IMAGE_FAILED");
@@ -1011,17 +1464,21 @@ export class NativeCreatorView extends ItemView {
             const parsed = JSON.parse(note.fields[OCCLUSION_MASKS_FIELD_ID] ?? "[]") as Array<
                 Partial<OcclusionMask>
             >;
-            this.occlusionMasks = parsed.map((mask, index) => ({
-                id: mask.id ?? `mask-${index + 1}`,
-                x: mask.x ?? 0,
-                y: mask.y ?? 0,
-                width: mask.width ?? 0.1,
-                height: mask.height ?? 0.1,
-                label: mask.label ?? "",
-            }));
+            this.occlusionMasks = parsed.map(normalizeOcclusionMask);
             this.occlusionMode =
                 note.fields[OCCLUSION_MODE_FIELD_ID] === "hide-one" ? "hide-one" : "hide-all";
             this.selectedOcclusionMaskId = this.occlusionMasks[0]?.id ?? null;
+            this.selectedOcclusionMaskIds = new Set(
+                this.selectedOcclusionMaskId ? [this.selectedOcclusionMaskId] : [],
+            );
+            this.occlusionUndoStack = [];
+            this.occlusionRedoStack = [];
+            this.occlusionPolygonDraft = [];
+            this.occlusionZoom = 1;
+            this.occlusionHeader = note.fields[OCCLUSION_HEADER_FIELD_ID] ?? "";
+            this.occlusionExtra = note.fields[OCCLUSION_EXTRA_FIELD_ID] ?? "";
+            this.occlusionComments = note.fields[OCCLUSION_COMMENTS_FIELD_ID] ?? "";
+            this.occlusionReference = note.fields[OCCLUSION_REFERENCE_FIELD_ID] ?? "";
             this.error = "";
         } catch (error) {
             console.error("Spaced Repetition: image occlusion edit load failed", error);
@@ -1030,7 +1487,7 @@ export class NativeCreatorView extends ItemView {
         if (this.contentEl.isShown()) this.render();
     }
 
-    private initializeOcclusionCanvas(canvas: HTMLCanvasElement): void {
+    private initializeOcclusionCanvas(canvas: HTMLCanvasElement, stage: HTMLElement): void {
         const source = this.occlusionSource;
         if (!source) return;
         const scale = Math.min(1, 1600 / Math.max(source.width, source.height));
@@ -1042,27 +1499,47 @@ export class NativeCreatorView extends ItemView {
             if (!context || !image.complete) return;
             context.clearRect(0, 0, canvas.width, canvas.height);
             context.drawImage(image, 0, 0, canvas.width, canvas.height);
-            const masks = this.activeOcclusionMask
-                ? [...this.occlusionMasks, this.activeOcclusionMask]
-                : this.occlusionMasks;
+            const masks =
+                this.activeOcclusionMask &&
+                !this.occlusionMasks.some((mask) => mask.id === this.activeOcclusionMask?.id)
+                    ? [...this.occlusionMasks, this.activeOcclusionMask]
+                    : this.occlusionMasks;
             for (const mask of masks) {
-                const selected = mask.id === this.selectedOcclusionMaskId;
+                const selected =
+                    mask.id === this.selectedOcclusionMaskId ||
+                    this.selectedOcclusionMaskIds.has(mask.id);
                 context.fillStyle = selected ? "rgba(124, 58, 237, 0.78)" : "rgba(28, 28, 30, 0.9)";
                 context.strokeStyle = selected ? "#a78bfa" : "rgba(255, 255, 255, 0.95)";
                 context.lineWidth = Math.max(2, canvas.width * 0.003);
-                context.fillRect(
-                    mask.x * canvas.width,
-                    mask.y * canvas.height,
-                    mask.width * canvas.width,
-                    mask.height * canvas.height,
-                );
-                context.strokeRect(
-                    mask.x * canvas.width,
-                    mask.y * canvas.height,
-                    mask.width * canvas.width,
-                    mask.height * canvas.height,
-                );
-                if (selected) {
+                context.beginPath();
+                if (mask.shape === "ellipse") {
+                    context.ellipse(
+                        (mask.x + mask.width / 2) * canvas.width,
+                        (mask.y + mask.height / 2) * canvas.height,
+                        (mask.width * canvas.width) / 2,
+                        (mask.height * canvas.height) / 2,
+                        0,
+                        0,
+                        Math.PI * 2,
+                    );
+                } else if (mask.shape === "polygon" && (mask.points?.length ?? 0) >= 3) {
+                    const points = mask.points ?? [];
+                    context.moveTo(points[0].x * canvas.width, points[0].y * canvas.height);
+                    for (const point of points.slice(1)) {
+                        context.lineTo(point.x * canvas.width, point.y * canvas.height);
+                    }
+                    context.closePath();
+                } else {
+                    context.rect(
+                        mask.x * canvas.width,
+                        mask.y * canvas.height,
+                        mask.width * canvas.width,
+                        mask.height * canvas.height,
+                    );
+                }
+                context.fill();
+                context.stroke();
+                if (selected && mask.shape !== "polygon") {
                     const size = Math.max(10, canvas.width * 0.016);
                     context.fillStyle = "#ffffff";
                     context.fillRect(
@@ -1072,6 +1549,31 @@ export class NativeCreatorView extends ItemView {
                         size,
                     );
                 }
+            }
+            if (this.occlusionPolygonDraft.length) {
+                context.save();
+                context.strokeStyle = "#a78bfa";
+                context.fillStyle = "#ffffff";
+                context.lineWidth = Math.max(2, canvas.width * 0.003);
+                context.beginPath();
+                const first = this.occlusionPolygonDraft[0];
+                context.moveTo(first.x * canvas.width, first.y * canvas.height);
+                for (const point of this.occlusionPolygonDraft.slice(1)) {
+                    context.lineTo(point.x * canvas.width, point.y * canvas.height);
+                }
+                context.stroke();
+                for (const point of this.occlusionPolygonDraft) {
+                    context.beginPath();
+                    context.arc(
+                        point.x * canvas.width,
+                        point.y * canvas.height,
+                        Math.max(4, canvas.width * 0.006),
+                        0,
+                        Math.PI * 2,
+                    );
+                    context.fill();
+                }
+                context.restore();
             }
         };
         image.addEventListener("load", redraw);
@@ -1087,45 +1589,72 @@ export class NativeCreatorView extends ItemView {
         let start: { x: number; y: number } | null = null;
         let origin: OcclusionMask | null = null;
         let interaction: "create" | "move" | "resize" = "create";
+        let panStart: { x: number; y: number; left: number; top: number } | null = null;
         const hitMask = (position: { x: number; y: number }): OcclusionMask | null =>
             [...this.occlusionMasks]
                 .reverse()
-                .find(
-                    (mask) =>
-                        position.x >= mask.x &&
-                        position.x <= mask.x + mask.width &&
-                        position.y >= mask.y &&
-                        position.y <= mask.y + mask.height,
-                ) ?? null;
+                .find((mask) => pointInOcclusionMask(mask, position)) ?? null;
         canvas.addEventListener("pointerdown", (event) => {
             event.preventDefault();
             canvas.setPointerCapture(event.pointerId);
+            if (this.occlusionTool === "pan") {
+                panStart = {
+                    x: event.clientX,
+                    y: event.clientY,
+                    left: stage.scrollLeft,
+                    top: stage.scrollTop,
+                };
+                canvas.addClass("is-panning");
+                return;
+            }
             start = point(event);
+            if (this.occlusionTool === "polygon") {
+                this.occlusionPolygonDraft.push(start);
+                redraw();
+                return;
+            }
             const hit = hitMask(start);
             if (hit) {
                 this.selectedOcclusionMaskId = hit.id;
+                this.selectedOcclusionMaskIds = new Set([hit.id]);
                 origin = { ...hit };
                 const nearHandle =
+                    hit.shape !== "polygon" &&
                     Math.abs(start.x - (hit.x + hit.width)) < 0.035 &&
                     Math.abs(start.y - (hit.y + hit.height)) < 0.035;
                 interaction = nearHandle ? "resize" : "move";
                 this.activeOcclusionMask = hit;
+                this.rememberOcclusionState();
             } else {
                 interaction = "create";
                 origin = null;
                 this.activeOcclusionMask = {
                     id: `mask-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    shape: this.occlusionTool,
                     x: start.x,
                     y: start.y,
                     width: 0,
                     height: 0,
+                    points: [],
                     label: "",
+                    acceptedLabels: [],
+                    concepts: [],
+                    groupId: null,
                 };
                 this.selectedOcclusionMaskId = this.activeOcclusionMask.id;
+                this.selectedOcclusionMaskIds = new Set([this.activeOcclusionMask.id]);
+                this.rememberOcclusionState();
             }
             redraw();
         });
         canvas.addEventListener("pointermove", (event) => {
+            if (panStart) {
+                event.preventDefault();
+                stage.scrollLeft = panStart.left - (event.clientX - panStart.x);
+                stage.scrollTop = panStart.top - (event.clientY - panStart.y);
+                return;
+            }
+            if (this.occlusionTool === "polygon") return;
             if (!start || !this.activeOcclusionMask) return;
             event.preventDefault();
             const current = point(event);
@@ -1138,6 +1667,14 @@ export class NativeCreatorView extends ItemView {
                     0,
                     Math.min(1 - origin.height, origin.y + current.y - start.y),
                 );
+                if (this.activeOcclusionMask.shape === "polygon") {
+                    const deltaX = this.activeOcclusionMask.x - origin.x;
+                    const deltaY = this.activeOcclusionMask.y - origin.y;
+                    this.activeOcclusionMask.points = (origin.points ?? []).map((point) => ({
+                        x: Math.max(0, Math.min(1, point.x + deltaX)),
+                        y: Math.max(0, Math.min(1, point.y + deltaY)),
+                    }));
+                }
             } else if (interaction === "resize" && origin) {
                 this.activeOcclusionMask.width = Math.max(
                     0.012,
@@ -1156,6 +1693,13 @@ export class NativeCreatorView extends ItemView {
             redraw();
         });
         const finish = (event: PointerEvent): void => {
+            if (panStart) {
+                event.preventDefault();
+                panStart = null;
+                canvas.removeClass("is-panning");
+                return;
+            }
+            if (this.occlusionTool === "polygon") return;
             if (!start || !this.activeOcclusionMask) return;
             event.preventDefault();
             if (
@@ -1164,6 +1708,8 @@ export class NativeCreatorView extends ItemView {
                 this.activeOcclusionMask.height >= 0.012
             ) {
                 this.occlusionMasks.push(this.activeOcclusionMask);
+            } else if (interaction === "create") {
+                this.occlusionUndoStack.pop();
             }
             this.activeOcclusionMask = null;
             start = null;
@@ -1171,6 +1717,21 @@ export class NativeCreatorView extends ItemView {
         };
         canvas.addEventListener("pointerup", finish);
         canvas.addEventListener("pointercancel", finish);
+        canvas.addEventListener("dblclick", (event) => {
+            if (this.occlusionTool !== "polygon") return;
+            event.preventDefault();
+            this.finishOcclusionPolygon();
+        });
+        stage.addEventListener(
+            "wheel",
+            (event) => {
+                event.preventDefault();
+                const delta = event.deltaY < 0 ? 0.25 : -0.25;
+                this.occlusionZoom = Math.max(0.75, Math.min(3, this.occlusionZoom + delta));
+                canvas.setCssProps({ width: `${Math.round(this.occlusionZoom * 100)}%` });
+            },
+            { passive: false },
+        );
     }
 
     private async saveImageOcclusion(): Promise<void> {
@@ -1191,9 +1752,13 @@ export class NativeCreatorView extends ItemView {
                 this.occlusionMasks,
                 this.occlusionMode,
             );
+            const groups = new Map(
+                getOcclusionCardGroups(this.occlusionMasks).map((group) => [group.id, group]),
+            );
             const stem = source.file.name.replace(/\.[^.]+$/, "") || "occlusion";
             const storedAssets = [];
             for (const [index, asset] of assets.entries()) {
+                const group = groups.get(asset.maskId);
                 const questionPath = await this.store.saveMediaAsset(
                     `${stem}-occlusion-${index + 1}.png`,
                     asset.question,
@@ -1204,9 +1769,20 @@ export class NativeCreatorView extends ItemView {
                 );
                 storedAssets.push({
                     maskId: asset.maskId,
+                    maskIds: asset.maskIds,
                     questionPath,
                     answerPath,
-                    label: this.occlusionMasks[index]?.label ?? "",
+                    label: group?.masks[0]?.label ?? "",
+                    acceptedLabels: group?.masks[0]?.acceptedLabels ?? [],
+                    answers:
+                        group?.masks.map((mask, answerIndex) => ({
+                            id: mask.id,
+                            label: mask.label,
+                            acceptedLabels: mask.acceptedLabels ?? [],
+                            concepts: mask.concepts?.length
+                                ? mask.concepts
+                                : [`${t("OCCLUSION_REGION")} ${answerIndex + 1}`],
+                        })) ?? [],
                 });
             }
             const draft = {
@@ -1215,6 +1791,10 @@ export class NativeCreatorView extends ItemView {
                 masksJson: JSON.stringify(this.occlusionMasks),
                 mode: this.occlusionMode,
                 assets: storedAssets,
+                header: this.occlusionHeader,
+                extra: this.occlusionExtra,
+                comments: this.occlusionComments,
+                reference: this.occlusionReference,
                 tags: [...new Set([...this.getTags(), "image-occlusion"])],
             };
             if (this.editingOcclusionNote) {
@@ -1225,9 +1805,7 @@ export class NativeCreatorView extends ItemView {
                 await this.store.createImageOcclusionNote(draft);
             }
             new Notice(t("OCCLUSION_CARDS_CREATED", { count: storedAssets.length }));
-            this.occlusionSource = null;
-            this.occlusionSourcePath = null;
-            this.occlusionMasks = [];
+            this.resetOcclusionEditor();
             await this.returnToCards();
         } catch (error) {
             console.error("Spaced Repetition: image occlusion creation failed", error);

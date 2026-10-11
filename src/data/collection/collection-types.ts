@@ -1,6 +1,6 @@
 import { ISerializedScheduleEntry } from "src/data/plugin-data";
 
-export const COLLECTION_SCHEMA_VERSION = 8;
+export const COLLECTION_SCHEMA_VERSION = 9;
 export const REVIEW_LOG_SCHEMA_VERSION = 1;
 
 export type NoteTypeKind = "standard" | "cloze" | "image-occlusion";

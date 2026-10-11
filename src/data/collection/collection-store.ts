@@ -7,6 +7,7 @@ import {
     EXTRA_FIELD_ID,
     FRONT_FIELD_ID,
     getBuiltinNoteTypes,
+    IMAGE_OCCLUSION_NOTE_TYPE_ID,
     noteTypeIdForNativeType,
     TEXT_FIELD_ID,
 } from "src/data/collection/builtin-note-types";
@@ -188,8 +189,17 @@ export function createCardStableKey(noteId: string, templateId: string, variantI
 
 function getImageOcclusionVariantIds(note: CollectionNote): string[] {
     try {
-        const masks = JSON.parse(note.fields.masks ?? "[]") as Array<{ id?: string }>;
-        return masks.map((mask, index) => mask.id?.trim() || `mask-${index + 1}`);
+        const masks = JSON.parse(note.fields.masks ?? "[]") as Array<{
+            id?: string;
+            groupId?: string | null;
+        }>;
+        return [
+            ...new Set(
+                masks.map(
+                    (mask, index) => mask.groupId?.trim() || mask.id?.trim() || `mask-${index + 1}`,
+                ),
+            ),
+        ];
     } catch {
         return [];
     }
@@ -302,17 +312,37 @@ export function migrateCollection(value: unknown): CollectionData {
         Object.entries({
             ...base.noteTypes,
             ...asRecord<NoteTypeDefinition>(raw.noteTypes),
-        }).map(([id, noteType]) => [
-            id,
-            {
-                ...noteType,
-                version: Math.max(1, Number(noteType.version) || 1),
-                fields: (noteType.fields ?? []).map((field) => ({ ...field })),
-                templates: (noteType.templates ?? []).map((template) =>
-                    normalizeTemplate(template, noteType.kind),
-                ),
-            },
-        ]),
+        }).map(([id, noteType]) => {
+            const builtin = base.noteTypes[id];
+            const isLegacyOcclusion =
+                id === IMAGE_OCCLUSION_NOTE_TYPE_ID &&
+                Number(noteType.version ?? 1) < Number(builtin?.version ?? 1);
+            const fields = (noteType.fields ?? []).map((field) => ({ ...field }));
+            if (isLegacyOcclusion && builtin) {
+                for (const field of builtin.fields) {
+                    if (!fields.some((candidate) => candidate.id === field.id))
+                        fields.push({ ...field });
+                }
+            }
+            return [
+                id,
+                {
+                    ...noteType,
+                    version: Math.max(
+                        1,
+                        Number(noteType.version) || 1,
+                        isLegacyOcclusion ? Number(builtin?.version ?? 1) : 1,
+                    ),
+                    fields,
+                    templates: (noteType.templates ?? []).map((template) => {
+                        const normalized = normalizeTemplate(template, noteType.kind);
+                        return isLegacyOcclusion && template.generator === "image-occlusion"
+                            ? { ...normalized, answerMode: "image-labels" as const }
+                            : normalized;
+                    }),
+                },
+            ];
+        }),
     );
     const notes = asRecord<CollectionNote>(raw.notes);
     const migrated: CollectionData = {
