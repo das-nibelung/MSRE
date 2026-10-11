@@ -17,6 +17,8 @@ export interface SchedulerMetrics {
     logLoss: number;
     rmse: number;
     averageResponseMs: number;
+    todayDue: number;
+    estimatedSessionMinutes: number;
     ratings: [number, number, number, number];
     averageStability: number;
     averageDifficulty: number;
@@ -205,6 +207,10 @@ export function analyzeScheduler(
     const fsrsCards = cards
         .map(fsrsData)
         .filter((value): value is ISerializedFSRSScheduleData => value !== null);
+    const averageResponseMs = mean(
+        reviews.flatMap((review) => (review.durationMs === null ? [] : [review.durationMs])),
+    );
+    const todayDue = forecastMap.get(dayKey(now)) ?? 0;
     return {
         reviewCount: reviews.length,
         trueRetention: reviews.length
@@ -212,9 +218,9 @@ export function analyzeScheduler(
             : 0,
         logLoss: evaluation.logLoss,
         rmse: evaluation.rmse,
-        averageResponseMs: mean(
-            reviews.flatMap((review) => (review.durationMs === null ? [] : [review.durationMs])),
-        ),
+        averageResponseMs,
+        todayDue,
+        estimatedSessionMinutes: Math.ceil((todayDue * (averageResponseMs || 12_000)) / 60_000),
         ratings,
         averageStability: mean(fsrsCards.map((card) => card.stability)),
         averageDifficulty: mean(fsrsCards.map((card) => card.difficulty)),

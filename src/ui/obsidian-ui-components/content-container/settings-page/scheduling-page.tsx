@@ -539,5 +539,91 @@ export class SchedulingPage extends SettingsPage {
                             }),
                     );
             });
+
+        new SettingGroup(this.containerEl)
+            .setHeading("Daily review plan")
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Available time")
+                    .setDesc(
+                        "Limit the queue to a realistic session. Zero keeps the full daily queue.",
+                    )
+                    .addSlider((slider) =>
+                        slider
+                            .setLimits(0, 120, 5)
+                            .setValue(this.settingsManager.settings.reviewSessionMinutes)
+                            .setDynamicTooltip()
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.reviewSessionMinutes = value;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Review ahead")
+                    .setDesc(
+                        "Fill spare time with cards due in the next few days without changing their history.",
+                    )
+                    .addSlider((slider) =>
+                        slider
+                            .setLimits(0, 30, 1)
+                            .setValue(this.settingsManager.settings.reviewAheadDays)
+                            .setDynamicTooltip()
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.reviewAheadDays = value;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Intelligent backlog")
+                    .setDesc(
+                        "Prioritize learning steps, overdue memories, and important knowledge areas.",
+                    )
+                    .addToggle((toggle) =>
+                        toggle
+                            .setValue(this.settingsManager.settings.intelligentBacklog)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.intelligentBacklog = value;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Bury siblings")
+                    .setDesc("Choose whether new, review, or every sibling waits until tomorrow.")
+                    .addDropdown((dropdown) =>
+                        dropdown
+                            .addOptions({
+                                off: "Never",
+                                new: "New only",
+                                review: "Reviews only",
+                                all: "Always",
+                            })
+                            .setValue(this.settingsManager.settings.burySiblingMode)
+                            .onChange(async (value) => {
+                                const mode = value as "off" | "new" | "review" | "all";
+                                this.settingsManager.settings.burySiblingMode = mode;
+                                this.settingsManager.settings.burySiblingCards = mode === "all";
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Automatic FSRS suggestions")
+                    .setDesc("Recommend new parameters only when held-out review history improves.")
+                    .addToggle((toggle) =>
+                        toggle
+                            .setValue(this.settingsManager.settings.autoSuggestFsrsOptimization)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.autoSuggestFsrsOptimization = value;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            });
     }
 }

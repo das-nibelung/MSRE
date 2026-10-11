@@ -16,6 +16,7 @@ export interface CardSchedulingOptions {
     learningSteps?: number[];
     relearningSteps?: number[];
     loadBalance?: boolean;
+    burySiblings?: "inherit" | "off" | "new" | "review" | "all";
 }
 
 export interface ISRAlgorithm {

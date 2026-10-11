@@ -849,7 +849,7 @@ describe("Anki-style collection store", () => {
         newer.notes.n1.updatedAt = 2;
 
         const merged = mergeCollections(older, newer);
-        expect(merged.schemaVersion).toBe(11);
+        expect(merged.schemaVersion).toBe(12);
         expect(merged.notes.n1.fields.front).toBe("new");
         expect(merged.cards.c1.buriedUntil).toBeNull();
         expect(merged.cards.c1.flag).toBe(0);
@@ -863,7 +863,7 @@ describe("Anki-style collection store", () => {
     });
 
     it("migrates schema v4 cards to stable template variants", () => {
-        expect(parseCollection("plain Markdown without managed JSON").schemaVersion).toBe(11);
+        expect(parseCollection("plain Markdown without managed JSON").schemaVersion).toBe(12);
         const migrated = migrateCollection({
             schemaVersion: 4,
             revision: 1,
@@ -914,7 +914,7 @@ describe("Anki-style collection store", () => {
             },
         });
 
-        expect(migrated.schemaVersion).toBe(11);
+        expect(migrated.schemaVersion).toBe(12);
         expect(migrated.noteTypes.custom.version).toBe(1);
         expect(migrated.noteTypes.custom.templates[0].version).toBe(1);
         expect(migrated.noteTypes.custom.templates[0].generator).toBe("standard");
@@ -1097,8 +1097,8 @@ describe("Anki-style collection store", () => {
         const store = new CollectionStore(storage, () => 700, idFactory);
 
         await store.initialize();
-        expect(store.getCollectionSnapshot().schemaVersion).toBe(11);
-        expect((await store.listBackups())[0].reason).toBe("before-schema-4-to-11");
+        expect(store.getCollectionSnapshot().schemaVersion).toBe(12);
+        expect((await store.listBackups())[0].reason).toBe("before-schema-4-to-12");
         expect((await store.listBackups())[0].schemaVersion).toBe(4);
 
         storage.backups.set("empty.json", "");

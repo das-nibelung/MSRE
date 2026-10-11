@@ -3183,6 +3183,22 @@ export class NativeCreatorView extends ItemView {
             365,
             (value) => (draft.reviewAheadDays = value),
         );
+        this.createNumberControl(
+            safeguardGrid,
+            "Priority",
+            draft.priority ?? 0,
+            -100,
+            100,
+            (value) => (draft.priority = value),
+        );
+        this.createNumberControl(
+            safeguardGrid,
+            "Minutes per day",
+            draft.minutesPerDay ?? 0,
+            0,
+            1440,
+            (value) => (draft.minutesPerDay = value),
+        );
         this.createChoiceControl(safeguards, "Leech action", [
             {
                 label: "Tag",
@@ -3198,6 +3214,33 @@ export class NativeCreatorView extends ItemView {
         this.createChoiceControl(safeguards, "Load balancing", [
             { label: "Off", active: !draft.loadBalance, action: () => (draft.loadBalance = false) },
             { label: "On", active: draft.loadBalance, action: () => (draft.loadBalance = true) },
+        ]);
+        this.createChoiceControl(safeguards, "Bury siblings", [
+            {
+                label: "Global",
+                active: (draft.burySiblings ?? "inherit") === "inherit",
+                action: () => (draft.burySiblings = "inherit"),
+            },
+            {
+                label: "Off",
+                active: draft.burySiblings === "off",
+                action: () => (draft.burySiblings = "off"),
+            },
+            {
+                label: "New",
+                active: draft.burySiblings === "new",
+                action: () => (draft.burySiblings = "new"),
+            },
+            {
+                label: "Reviews",
+                active: draft.burySiblings === "review",
+                action: () => (draft.burySiblings = "review"),
+            },
+            {
+                label: "All",
+                active: draft.burySiblings === "all",
+                action: () => (draft.burySiblings = "all"),
+            },
         ]);
 
         if (this.error) {
@@ -3464,6 +3507,22 @@ export class NativeCreatorView extends ItemView {
             365,
             (value) => (this.areaScheduling.reviewAheadDays = value),
         );
+        this.createNumberControl(
+            grid,
+            "Priority",
+            this.areaScheduling.priority ?? 0,
+            -100,
+            100,
+            (value) => (this.areaScheduling.priority = value),
+        );
+        this.createNumberControl(
+            grid,
+            "Minutes per day",
+            this.areaScheduling.minutesPerDay ?? 0,
+            0,
+            1440,
+            (value) => (this.areaScheduling.minutesPerDay = value),
+        );
         this.createChoiceControl(scheduler, "Leech action", [
             {
                 label: "Tag",
@@ -3486,6 +3545,33 @@ export class NativeCreatorView extends ItemView {
                 label: "On",
                 active: this.areaScheduling.loadBalance !== false,
                 action: () => (this.areaScheduling.loadBalance = true),
+            },
+        ]);
+        this.createChoiceControl(scheduler, "Bury siblings", [
+            {
+                label: "Global",
+                active: (this.areaScheduling.burySiblings ?? "inherit") === "inherit",
+                action: () => (this.areaScheduling.burySiblings = "inherit"),
+            },
+            {
+                label: "Off",
+                active: this.areaScheduling.burySiblings === "off",
+                action: () => (this.areaScheduling.burySiblings = "off"),
+            },
+            {
+                label: "New",
+                active: this.areaScheduling.burySiblings === "new",
+                action: () => (this.areaScheduling.burySiblings = "new"),
+            },
+            {
+                label: "Reviews",
+                active: this.areaScheduling.burySiblings === "review",
+                action: () => (this.areaScheduling.burySiblings = "review"),
+            },
+            {
+                label: "All",
+                active: this.areaScheduling.burySiblings === "all",
+                action: () => (this.areaScheduling.burySiblings = "all"),
             },
         ]);
 

@@ -22,6 +22,11 @@ import {
     FlashcardReviewSequencer,
     IFlashcardReviewSequencer,
 } from "src/scheduling/flashcard-review-sequencer";
+import {
+    applyStableIdPlanToQueue,
+    averageReviewDuration,
+    planReviewSession,
+} from "src/scheduling/review-session-planner";
 import { globalDateProvider } from "src/utils/dates";
 import { globalRandomNumberProvider } from "src/utils/numbers";
 
@@ -96,6 +101,7 @@ export function applyDeckOptionsToQueue(
     deckTree: Deck,
     rootTag: string,
     getOptions: (deckPath: string) => DeckOptionsDefinition,
+    averageResponseMs = 12_000,
 ): Deck {
     const limited = deckTree.clone();
     const rootPath = rootTag.replace(/^#/, "").split("/").filter(Boolean);
@@ -105,11 +111,47 @@ export function applyDeckOptionsToQueue(
         const newCards =
             options.newCardOrder === "random" ? shuffleCards(deck.newRepItems) : deck.newRepItems;
         deck.newRepItems = newCards.slice(0, options.newCardsPerDay);
-        deck.dueRepItems = deck.dueRepItems.slice(0, options.reviewsPerDay);
+        deck.dueRepItems = [...deck.dueRepItems]
+            .sort(
+                (left, right) =>
+                    (left.scheduleInfo?.dueDateAsUnix ?? Number.MAX_SAFE_INTEGER) -
+                    (right.scheduleInfo?.dueDateAsUnix ?? Number.MAX_SAFE_INTEGER),
+            )
+            .slice(0, options.reviewsPerDay);
+        if ((options.minutesPerDay ?? 0) > 0) {
+            const maximum = Math.max(
+                1,
+                Math.floor(((options.minutesPerDay ?? 0) * 60_000) / averageResponseMs),
+            );
+            deck.dueRepItems = deck.dueRepItems.slice(0, maximum);
+            deck.newRepItems = deck.newRepItems.slice(
+                0,
+                Math.max(0, maximum - deck.dueRepItems.length),
+            );
+        }
         for (const child of deck.subdecks) visit(child);
     };
     visit(limited);
     return limited;
+}
+
+/** Adds only the configured near-future cards to the ordinary due queue. */
+export function applyReviewAheadToQueue(
+    deckTree: Deck,
+    rootTag: string,
+    globalAheadDays: number,
+    getOptions: (deckPath: string) => DeckOptionsDefinition,
+): Deck {
+    const now = globalDateProvider.now.valueOf();
+    const rootPath = rootTag.replace(/^#/, "").split("/").filter(Boolean);
+    return deckTree.copyWithRepItemFilter((item) => {
+        if (!(item instanceof Card)) return true;
+        if (item.isNew || item.isDue || !item.hasSchedule) return true;
+        const topic = item.question.topicPathList.list[0]?.path ?? [];
+        const deckPath = stripRootPath(topic, rootPath);
+        const aheadDays = Math.max(globalAheadDays, getOptions(deckPath).reviewAheadDays ?? 0);
+        return aheadDays > 0 && item.scheduleInfo.dueDateAsUnix <= now + aheadDays * 86_400_000;
+    });
 }
 
 /** Removes cards that are persistently suspended or buried from every deck copy. */
@@ -234,9 +276,52 @@ export class ReviewQueueLoader {
             !this.selectedStableIds
         ) {
             const rootTag = this.plugin.dataManager.data.settings.flashcardTags[0] ?? "#flashcards";
-            remainingDeckTree = applyDeckOptionsToQueue(remainingDeckTree, rootTag, (deckPath) =>
-                this.plugin.dataManager.collectionStore.getDeckOptionsForPath(deckPath),
+            if (this.plugin.dataManager.data.settings.reviewAheadDays > 0) {
+                remainingDeckTree = applyReviewAheadToQueue(
+                    deckTree,
+                    rootTag,
+                    this.plugin.dataManager.data.settings.reviewAheadDays,
+                    (deckPath) =>
+                        this.plugin.dataManager.collectionStore.getDeckOptionsForPath(deckPath),
+                );
+                remainingDeckTree = applyCardLifecycleToQueue(remainingDeckTree, (stableId) =>
+                    collection.isLegacyCardReviewable(stableId),
+                );
+            }
+            remainingDeckTree = applyDeckOptionsToQueue(
+                remainingDeckTree,
+                rootTag,
+                (deckPath) =>
+                    this.plugin.dataManager.collectionStore.getDeckOptionsForPath(deckPath),
+                averageReviewDuration(collection.getReviewLogSnapshot()),
             );
+            const settings = this.plugin.dataManager.data.settings;
+            if (settings.reviewSessionMinutes > 0 || settings.intelligentBacklog) {
+                const snapshot = collection.getCollectionSnapshot();
+                const areas = this.plugin.dataManager.data.knowledgeAreas;
+                const planned = planReviewSession(snapshot, collection.getReviewLogSnapshot(), {
+                    minutes: settings.reviewSessionMinutes || undefined,
+                    aheadDays: settings.reviewAheadDays,
+                    aheadDaysForDeck: (deckPath) =>
+                        collection.getDeckOptionsForPath(deckPath).reviewAheadDays ?? 0,
+                    intelligentBacklog: settings.intelligentBacklog,
+                    priorityForDeck: (deckPath) => {
+                        const preset = collection.getDeckOptionsForPath(deckPath);
+                        const area = areas.find((candidate) =>
+                            candidate.deckPaths.some(
+                                (path) => deckPath === path || deckPath.startsWith(`${path}/`),
+                            ),
+                        );
+                        return area?.scheduling?.priority ?? preset.priority ?? 0;
+                    },
+                });
+                const stableIds = planned.cards.flatMap(({ card }) =>
+                    card.legacyStableId ? [card.legacyStableId] : [],
+                );
+                if (stableIds.length > 0) {
+                    remainingDeckTree = applyStableIdPlanToQueue(remainingDeckTree, stableIds);
+                }
+            }
         }
 
         const reviewSequencerData = this.getPreparedReviewSequencer(
@@ -332,6 +417,7 @@ export class ReviewQueueLoader {
             learningSteps: area?.scheduling?.learningSteps ?? base.learningSteps,
             relearningSteps: area?.scheduling?.relearningSteps ?? base.relearningSteps,
             loadBalance: area?.scheduling?.loadBalance ?? base.loadBalance,
+            burySiblings: area?.scheduling?.burySiblings ?? base.burySiblings,
         };
     }
 }

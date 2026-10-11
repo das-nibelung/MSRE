@@ -25,10 +25,10 @@ import { RepItemState } from "src/scheduling/algorithms/base/repetition-item";
 import { SRAlgorithm } from "src/scheduling/algorithms/base/sr-algorithm";
 import { textInterval } from "src/scheduling/algorithms/osr/note-scheduling";
 import {
-    analyzeScheduler,
-    optimizeFsrsWeights,
-    SchedulerMetrics,
-} from "src/scheduling/fsrs/scheduler-analytics";
+    FsrsOptimizerResult,
+    optimizeFsrsWeightsInBackground,
+} from "src/scheduling/fsrs/fsrs-optimizer";
+import { analyzeScheduler, SchedulerMetrics } from "src/scheduling/fsrs/scheduler-analytics";
 import { SettingsPage } from "src/ui/obsidian-ui-components/content-container/settings-page/settings-page";
 import { SettingsPageType } from "src/ui/obsidian-ui-components/content-container/settings-page/settings-page-manager";
 import ChartComponent from "src/ui/obsidian-ui-components/content-container/settings-page/statistics-page/chart-component";
@@ -61,6 +61,7 @@ export class StatisticsPage extends SettingsPage {
     private cardTypesChart: ChartComponent | null = null;
     private noteStatsGrid: NoteStatsComponent | null = null;
     private selectedPresetId = "builtin-default-options";
+    private optimizationPreview: { presetId: string; result: FsrsOptimizerResult } | null = null;
 
     constructor(
         pageContainerEl: HTMLElement,
@@ -340,6 +341,12 @@ export class StatisticsPage extends SettingsPage {
             this.duration(metrics.averageResponseMs),
             `${metrics.reviewCount} reviews`,
         );
+        this.renderMetric(
+            metricGrid,
+            "Today",
+            `${metrics.estimatedSessionMinutes} min`,
+            `${metrics.todayDue} cards · predicted finish`,
+        );
 
         const actionPanel = this.containerEl.createDiv("sr-fsrs-action-panel");
         const actionCopy = actionPanel.createDiv();
@@ -352,10 +359,40 @@ export class StatisticsPage extends SettingsPage {
                 : "Calibration is local and uses only your immutable review history.",
         });
         const actionButtons = actionPanel.createDiv("sr-fsrs-action-buttons");
-        new ButtonComponent(actionButtons)
-            .setButtonText("Optimize")
-            .setCta()
-            .onClick(() => void this.optimizePreset());
+        const preview =
+            this.optimizationPreview?.presetId === this.selectedPresetId
+                ? this.optimizationPreview.result
+                : null;
+        if (preview) {
+            const comparison = actionCopy.createDiv("sr-fsrs-optimization-comparison");
+            comparison.createSpan({ text: "Held-out log loss" });
+            comparison.createEl("strong", {
+                text: `${preview.baselineValidationLogLoss.toFixed(3)} → ${preview.validationLogLoss.toFixed(3)}`,
+            });
+            comparison.createEl("small", {
+                text: `${preview.trainingSize} training · ${preview.validationSize} validation · ${Math.round(preview.improvement * 1000) / 10}% improvement`,
+            });
+            new ButtonComponent(actionButtons)
+                .setButtonText(
+                    preview.recommended ? "Apply improved model" : "Apply provisional model",
+                )
+                .setCta()
+                .onClick(() => void this.applyOptimizationPreview());
+            new ButtonComponent(actionButtons).setButtonText("Discard").onClick(() => {
+                this.optimizationPreview = null;
+                this.render();
+            });
+        } else {
+            new ButtonComponent(actionButtons)
+                .setButtonText("Optimize in background")
+                .setCta()
+                .onClick(() => void this.optimizePreset());
+            if (this.dataManager.data.knowledgeAreas.length > 0) {
+                new ButtonComponent(actionButtons)
+                    .setButtonText("Tune knowledge areas")
+                    .onClick(() => void this.optimizeKnowledgeAreas());
+            }
+        }
         new ButtonComponent(actionButtons)
             .setButtonText("Reschedule")
             .setDisabled(!selected?.optimization)
@@ -521,16 +558,97 @@ export class StatisticsPage extends SettingsPage {
         log.entries = Object.fromEntries(
             Object.entries(log.entries).filter(([, entry]) => cardIds.has(entry.cardId)),
         );
-        const result = optimizeFsrsWeights(log, preset.fsrsWeights);
-        if (result.sampleSize < 20) {
-            new Notice("At least 20 reviews are recommended; the current result is provisional.");
-        }
+        new Notice("FSRS optimization started in the background.");
+        const result = await optimizeFsrsWeightsInBackground(log, preset.fsrsWeights);
+        this.optimizationPreview = { presetId: preset.id, result };
+        if (result.trainingSize < 50)
+            new Notice("More review history is recommended; this model is provisional.");
+        else if (!result.recommended)
+            new Notice("The candidate did not clearly improve held-out predictions.");
+        this.render();
+    }
+
+    private async applyOptimizationPreview(): Promise<void> {
+        const store = this.dataManager.collectionStore;
+        const preset = store.getDeckOptionsById(this.selectedPresetId);
+        const preview = this.optimizationPreview;
+        if (!preset || !preview || preview.presetId !== preset.id) return;
+        const result = preview.result;
+        const stabilityScale = Math.max(
+            0.25,
+            Math.min(
+                4,
+                result.weights.slice(0, 4).reduce((sum, value, index) => {
+                    const previous = preset.fsrsWeights?.[index] ?? result.weights[index];
+                    return sum + value / Math.max(0.001, previous);
+                }, 0) / 4,
+            ),
+        );
         await store.saveDeckOptions({
             ...preset,
             fsrsWeights: result.weights,
-            optimization: { ...result, optimizedAt: Date.now() },
+            optimization: {
+                optimizedAt: Date.now(),
+                sampleSize: result.sampleSize,
+                logLoss: result.logLoss,
+                rmse: result.rmse,
+                stabilityScale,
+                validationSize: result.validationSize,
+                baselineLogLoss: result.baselineLogLoss,
+                validationLogLoss: result.validationLogLoss,
+                baselineValidationLogLoss: result.baselineValidationLogLoss,
+                improvement: result.improvement,
+                recommended: result.recommended,
+                weightsBefore: preset.fsrsWeights ?? undefined,
+            },
         });
-        new Notice(`FSRS optimized from ${result.sampleSize} reviews.`);
+        this.optimizationPreview = null;
+        new Notice(`FSRS model applied from ${result.sampleSize} review predictions.`);
+        this.render();
+    }
+
+    private async optimizeKnowledgeAreas(): Promise<void> {
+        const store = this.dataManager.collectionStore;
+        const collection = store.getCollectionSnapshot();
+        const reviewLog = store.getReviewLogSnapshot();
+        let updated = 0;
+        for (const area of this.dataManager.data.knowledgeAreas.filter(
+            (candidate) => !candidate.archivedAt && candidate.deckPaths.length > 0,
+        )) {
+            const cardIds = new Set(
+                Object.values(collection.cards)
+                    .filter(
+                        (card) =>
+                            !card.deletedAt &&
+                            area.deckPaths.some(
+                                (path) =>
+                                    card.deckPath === path || card.deckPath.startsWith(`${path}/`),
+                            ),
+                    )
+                    .map((card) => card.id),
+            );
+            const scoped = {
+                ...reviewLog,
+                entries: Object.fromEntries(
+                    Object.entries(reviewLog.entries).filter(([, entry]) =>
+                        cardIds.has(entry.cardId),
+                    ),
+                ),
+            };
+            const result = await optimizeFsrsWeightsInBackground(
+                scoped,
+                area.scheduling?.fsrsWeights ?? null,
+            );
+            if (result.trainingSize < 50 || !result.recommended) continue;
+            area.scheduling = { ...(area.scheduling ?? {}), fsrsWeights: result.weights };
+            updated++;
+        }
+        if (updated > 0) await this.dataManager.savePluginData();
+        new Notice(
+            updated > 0
+                ? `${updated} knowledge area model${updated === 1 ? "" : "s"} updated.`
+                : "No knowledge area had enough improving validation data yet.",
+        );
         this.render();
     }
 

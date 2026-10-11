@@ -484,5 +484,120 @@ export class UIPreferencesPage extends SettingsPage {
                             }),
                     );
             });
+
+        const gestureOptions = {
+            none: "Off",
+            reveal: "Reveal answer",
+            again: "Again",
+            hard: "Hard",
+            good: "Good",
+            easy: "Easy",
+        };
+        new SettingGroup(this.containerEl)
+            .setHeading("Review interaction")
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Undo history")
+                    .setDesc("Number of ratings that can be undone in the current session.")
+                    .addSlider((slider) =>
+                        slider
+                            .setLimits(1, 50, 1)
+                            .setValue(this.settingsManager.settings.reviewUndoDepth)
+                            .setDynamicTooltip()
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.reviewUndoDepth = value;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Horizontal gestures")
+                    .setDesc("Choose the actions for swiping left and right.")
+                    .addDropdown((dropdown) =>
+                        dropdown
+                            .addOptions(gestureOptions)
+                            .setValue(this.settingsManager.settings.reviewGestureLeft)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.reviewGestureLeft = value as never;
+                                await this.settingsManager.save();
+                            }),
+                    )
+                    .addDropdown((dropdown) =>
+                        dropdown
+                            .addOptions(gestureOptions)
+                            .setValue(this.settingsManager.settings.reviewGestureRight)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.reviewGestureRight = value as never;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Vertical gestures")
+                    .setDesc("Choose the actions for swiping up and down.")
+                    .addDropdown((dropdown) =>
+                        dropdown
+                            .addOptions(gestureOptions)
+                            .setValue(this.settingsManager.settings.reviewGestureUp)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.reviewGestureUp = value as never;
+                                await this.settingsManager.save();
+                            }),
+                    )
+                    .addDropdown((dropdown) =>
+                        dropdown
+                            .addOptions(gestureOptions)
+                            .setValue(this.settingsManager.settings.reviewGestureDown)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.reviewGestureDown = value as never;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Play card media automatically")
+                    .setDesc("Play the first audio or video element when a card face opens.")
+                    .addToggle((toggle) =>
+                        toggle
+                            .setValue(this.settingsManager.settings.autoPlayCardMedia)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.autoPlayCardMedia = value;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Accessible review mode")
+                    .setDesc(
+                        "Disable gestures and motion; keep every action available as a labelled button.",
+                    )
+                    .addToggle((toggle) =>
+                        toggle
+                            .setValue(this.settingsManager.settings.accessibleReviewMode)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.accessibleReviewMode = value;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Reduce review motion")
+                    .setDesc(
+                        "Keep gestures but replace card-flight animations with an instant transition.",
+                    )
+                    .addToggle((toggle) =>
+                        toggle
+                            .setValue(this.settingsManager.settings.reduceReviewMotion)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.reduceReviewMotion = value;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            });
     }
 }

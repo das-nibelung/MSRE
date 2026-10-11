@@ -1,6 +1,6 @@
 import { ISerializedScheduleEntry } from "src/data/plugin-data";
 
-export const COLLECTION_SCHEMA_VERSION = 11;
+export const COLLECTION_SCHEMA_VERSION = 12;
 export const REVIEW_LOG_SCHEMA_VERSION = 1;
 
 export type NoteTypeKind = "standard" | "cloze" | "image-occlusion";
@@ -177,6 +177,12 @@ export interface DeckOptionsDefinition {
     leechAction?: "tag" | "suspend";
     loadBalance?: boolean;
     reviewAheadDays?: number;
+    /** Higher values are selected first when a time-limited session is planned. */
+    priority?: number;
+    /** Optional deck-specific time budget. Zero means no independent cap. */
+    minutesPerDay?: number;
+    /** Sibling policy overrides the global preference for this preset. */
+    burySiblings?: "inherit" | "off" | "new" | "review" | "all";
     /** Last calibration result shown in the scheduler lab. */
     optimization?: {
         optimizedAt: number;
@@ -184,6 +190,13 @@ export interface DeckOptionsDefinition {
         logLoss: number;
         rmse: number;
         stabilityScale: number;
+        validationSize?: number;
+        baselineLogLoss?: number;
+        validationLogLoss?: number;
+        baselineValidationLogLoss?: number;
+        improvement?: number;
+        recommended?: boolean;
+        weightsBefore?: number[];
     } | null;
     createdAt: number;
     updatedAt: number;

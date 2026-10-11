@@ -124,6 +124,29 @@ export class PluginDataManager {
                                               .map(Number)
                                               .filter((value) => value > 0)
                                         : undefined,
+                                    priority:
+                                        typeof area.scheduling.priority === "number"
+                                            ? Math.max(
+                                                  -100,
+                                                  Math.min(100, area.scheduling.priority),
+                                              )
+                                            : undefined,
+                                    minutesPerDay:
+                                        typeof area.scheduling.minutesPerDay === "number"
+                                            ? Math.max(
+                                                  0,
+                                                  Math.min(1440, area.scheduling.minutesPerDay),
+                                              )
+                                            : undefined,
+                                    burySiblings: [
+                                        "inherit",
+                                        "off",
+                                        "new",
+                                        "review",
+                                        "all",
+                                    ].includes(area.scheduling.burySiblings ?? "")
+                                        ? area.scheduling.burySiblings
+                                        : undefined,
                                 }
                               : undefined,
                   }))

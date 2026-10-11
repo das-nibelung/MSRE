@@ -700,3 +700,20 @@ th.gridjs-th:last-child {
     background-color: #9bc2f7;
     cursor: ew-resize;
 }
+
+.sr-fsrs-optimization-comparison {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    gap: 2px 12px;
+    margin-top: 12px;
+}
+
+.sr-fsrs-optimization-comparison strong {
+    font-variant-numeric: tabular-nums;
+}
+
+.sr-fsrs-optimization-comparison small {
+    grid-column: 1 / -1;
+    color: var(--text-muted);
+}

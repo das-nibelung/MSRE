@@ -17,6 +17,7 @@ export default class CardMenuButtonComponent extends MenuButtonComponent {
         jumpToCurrentCard: () => Promise<void>,
         displayCurrentCardInfoNotice: () => void,
         buryCurrentCard: () => Promise<void>,
+        postponeCurrentCard: () => Promise<void>,
         suspendCurrentCard: () => Promise<void>,
         setCurrentCardFlag: (flag: CardFlag) => Promise<void>,
         skipCurrentCard: () => void,
@@ -40,6 +41,7 @@ export default class CardMenuButtonComponent extends MenuButtonComponent {
                     jumpToCurrentCard,
                     displayCurrentCardInfoNotice,
                     buryCurrentCard,
+                    postponeCurrentCard,
                     suspendCurrentCard,
                     setCurrentCardFlag,
                     deleteCurrentCard,
@@ -68,6 +70,7 @@ export default class CardMenuButtonComponent extends MenuButtonComponent {
         jumpToCurrentCard: () => Promise<void>,
         displayCurrentCardInfoNotice: () => void,
         buryCurrentCard: () => Promise<void>,
+        postponeCurrentCard: () => Promise<void>,
         suspendCurrentCard: () => Promise<void>,
         setCurrentCardFlag: (flag: CardFlag) => Promise<void>,
         deleteCurrentCard: () => void,
@@ -137,6 +140,11 @@ export default class CardMenuButtonComponent extends MenuButtonComponent {
             item.setTitle(t("BURY_SIBLINGS"))
                 .setIcon("moon")
                 .onClick(() => void buryCurrentCard());
+        });
+        cardMenu.addItem((item) => {
+            item.setTitle("Postpone…")
+                .setIcon("clock-3")
+                .onClick(() => void postponeCurrentCard());
         });
         cardMenu.addItem((item) => {
             item.setTitle(t("SUSPEND_CARD"))

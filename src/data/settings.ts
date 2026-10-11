@@ -9,6 +9,8 @@ export interface SRSettings {
     flashcardTagsToIgnore: string[];
     convertFoldersToDecks: boolean;
     burySiblingCards: boolean;
+    /** Fine-grained sibling policy. The legacy boolean remains a compatibility alias. */
+    burySiblingMode: "off" | "new" | "review" | "all";
     randomizeCardOrder: boolean | undefined;
     flashcardCardOrder: string;
     flashcardDeckOrder: string;
@@ -70,6 +72,18 @@ export interface SRSettings {
     openViewInNewTab: boolean;
     useCustomHotkeys: boolean;
     useCalloutsForSchedulingComments: boolean;
+    reviewSessionMinutes: number;
+    reviewUndoDepth: number;
+    reviewAheadDays: number;
+    intelligentBacklog: boolean;
+    autoPlayCardMedia: boolean;
+    accessibleReviewMode: boolean;
+    reduceReviewMotion: boolean;
+    reviewGestureLeft: ReviewGestureAction;
+    reviewGestureRight: ReviewGestureAction;
+    reviewGestureUp: ReviewGestureAction;
+    reviewGestureDown: ReviewGestureAction;
+    autoSuggestFsrsOptimization: boolean;
 
     // algorithm
     algorithm: SRAlgorithmType;
@@ -95,12 +109,15 @@ export interface SRSettings {
     preferredLocale: string;
 }
 
+export type ReviewGestureAction = "none" | "reveal" | "again" | "hard" | "good" | "easy";
+
 export const DEFAULT_SETTINGS: SRSettings = {
     // flashcards
     flashcardTags: ["#flashcards"],
     flashcardTagsToIgnore: [],
     convertFoldersToDecks: false,
     burySiblingCards: false,
+    burySiblingMode: "off",
     flashcardCardOrder: "DueFirstRandom",
     flashcardDeckOrder: "PrevDeckComplete_Sequential",
     convertClozePatternsToInputs: false,
@@ -160,6 +177,18 @@ export const DEFAULT_SETTINGS: SRSettings = {
     openViewInNewTabMobile: true,
     useCustomHotkeys: false,
     useCalloutsForSchedulingComments: false,
+    reviewSessionMinutes: 0,
+    reviewUndoDepth: 20,
+    reviewAheadDays: 0,
+    intelligentBacklog: true,
+    autoPlayCardMedia: true,
+    accessibleReviewMode: false,
+    reduceReviewMotion: false,
+    reviewGestureLeft: "again",
+    reviewGestureRight: "easy",
+    reviewGestureUp: "good",
+    reviewGestureDown: "hard",
+    autoSuggestFsrsOptimization: true,
 
     // algorithm
     algorithm: SRAlgorithmType.SM_2_OSR,
@@ -185,6 +214,9 @@ export const DEFAULT_SETTINGS: SRSettings = {
 };
 
 export function upgradeSettings(settings: SRSettings) {
+    if (!settings.burySiblingMode) {
+        settings.burySiblingMode = settings.burySiblingCards ? "all" : "off";
+    }
     if (settings.showRibbonIcon) {
         settings.showRibbonIcon = DEFAULT_SETTINGS.showRibbonIcon;
     }
@@ -236,6 +268,10 @@ export function upgradeSettings(settings: SRSettings) {
     if (settings.fsrsDesiredRetention === null || settings.fsrsDesiredRetention === undefined) {
         settings.fsrsDesiredRetention = DEFAULT_SETTINGS.fsrsDesiredRetention;
     }
+
+    settings.reviewSessionMinutes = Math.max(0, Number(settings.reviewSessionMinutes) || 0);
+    settings.reviewUndoDepth = Math.max(1, Math.min(100, Number(settings.reviewUndoDepth) || 20));
+    settings.reviewAheadDays = Math.max(0, Math.min(365, Number(settings.reviewAheadDays) || 0));
 
     // Only published reminder settings are upgraded here. We deliberately do not preserve
     // unpublished draft field names from this feature branch, so the shipped schema stays clean.

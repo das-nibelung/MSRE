@@ -43,6 +43,7 @@ export class CardContainer {
     private app: App;
     private plugin: SRPlugin;
     private cardState: CardState;
+    private settings: SRSettings;
 
     private view: HTMLDivElement;
 
@@ -70,6 +71,7 @@ export class CardContainer {
     private undoLastReviewHandler: () => Promise<void>;
     private editCardHandler: () => void;
     private buryCurrentCardHandler: () => Promise<void>;
+    private postponeCurrentCardHandler: () => Promise<void>;
     private suspendCurrentCardHandler: () => Promise<void>;
     private setCurrentCardFlagHandler: (flag: CardFlag) => Promise<void>;
     private gestureStart: {
@@ -112,6 +114,7 @@ export class CardContainer {
         jumpToCurrentCardHandler: () => Promise<void>,
         displayCurrentCardInfoNoticeHandler: () => void,
         buryCurrentCardHandler: () => Promise<void>,
+        postponeCurrentCardHandler: () => Promise<void>,
         suspendCurrentCardHandler: () => Promise<void>,
         setCurrentCardFlagHandler: (flag: CardFlag) => Promise<void>,
         undoLastReviewHandler: () => Promise<void>,
@@ -120,6 +123,7 @@ export class CardContainer {
         // Init properties
         this.app = app;
         this.plugin = plugin;
+        this.settings = settings;
         this.cardState = CardState.Closed;
         this.processReviewHandler = processReviewHandler;
         this.skipCardHandler = skipCardHandler;
@@ -129,6 +133,7 @@ export class CardContainer {
         this.undoLastReviewHandler = undoLastReviewHandler;
         this.editCardHandler = editCardHandler;
         this.buryCurrentCardHandler = buryCurrentCardHandler;
+        this.postponeCurrentCardHandler = postponeCurrentCardHandler;
         this.suspendCurrentCardHandler = suspendCurrentCardHandler;
         this.setCurrentCardFlagHandler = setCurrentCardFlagHandler;
 
@@ -147,6 +152,7 @@ export class CardContainer {
             jumpToCurrentCardHandler,
             displayCurrentCardInfoNoticeHandler,
             buryCurrentCardHandler,
+            postponeCurrentCardHandler,
             suspendCurrentCardHandler,
             setCurrentCardFlagHandler,
             this.skipCardHandler,
@@ -192,9 +198,11 @@ export class CardContainer {
             return;
         }
 
+        this.settings = settings;
         await this.drawCardFront(sessionData, settings);
 
-        this.enableWorkspaceGestureShield();
+        if (!settings.accessibleReviewMode) this.enableWorkspaceGestureShield();
+        this.view.toggleClass("sr-accessible-review", settings.accessibleReviewMode);
         this.view.removeClass("sr-is-hidden");
         activeDocument.addEventListener("keydown", this._keydownHandler);
     }
@@ -232,6 +240,7 @@ export class CardContainer {
     }
 
     public async drawCardFront(sessionData: SessionData, settings: SRSettings) {
+        this.settings = settings;
         this.clearGestureState();
         this.answerValue = "";
         this.answerContext = null;
@@ -310,6 +319,7 @@ export class CardContainer {
         );
         this.applyTemplateSurfaceAppearance(cardFace, sessionData, "question");
         this.bindTemplateActions(cardFace);
+        this.autoPlayMedia(cardFace);
 
         const answerContext = this.getAnswerContext(sessionData);
         this.answerContext = answerContext;
@@ -717,6 +727,7 @@ export class CardContainer {
         );
         this.applyTemplateSurfaceAppearance(answerFace, sessionData, "answer");
         this.bindTemplateActions(answerFace);
+        this.autoPlayMedia(answerFace);
 
         if (this.answerContext) {
             const context = { ...this.answerContext, values: this.answerValue };
@@ -960,6 +971,16 @@ export class CardContainer {
         }
     }
 
+    private autoPlayMedia(root: HTMLElement): void {
+        if (!this.settings.autoPlayCardMedia || this.settings.accessibleReviewMode) return;
+        const media = root.querySelector<HTMLMediaElement>("audio, video");
+        if (!media || media.autoplay || media.dataset.srAutoplayed === "true") return;
+        media.dataset.srAutoplayed = "true";
+        void media.play().catch(() => {
+            // Mobile platforms may require a user gesture. Native controls remain available.
+        });
+    }
+
     private createSummaryStat(parent: HTMLElement, value: string | number, label: string): void {
         const stat = parent.createDiv("sr-session-summary-stat");
         stat.createEl("strong", { text: String(value) });
@@ -1081,10 +1102,13 @@ export class CardContainer {
             return;
         }
 
-        const response = deltaX < 0 ? ReviewResponse.Again : ReviewResponse.Good;
-        void this.animateGesture(start.card, deltaX < 0 ? "left" : "right", () =>
-            this.processReviewHandler(response),
-        );
+        const direction = deltaX < 0 ? "left" : "right";
+        const response = this.responseForGesture(direction);
+        if (response === null) {
+            void this.resetGestureCard(start.card, true);
+            return;
+        }
+        void this.animateGesture(start.card, direction, () => this.processReviewHandler(response));
     };
 
     private onGestureCancel = (event: PointerEvent): void => {
@@ -1285,6 +1309,10 @@ export class CardContainer {
         }
 
         const { response, direction } = this.getTouchGestureAction(deltaX, deltaY);
+        if (response === null) {
+            void this.resetGestureCard(start.card, true);
+            return;
+        }
         void this.animateGesture(start.card, direction, () => this.processReviewHandler(response));
     };
 
@@ -1304,13 +1332,15 @@ export class CardContainer {
         const label =
             this.cardState === CardState.Front
                 ? t("SHOW_ANSWER")
-                : action.response === ReviewResponse.Again
-                  ? t("AGAIN")
-                  : action.response === ReviewResponse.Hard
-                    ? t("HARD")
-                    : action.response === ReviewResponse.Good
-                      ? t("GOOD")
-                      : t("EASY");
+                : action.response === null
+                  ? ""
+                  : action.response === ReviewResponse.Again
+                    ? t("AGAIN")
+                    : action.response === ReviewResponse.Hard
+                      ? t("HARD")
+                      : action.response === ReviewResponse.Good
+                        ? t("GOOD")
+                        : t("EASY");
         start.card.addClass("is-swiping");
         start.card.removeClasses([
             "is-swiping-left",
@@ -1330,22 +1360,38 @@ export class CardContainer {
         deltaX: number,
         deltaY: number,
     ): {
-        response: ReviewResponse;
+        response: ReviewResponse | null;
         direction: "left" | "right" | "up" | "down";
     } {
-        if (Math.abs(deltaX) >= Math.abs(deltaY)) {
-            return deltaX < 0
-                ? { response: ReviewResponse.Again, direction: "left" }
-                : { response: ReviewResponse.Easy, direction: "right" };
-        }
-        if (this.activeReviewMode === FlashcardReviewMode.Cram) {
-            return deltaY < 0
-                ? { response: ReviewResponse.Again, direction: "up" }
-                : { response: ReviewResponse.Easy, direction: "down" };
-        }
-        return deltaY < 0
-            ? { response: ReviewResponse.Good, direction: "up" }
-            : { response: ReviewResponse.Hard, direction: "down" };
+        const direction =
+            Math.abs(deltaX) >= Math.abs(deltaY)
+                ? deltaX < 0
+                    ? "left"
+                    : "right"
+                : deltaY < 0
+                  ? "up"
+                  : "down";
+        return { response: this.responseForGesture(direction), direction };
+    }
+
+    private responseForGesture(direction: "left" | "right" | "up" | "down"): ReviewResponse | null {
+        const configured = {
+            left: this.settings.reviewGestureLeft,
+            right: this.settings.reviewGestureRight,
+            up: this.settings.reviewGestureUp,
+            down: this.settings.reviewGestureDown,
+        }[direction];
+        const action =
+            this.activeReviewMode === FlashcardReviewMode.Cram && configured === "hard"
+                ? "again"
+                : this.activeReviewMode === FlashcardReviewMode.Cram && configured === "good"
+                  ? "easy"
+                  : configured;
+        if (action === "again") return ReviewResponse.Again;
+        if (action === "hard") return ReviewResponse.Hard;
+        if (action === "good") return ReviewResponse.Good;
+        if (action === "easy") return ReviewResponse.Easy;
+        return null;
     }
 
     private async animateGesture(
@@ -1355,7 +1401,10 @@ export class CardContainer {
     ): Promise<void> {
         if (this.gestureActionPending) return;
         this.gestureActionPending = true;
-        const reduceMotion = activeWindow.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const reduceMotion =
+            this.settings.reduceReviewMotion ||
+            this.settings.accessibleReviewMode ||
+            activeWindow.matchMedia("(prefers-reduced-motion: reduce)").matches;
         try {
             if (!reduceMotion) {
                 const exitTransform =

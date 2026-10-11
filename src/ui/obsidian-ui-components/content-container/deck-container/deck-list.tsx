@@ -8,6 +8,7 @@ import { SRSettings } from "src/data/settings";
 import { t } from "src/lang/helpers";
 import type SRPlugin from "src/main";
 import { DeckStats, IFlashcardReviewSequencer } from "src/scheduling/flashcard-review-sequencer";
+import { averageReviewDuration } from "src/scheduling/review-session-planner";
 
 interface KnowledgeAreaGroup {
     area: KnowledgeArea | null;
@@ -28,6 +29,7 @@ export default class DeckListComponent {
     private currentReviewSequencer: IFlashcardReviewSequencer | null = null;
     private currentSettings: SRSettings | null = null;
     private readonly store: NativeCardStore;
+    private readonly plugin: SRPlugin;
 
     private readonly startReviewOfDeck: (deck: Deck) => void;
     private readonly startCustomStudyOfDeck: (deck: Deck) => void;
@@ -55,6 +57,7 @@ export default class DeckListComponent {
         this.createDeck = createDeck;
         this.editDeckOptions = editDeckOptions;
         this.editKnowledgeArea = editKnowledgeArea;
+        this.plugin = plugin;
         this.store = new NativeCardStore(plugin);
 
         this.scrollWrapper = parentEl.createDiv("sr-scroll-wrapper");
@@ -481,6 +484,12 @@ export default class DeckListComponent {
         details.createSpan({ text: `${t("NEW_CARDS")}: ${stats.newCount}` });
         details.createSpan({
             text: t("DECKS_READY", { count: stats.decksInQueueOfThisDeckCount }),
+        });
+        const averageMs = averageReviewDuration(
+            this.plugin.dataManager.collectionStore.getReviewLogSnapshot(),
+        );
+        details.createSpan({
+            text: `≈ ${Math.ceil((stats.cardsInQueueCount * averageMs) / 60_000)} min`,
         });
         const actions = this.overview.createDiv("sr-deck-overview-actions");
         const start = new ButtonComponent(actions)

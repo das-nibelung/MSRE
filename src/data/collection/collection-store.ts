@@ -160,6 +160,9 @@ function emptyCollection(): CollectionData {
         leechAction: "tag",
         loadBalance: true,
         reviewAheadDays: 0,
+        priority: 0,
+        minutesPerDay: 0,
+        burySiblings: "inherit",
         optimization: null,
         createdAt: 0,
         updatedAt: 0,
@@ -214,6 +217,11 @@ function normalizeDeckOptions(
             0,
             Math.min(365, Math.round(Number(options.reviewAheadDays) || 0)),
         ),
+        priority: Math.max(-100, Math.min(100, Math.round(Number(options.priority) || 0))),
+        minutesPerDay: Math.max(0, Math.min(1440, Number(options.minutesPerDay) || 0)),
+        burySiblings: ["off", "new", "review", "all"].includes(options.burySiblings ?? "")
+            ? options.burySiblings
+            : "inherit",
         optimization:
             options.optimization && typeof options.optimization === "object"
                 ? options.optimization

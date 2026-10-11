@@ -298,6 +298,7 @@ export class FlashcardReviewSequencer implements IFlashcardReviewSequencer {
 
     async processReviewReviewMode(response: ReviewResponse): Promise<void> {
         let shortTermRequeue: "none" | "immediate" | "pending" = "none";
+        const burySiblings = this.shouldBurySiblingCards(this.currentCard, this.currentCard.isNew);
         if (response !== ReviewResponse.Reset || this.currentCard.hasSchedule) {
             const oldSchedule = this.currentCard.scheduleInfo;
 
@@ -323,22 +324,34 @@ export class FlashcardReviewSequencer implements IFlashcardReviewSequencer {
         }
 
         if (shortTermRequeue === "pending") {
-            await this.handlePendingRequeue();
+            await this.handlePendingRequeue(burySiblings);
         } else if (shortTermRequeue === "immediate" || response === ReviewResponse.Reset) {
-            if (this.settings.burySiblingCards) {
+            if (burySiblings) {
                 await this.burySiblingCards();
                 this.deleteSiblingCardsFromAllDecks();
             }
             this.cardSequencer.moveCurrentRepItemToEndOfList();
             this.cardSequencer.nextRepItem();
         } else {
-            if (this.settings.burySiblingCards) {
+            if (burySiblings) {
                 await this.burySiblingCards();
                 this.cardSequencer.deleteCurrentQuestionFromAllDecks();
             } else {
                 this.deleteCurrentCard();
             }
         }
+    }
+
+    private shouldBurySiblingCards(card: Card, wasNew: boolean): boolean {
+        const override = this.cardSchedulingOptionsProvider?.(card)?.burySiblings;
+        const mode =
+            override && override !== "inherit"
+                ? override
+                : this.settings.burySiblingCards && this.settings.burySiblingMode === "off"
+                  ? "all"
+                  : (this.settings.burySiblingMode ??
+                    (this.settings.burySiblingCards ? "all" : "off"));
+        return mode === "all" || (mode === "new" && wasNew) || (mode === "review" && !wasNew);
     }
 
     private async burySiblingCards(): Promise<void> {
@@ -362,11 +375,11 @@ export class FlashcardReviewSequencer implements IFlashcardReviewSequencer {
         }
     }
 
-    private async handlePendingRequeue(): Promise<void> {
+    private async handlePendingRequeue(burySiblings: boolean): Promise<void> {
         const pendingCard = this.currentCard;
         const dueUnix = pendingCard.scheduleInfo?.dueDateAsUnix;
 
-        if (this.settings.burySiblingCards) {
+        if (burySiblings) {
             await this.burySiblingCards();
             this.cardSequencer.deleteCurrentQuestionFromAllDecks();
         } else {

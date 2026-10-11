@@ -45,6 +45,9 @@ export interface KnowledgeArea {
         leechAction?: "tag" | "suspend";
         loadBalance?: boolean;
         reviewAheadDays?: number;
+        priority?: number;
+        minutesPerDay?: number;
+        burySiblings?: "inherit" | "off" | "new" | "review" | "all";
         fsrsWeights?: number[] | null;
     };
 }

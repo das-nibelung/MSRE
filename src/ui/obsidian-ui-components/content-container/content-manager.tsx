@@ -25,6 +25,7 @@ import { DeckContainer } from "src/ui/obsidian-ui-components/content-container/d
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
 import { CustomStudyModal } from "src/ui/obsidian-ui-components/modals/custom-study-modal";
 import { FlashcardEditModal } from "src/ui/obsidian-ui-components/modals/edit-modal";
+import { PostponeModal } from "src/ui/obsidian-ui-components/modals/postpone-modal";
 import { CustomStudyOptions, ReviewQueueLoader } from "src/ui/review-queue-loader";
 import { UIManager, UIState } from "src/ui/ui-manager";
 import EmulatedPlatform from "src/utils/platform-detector";
@@ -108,7 +109,7 @@ export default class ContentManager {
     private sessionData: SessionData | null = null;
     private sessionSummary: SessionSummary | null = null;
     private sessionStartedAt = 0;
-    private lastReviewSnapshot: ReviewUndoSnapshot | null = null;
+    private reviewUndoStack: ReviewUndoSnapshot[] = [];
     private isUndoingReview = false;
     private customStudyActive = false;
 
@@ -167,6 +168,7 @@ export default class ContentManager {
             this._jumpToCurrentCard.bind(this),
             this._displayCurrentCardInfoNotice.bind(this),
             () => this._buryCurrentCard(),
+            () => this._postponeCurrentCard(),
             () => this._suspendCurrentCard(),
             (flag) => this._setCurrentCardFlag(flag),
             () => this._undoLastReview(),
@@ -254,7 +256,7 @@ export default class ContentManager {
             easy: 0,
             durationMs: 0,
         };
-        this.lastReviewSnapshot = null;
+        this.reviewUndoStack = [];
         this.cardContainer.setUndoAvailable(false);
         this.sessionData = this._getNewSessionData(deck);
         if (this.sessionData === null) return;
@@ -555,6 +557,17 @@ export default class ContentManager {
         await this._showNextCard();
     }
 
+    public async _postponeCurrentCard(): Promise<void> {
+        if (this.reviewSequencer === null || this.sessionData === null) return;
+        const until = await PostponeModal.choose(this.app);
+        if (until === null) return;
+        const inputs = this.getCurrentCardInputs(false);
+        await this.dataManager.collectionStore.setLegacyCardsState(inputs, "buried", until);
+        this.reviewSequencer.skipCurrentCard();
+        new Notice(`Card postponed until ${new Date(until).toLocaleString()}.`);
+        await this._showNextCard();
+    }
+
     public async _suspendCurrentCard(): Promise<void> {
         if (this.reviewSequencer === null || this.sessionData === null) return;
         const inputs = this.getCurrentCardInputs(false);
@@ -662,7 +675,10 @@ export default class ContentManager {
             } catch (error) {
                 console.warn("MSRE: Unable to record review history", error);
             }
-            this.lastReviewSnapshot = snapshot;
+            this.reviewUndoStack.push(snapshot);
+            this.reviewUndoStack = this.reviewUndoStack.slice(
+                -Math.max(1, this.settings.reviewUndoDepth),
+            );
             this.recordResponse(response, 1);
             this.cardContainer.setUndoAvailable(true);
         }
@@ -670,7 +686,7 @@ export default class ContentManager {
     }
 
     private async _undoLastReview(): Promise<void> {
-        const snapshot = this.lastReviewSnapshot;
+        const snapshot = this.reviewUndoStack[this.reviewUndoStack.length - 1] ?? null;
         if (snapshot === null || this.isUndoingReview) return;
         this.isUndoingReview = true;
         this.cardContainer.setUndoAvailable(false);
@@ -711,14 +727,15 @@ export default class ContentManager {
             if (snapshot.reviewLogId) {
                 await this.dataManager.collectionStore.removeReview(snapshot.reviewLogId);
             }
-            this.lastReviewSnapshot = null;
+            this.reviewUndoStack.pop();
             this.uiManager.setUIState(UIState.CardFront);
             this.sessionData.cardData.currentCardState = CardState.Front;
             await this.cardContainer.drawCardFront(this.sessionData, this.settings);
+            this.cardContainer.setUndoAvailable(this.reviewUndoStack.length > 0);
             new Notice(t("REVIEW_UNDONE"));
         } catch (error) {
             console.warn("SR: Unable to undo the last review", error);
-            this.cardContainer.setUndoAvailable(true);
+            this.cardContainer.setUndoAvailable(this.reviewUndoStack.length > 0);
             new Notice(t("UNDO_REVIEW_FAILED"));
         } finally {
             this.isUndoingReview = false;
