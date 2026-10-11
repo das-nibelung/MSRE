@@ -111,12 +111,22 @@ export function applyCardLifecycleToQueue(
     return filtered;
 }
 
+/** Builds a temporary deck tree containing exactly the cards selected in the browser. */
+export function applyStableIdSelectionToQueue(deckTree: Deck, stableIds: Set<string>): Deck {
+    const filtered = deckTree.copyWithRepItemFilter(
+        (item) => item instanceof Card && item.stableId !== null && stableIds.has(item.stableId),
+    );
+    filtered.pruneEmptySubdecks();
+    return filtered;
+}
+
 export class ReviewQueueLoader {
     private plugin: SRPlugin;
     private osrCore: OsrCore;
     private singleNote: TFile | null = null;
     private reviewMode: FlashcardReviewMode;
     private customStudyOptions: CustomStudyOptions | null = null;
+    private selectedStableIds: Set<string> | null = null;
 
     constructor(
         plugin: SRPlugin,
@@ -144,6 +154,10 @@ export class ReviewQueueLoader {
 
     setCustomStudyOptions(options: CustomStudyOptions | null): void {
         this.customStudyOptions = options;
+    }
+
+    setSelectedStableIds(stableIds: Iterable<string> | null): void {
+        this.selectedStableIds = stableIds === null ? null : new Set(stableIds);
     }
 
     public async loadReviewQueue(): Promise<IFlashcardReviewSequencer> {
@@ -190,10 +204,19 @@ export class ReviewQueueLoader {
             );
         }
 
+        if (this.selectedStableIds) {
+            deckTree = applyStableIdSelectionToQueue(deckTree, this.selectedStableIds);
+            remainingDeckTree = applyStableIdSelectionToQueue(
+                remainingDeckTree,
+                this.selectedStableIds,
+            );
+        }
+
         if (
             this.reviewMode === FlashcardReviewMode.Review &&
             !this.singleNote &&
-            !this.customStudyOptions
+            !this.customStudyOptions &&
+            !this.selectedStableIds
         ) {
             const rootTag = this.plugin.dataManager.data.settings.flashcardTags[0] ?? "#flashcards";
             remainingDeckTree = applyDeckOptionsToQueue(remainingDeckTree, rootTag, (deckPath) =>

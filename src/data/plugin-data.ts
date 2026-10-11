@@ -27,6 +27,16 @@ export interface KnowledgeArea {
     pinned: boolean;
 }
 
+export interface SavedCardQuery {
+    id: string;
+    name: string;
+    query: string;
+    /** Dynamic queries can be launched as temporary study decks. */
+    dynamic: boolean;
+    createdAt: number;
+    updatedAt: number;
+}
+
 export interface PluginData {
     settings: SRSettings;
     buryDate: string;
@@ -39,6 +49,10 @@ export interface PluginData {
     managedDecks: string[];
     /** User-defined containers that group decks without changing card source files. */
     knowledgeAreas: KnowledgeArea[];
+    /** Anki-style browser searches, optionally usable as temporary dynamic decks. */
+    savedCardQueries: SavedCardQuery[];
+    /** Ordered card-browser column identifiers. */
+    cardBrowserColumns: string[];
     scheduleData: ISerializedScheduleData;
 }
 
@@ -49,6 +63,8 @@ export const DEFAULT_DATA: PluginData = {
     historyDeck: null,
     managedDecks: [],
     knowledgeAreas: [],
+    savedCardQueries: [],
+    cardBrowserColumns: ["question", "answer", "deck", "state", "due", "interval"],
     scheduleData: {
         version: 1,
         noteSchedules: {},

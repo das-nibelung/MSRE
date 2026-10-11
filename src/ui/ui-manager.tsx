@@ -416,7 +416,11 @@ export class UIManager {
         electronApp?.dock?.bounce?.("informational");
     }
 
-    public async openDeckContainer(mode: FlashcardReviewMode, singleNote?: TFile): Promise<void> {
+    public async openDeckContainer(
+        mode: FlashcardReviewMode,
+        singleNote?: TFile,
+        selectedStableIds?: Iterable<string>,
+    ): Promise<void> {
         if (this.plugin.dataManager.osrCore === null)
             throw new Error("SR plugin or OSR app core not initialized!!!");
 
@@ -442,6 +446,7 @@ export class UIManager {
             singleNote ?? null,
             mode,
         );
+        if (selectedStableIds) reviewQueueLoader.setSelectedStableIds(selectedStableIds);
 
         if (openInNewTab) {
             await this.tabViewManager.openSRTabView(reviewQueueLoader);

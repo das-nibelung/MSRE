@@ -76,6 +76,63 @@ export class PluginDataManager {
                   }))
                   .filter((area) => area.name.length > 0)
             : [];
+        this._pluginData.savedCardQueries = Array.isArray(this._pluginData.savedCardQueries)
+            ? this._pluginData.savedCardQueries
+                  .filter(
+                      (query) =>
+                          query !== null &&
+                          typeof query === "object" &&
+                          typeof query.id === "string" &&
+                          typeof query.name === "string" &&
+                          typeof query.query === "string",
+                  )
+                  .map((query) => ({
+                      id: query.id,
+                      name: query.name.trim(),
+                      query: query.query.trim(),
+                      dynamic: query.dynamic === true,
+                      createdAt: Number(query.createdAt) || Date.now(),
+                      updatedAt: Number(query.updatedAt) || Date.now(),
+                  }))
+                  .filter((query) => query.name.length > 0 && query.query.length > 0)
+            : [];
+        const allowedBrowserColumns = new Set([
+            "question",
+            "answer",
+            "deck",
+            "area",
+            "type",
+            "state",
+            "due",
+            "interval",
+            "ease",
+            "reps",
+            "lapses",
+            "retention",
+            "note",
+            "tags",
+            "last-review",
+        ]);
+        this._pluginData.cardBrowserColumns = Array.isArray(this._pluginData.cardBrowserColumns)
+            ? [
+                  ...new Set(
+                      this._pluginData.cardBrowserColumns.filter(
+                          (column): column is string =>
+                              typeof column === "string" && allowedBrowserColumns.has(column),
+                      ),
+                  ),
+              ]
+            : [];
+        if (this._pluginData.cardBrowserColumns.length === 0) {
+            this._pluginData.cardBrowserColumns = [
+                "question",
+                "answer",
+                "deck",
+                "state",
+                "due",
+                "interval",
+            ];
+        }
 
         setDebugParser(this._pluginData.settings.showParserDebugMessages);
     }

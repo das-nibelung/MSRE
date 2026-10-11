@@ -7,6 +7,7 @@ import {
     applyCardLifecycleToQueue,
     applyCustomStudyOptionsToQueue,
     applyDeckOptionsToQueue,
+    applyStableIdSelectionToQueue,
 } from "src/ui/review-queue-loader";
 
 describe("deck option queue limits", () => {
@@ -81,5 +82,31 @@ describe("custom study queue", () => {
         expect(filtered.getDeck(new TopicPath(["flashcards", "Law"]))).toBeNull();
         expect(medicine.dueRepItems).toHaveLength(3);
         expect(medicine.newRepItems).toHaveLength(2);
+    });
+});
+
+describe("browser selection queue", () => {
+    it("keeps exactly the stable card ids selected by a dynamic browser query", () => {
+        const root = new Deck("root", null);
+        const deck = root.getOrCreateDeck(new TopicPath(["flashcards", "Medicine"]));
+        const first = new Card({
+            cardIdx: 0,
+            storageInfo: new RepItemStorageInfo("cards.md", "hash-1", "^first"),
+        });
+        const second = new Card({
+            cardIdx: 1,
+            storageInfo: new RepItemStorageInfo("cards.md", "hash-2", "^second"),
+        });
+        const unindexed = new Card();
+        deck.newRepItems = [first, second, unindexed];
+
+        const filtered = applyStableIdSelectionToQueue(root, new Set(["^second:1"]));
+
+        expect(filtered.getFlattenedRepItemArray(RepItemState.AnyItem, true)).toEqual([second]);
+        expect(root.getFlattenedRepItemArray(RepItemState.AnyItem, true)).toEqual([
+            first,
+            second,
+            unindexed,
+        ]);
     });
 });

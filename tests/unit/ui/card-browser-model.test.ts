@@ -1,5 +1,6 @@
 import { Card } from "src/data/data-structures/card/card";
 import {
+    annotateCardBrowserDiagnostics,
     CardBrowserRecord,
     filterCardBrowserRecords,
     getCardBrowserDeckNames,
@@ -154,5 +155,64 @@ describe("card browser filtering", () => {
             "card-3",
         ]);
         expect(records.map(({ id }) => id)).toEqual(["card-1", "card-2", "card-3"]);
+    });
+
+    it("supports Anki-style structured search terms", () => {
+        const clinical = record({
+            id: "clinical",
+            deckNames: ["Medicine/Cardiology"],
+            areaNames: ["Medicine"],
+            noteTypeName: "Cloze",
+            state: "due",
+            flag: 1,
+            reps: 14,
+            lapses: 4,
+            retention: 0.81,
+            hasMedia: true,
+            tags: ["exam"],
+            fields: { diagnosis: "Acute myocardial infarction" },
+            fieldNames: { diagnosis: "Diagnosis" },
+        });
+        const candidates = [...records, clinical];
+
+        for (const query of [
+            "deck:Cardiology",
+            "area:Medicine",
+            "type:Cloze",
+            "is:due reps:>10 lapses:>3",
+            "retention:<0.85 has:media",
+            "flag:red tag:exam",
+            'field:Diagnosis="myocardial infarction"',
+        ]) {
+            expect(filterCardBrowserRecords(candidates, query, "all"), query).toEqual([clinical]);
+        }
+    });
+
+    it("marks duplicate and empty cards for diagnostics and query filtering", () => {
+        const duplicateA = record({ id: "duplicate-a", front: "Same", back: "Answer" });
+        const duplicateB = record({ id: "duplicate-b", front: " same ", back: "answer" });
+        const empty = record({ id: "empty", front: "<br>", back: "" });
+        const annotated = annotateCardBrowserDiagnostics([duplicateA, duplicateB, empty]);
+
+        expect(
+            filterCardBrowserRecords(annotated, "is:duplicate", "all").map(({ id }) => id),
+        ).toEqual(["duplicate-a", "duplicate-b"]);
+        expect(filterCardBrowserRecords(annotated, "is:empty", "all").map(({ id }) => id)).toEqual([
+            "empty",
+        ]);
+    });
+
+    it("sorts advanced scheduling columns in both directions", () => {
+        const candidates = [
+            record({ id: "low", reps: 2, lapses: 0, retention: 0.72 }),
+            record({ id: "high", reps: 12, lapses: 3, retention: 0.94 }),
+        ];
+        expect(sortCardBrowserRecords(candidates, "reps").map(({ id }) => id)).toEqual([
+            "low",
+            "high",
+        ]);
+        expect(sortCardBrowserRecords(candidates, "retention", "desc").map(({ id }) => id)).toEqual(
+            ["high", "low"],
+        );
     });
 });
