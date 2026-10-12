@@ -48,6 +48,23 @@ export class PluginDataManager {
         if (loadedData?.settings) upgradeSettings(loadedData.settings);
         this._pluginData = Object.assign({}, DEFAULT_DATA, loadedData);
         this._pluginData.settings = Object.assign({}, DEFAULT_SETTINGS, this._pluginData.settings);
+        this._pluginData.knowledgeCanvasView = {
+            ...DEFAULT_DATA.knowledgeCanvasView,
+            ...(this._pluginData.knowledgeCanvasView ?? {}),
+            expandedDecks: Array.isArray(this._pluginData.knowledgeCanvasView?.expandedDecks)
+                ? this._pluginData.knowledgeCanvasView.expandedDecks.filter(
+                      (deck): deck is string => typeof deck === "string",
+                  )
+                : [],
+            sourceLimit: Math.max(
+                0,
+                Math.min(50, Number(this._pluginData.knowledgeCanvasView?.sourceLimit) || 6),
+            ),
+            layers: {
+                ...DEFAULT_DATA.knowledgeCanvasView.layers,
+                ...(this._pluginData.knowledgeCanvasView?.layers ?? {}),
+            },
+        };
         this._pluginData.managedDecks = Array.isArray(this._pluginData.managedDecks)
             ? [...new Set(this._pluginData.managedDecks.filter((path) => typeof path === "string"))]
             : [];

@@ -172,9 +172,10 @@ Fight the forgetting curve by reviewing flashcards & notes using the FSRS or the
 
 #### Native Obsidian knowledge tools
 
-- **Study Base** — run `Personal Spaced Repetition: Create or open study Base` to create a native `.base` file. It includes All cards, Today, Errors, Weak, and No area views; shows retention, stability, difficulty and review activity; and supports selecting notes to review, move, tag, flag, suspend, or resume their cards.
-- **Knowledge Canvas** — run `Personal Spaced Repetition: Generate knowledge map Canvas` to generate `Knowledge Map.canvas` from knowledge areas, decks, source notes, and real wiki-links. The map refreshes after study or vault changes, keeps manual positions and annotations, and includes Browse/Review links for smart filters and every branch.
-- **Source links and previews** — card source links target the exact card block, support modifier-click to open in a new tab, and use Obsidian's Page Preview on hover.
+- **Study Base** — run `Personal Spaced Repetition: Create or open study Base` to create a native `.base` file. It includes All cards, Today, Errors, Weak, and No area views; compact or comfortable rows; expandable per-card editing; select-all, bulk deck/tag/area/state actions with Undo; CSV export; and reusable Base snapshots.
+- **Interactive Knowledge Canvas** — `Knowledge Map.canvas` is now a persistent workspace rather than a static export. Its own nodes can toggle smart-filter, area, deck, source, and wiki-link layers; focus a branch; expand a limited source-note branch; edit an area; or assign a deck. Automatic refresh keeps manual positions, annotations, and user edges intact.
+- **Knowledge Hub and embeds** — the generated `Knowledge Hub.md` is a live MOC for areas, decks, source notes, and review actions. A `spaced-repetition` Markdown code block embeds a compact study dashboard or linked-note panel in any note.
+- **Properties, menus, links, and previews** — commands and file-menu actions can write `sr_cards`, `sr_due`, `sr_decks`, `sr_areas`, and retention to Obsidian Properties for use by ordinary Bases. Source links target the exact card block, support modifier-click, and use Obsidian Page Preview on hover.
 
 #### Reviewing Flashcards🗃️
 

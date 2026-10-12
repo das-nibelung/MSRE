@@ -135,6 +135,60 @@ describe("Obsidian knowledge integrations", () => {
         expect(merged.nodes).toContainEqual(custom);
     });
 
+    it("builds focused Canvas layers and expands a selected deck", () => {
+        const areas: KnowledgeArea[] = [
+            {
+                id: "medicine",
+                name: "Medicine",
+                deckPaths: ["Medicine/Cardiology"],
+                pinned: true,
+            },
+            {
+                id: "languages",
+                name: "Languages",
+                deckPaths: ["Languages/English"],
+                pinned: false,
+            },
+        ];
+        const records = Array.from({ length: 8 }, (_, index) =>
+            record({ id: `heart-${index}`, notePath: `Medicine/Heart ${index}.md` }),
+        ).concat(
+            record({
+                id: "english",
+                notePath: "Languages/English.md",
+                deckNames: ["Languages/English"],
+            }),
+        );
+        const canvas = buildKnowledgeCanvas(
+            areas,
+            records,
+            ["Medicine/Cardiology", "Languages/English"],
+            {
+                view: {
+                    focusAreaId: "medicine",
+                    expandedDecks: ["Medicine/Cardiology"],
+                    sourceLimit: 2,
+                    layers: {
+                        filters: false,
+                        areas: true,
+                        decks: true,
+                        sources: true,
+                        links: false,
+                    },
+                },
+            },
+        );
+
+        expect(
+            canvas.nodes.some((node) => node.type === "text" && node.text.includes("Languages")),
+        ).toBe(false);
+        expect(canvas.nodes.filter((node) => node.type === "file")).toHaveLength(8);
+        expect(canvas.nodes.some((node) => node.id.includes("filter"))).toBe(false);
+        expect(
+            canvas.nodes.some((node) => node.type === "text" && node.text.includes("Expand here")),
+        ).toBe(false);
+    });
+
     it("normalizes exact block links for Obsidian previews", () => {
         expect(cardSourceTarget("Medicine/Heart.md", "card-1")).toBe("Medicine/Heart.md#^card-1");
         expect(cardSourceTarget("Medicine/Heart.md", "^card-1")).toBe("Medicine/Heart.md#^card-1");

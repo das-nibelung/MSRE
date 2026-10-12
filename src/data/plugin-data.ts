@@ -75,6 +75,21 @@ export interface SavedCardQuery {
     updatedAt: number;
 }
 
+/** Persistent controls for the generated Obsidian knowledge Canvas. */
+export interface KnowledgeCanvasViewState {
+    focusAreaId?: string | null;
+    focusDeck?: string | null;
+    expandedDecks: string[];
+    sourceLimit: number;
+    layers: {
+        filters: boolean;
+        areas: boolean;
+        decks: boolean;
+        sources: boolean;
+        links: boolean;
+    };
+}
+
 export interface PluginData {
     settings: SRSettings;
     buryDate: string;
@@ -91,6 +106,8 @@ export interface PluginData {
     savedCardQueries: SavedCardQuery[];
     /** Ordered card-browser column identifiers. */
     cardBrowserColumns: string[];
+    /** The generated Canvas is a saved workspace, not a one-shot export. */
+    knowledgeCanvasView: KnowledgeCanvasViewState;
     scheduleData: ISerializedScheduleData;
 }
 
@@ -103,6 +120,19 @@ export const DEFAULT_DATA: PluginData = {
     knowledgeAreas: [],
     savedCardQueries: [],
     cardBrowserColumns: ["question", "answer", "deck", "state", "due", "interval"],
+    knowledgeCanvasView: {
+        focusAreaId: null,
+        focusDeck: null,
+        expandedDecks: [],
+        sourceLimit: 6,
+        layers: {
+            filters: true,
+            areas: true,
+            decks: true,
+            sources: true,
+            links: true,
+        },
+    },
     scheduleData: {
         version: 1,
         noteSchedules: {},

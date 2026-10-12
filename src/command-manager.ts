@@ -7,6 +7,10 @@ import { ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
 import { createCardInEditor } from "src/ui/card-creation";
 import { generateKnowledgeCanvas } from "src/ui/obsidian-integrations/knowledge-canvas";
+import {
+    generateKnowledgeMoc,
+    syncStudyProperties,
+} from "src/ui/obsidian-integrations/obsidian-study-integration";
 import { createStudyBase } from "src/ui/obsidian-integrations/study-bases-view";
 import { UIManager, UIState } from "src/ui/ui-manager";
 import EmulatedPlatform from "src/utils/platform-detector";
@@ -417,6 +421,43 @@ export class CommandManager {
             callback: async () => {
                 if (!this.plugin.isInitialized) return;
                 await createStudyBase(this.plugin);
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "open-knowledge-hub",
+            name: "Create or open Knowledge Hub",
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await generateKnowledgeMoc(this.plugin, { open: true, notify: true });
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "sync-study-properties",
+            name: "Update study Properties in all card notes",
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                const updated = await syncStudyProperties(this.plugin);
+                new Notice(`Updated study Properties in ${updated} notes`);
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "sync-current-note-study-properties",
+            name: "Update study Properties in current note",
+            checkCallback: (checking) => {
+                const file = this.plugin.app.workspace.getActiveFile();
+                if (!this.plugin.isInitialized || !file || file.extension !== "md") return false;
+                if (!checking) {
+                    void syncStudyProperties(this.plugin, [file]).then(
+                        (updated) =>
+                            new Notice(
+                                updated ? "Study Properties updated" : "No cards in this note",
+                            ),
+                    );
+                }
+                return true;
             },
         });
 

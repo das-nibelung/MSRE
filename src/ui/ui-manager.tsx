@@ -22,6 +22,12 @@ import { RepItemState, ReviewResponse } from "src/scheduling/algorithms/base/rep
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
 import { CardCreationMode, createCardInEditor } from "src/ui/card-creation";
 import { deriveQuickAddSeeds } from "src/ui/native-creator/quick-add";
+import { controlKnowledgeCanvas } from "src/ui/obsidian-integrations/knowledge-canvas";
+import {
+    studyEmbedTemplate,
+    syncStudyProperties,
+} from "src/ui/obsidian-integrations/obsidian-study-integration";
+import { createStudyRecords } from "src/ui/obsidian-integrations/study-records";
 import ContentManager from "src/ui/obsidian-ui-components/content-container/content-manager";
 import { SRTabView } from "src/ui/obsidian-ui-components/item-views/sr-tab-view";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
@@ -572,6 +578,48 @@ export class UIManager {
                 .onClick(() => void this.openCardBrowser(file.path));
         });
 
+        const noteRecords = createStudyRecords(this.plugin).filter(
+            (record) => record.notePath === file.path && record.lifecycleState === "active",
+        );
+        menu.addItem((item) => {
+            item.setTitle("Study this note now")
+                .setIcon("play")
+                .setSection("spaced-repetition")
+                .setDisabled(noteRecords.length === 0)
+                .onClick(() => {
+                    const stableIds = noteRecords
+                        .map((record) => record.card.stableId)
+                        .filter((id): id is string => Boolean(id));
+                    void this.openDeckContainer(FlashcardReviewMode.Review, undefined, stableIds);
+                });
+        });
+        menu.addItem((item) => {
+            item.setTitle("Focus in knowledge map")
+                .setIcon("waypoints")
+                .setSection("spaced-repetition")
+                .setDisabled(!noteRecords[0]?.deckNames[0])
+                .onClick(
+                    () =>
+                        void controlKnowledgeCanvas(this.plugin, {
+                            deck: noteRecords[0]?.deckNames[0] ?? "",
+                        }),
+                );
+        });
+        menu.addItem((item) => {
+            item.setTitle("Update study Properties")
+                .setIcon("list-checks")
+                .setSection("spaced-repetition")
+                .onClick(
+                    () =>
+                        void syncStudyProperties(this.plugin, [file]).then(
+                            (updated) =>
+                                new Notice(
+                                    updated ? "Study Properties updated" : "No cards in this note",
+                                ),
+                        ),
+                );
+        });
+
         if (settings.showFileMenuReviewOptions) {
             menu.addItem((item: MenuItem) => {
                 item.setTitle(
@@ -702,5 +750,16 @@ export class UIManager {
             });
             addCardAction("cloze", t("CREATE_CLOZE_CARD"), "text-cursor-input");
         }
+        menu.addItem((item) => {
+            item.setTitle("Insert study dashboard")
+                .setIcon("layout-dashboard")
+                .setSection("spaced-repetition")
+                .onClick(() => {
+                    const template = studyEmbedTemplate(info.file?.path);
+                    editor.replaceSelection(
+                        `${editor.somethingSelected() ? "\n" : ""}${template}\n`,
+                    );
+                });
+        });
     }
 }

@@ -1,4 +1,4 @@
-import { Notice, Plugin } from "obsidian";
+import { Notice, Plugin, TFile } from "obsidian";
 
 import {
     AutomationOperationKind,
@@ -18,11 +18,18 @@ import { NoteReviewQueue } from "src/note/note-review-queue";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
 import { ReminderManager } from "src/scheduling/reminder-manager";
 import { filterCardBrowserRecords } from "src/ui/card-browser/card-browser-model";
+import { openCanvasAreaPicker } from "src/ui/obsidian-integrations/knowledge-area-picker";
 import {
+    controlKnowledgeCanvas,
     generateKnowledgeCanvas,
     KnowledgeCanvasAutoUpdater,
 } from "src/ui/obsidian-integrations/knowledge-canvas";
 import { SR_HOVER_SOURCE } from "src/ui/obsidian-integrations/obsidian-links";
+import {
+    generateKnowledgeMoc,
+    registerStudyMarkdownBlocks,
+    syncStudyProperties,
+} from "src/ui/obsidian-integrations/obsidian-study-integration";
 import {
     createStudyBase,
     refreshStudyBasesViews,
@@ -69,6 +76,7 @@ export default class SRPlugin extends Plugin {
                 display: "Personal Spaced Repetition",
                 defaultMod: false,
             });
+            registerStudyMarkdownBlocks(this);
             this.registerBasesView(STUDY_BASES_VIEW_TYPE, {
                 name: "Study",
                 icon: "graduation-cap",
@@ -92,6 +100,22 @@ export default class SRPlugin extends Plugin {
                         key: "showEmpty",
                         type: "toggle",
                         displayName: "Show notes without cards",
+                        default: false,
+                    },
+                    {
+                        key: "density",
+                        type: "dropdown",
+                        displayName: "Row density",
+                        default: "compact",
+                        options: {
+                            compact: "Compact",
+                            comfortable: "Comfortable",
+                        },
+                    },
+                    {
+                        key: "showCards",
+                        type: "toggle",
+                        displayName: "Expand cards by default",
                         default: false,
                     },
                 ],
@@ -160,6 +184,36 @@ export default class SRPlugin extends Plugin {
                 }
                 if (action === "knowledge-map") {
                     await generateKnowledgeCanvas(this);
+                    return;
+                }
+                if (action === "canvas-control") {
+                    await controlKnowledgeCanvas(this, params);
+                    return;
+                }
+                if (action === "canvas-new-area") {
+                    await this.uiManager.openNativeKnowledgeAreaCreator();
+                    return;
+                }
+                if (action === "canvas-edit-area") {
+                    await this.uiManager.openNativeKnowledgeAreaCreator(params.area);
+                    return;
+                }
+                if (action === "canvas-assign-deck") {
+                    if (params.deck) openCanvasAreaPicker(this, params.deck);
+                    return;
+                }
+                if (action === "knowledge-hub") {
+                    await generateKnowledgeMoc(this, { open: true, notify: true });
+                    return;
+                }
+                if (action === "sync-properties") {
+                    const files = params.file
+                        ? [this.app.vault.getFileByPath(params.file)].filter(
+                              (file): file is TFile => Boolean(file),
+                          )
+                        : undefined;
+                    const updated = await syncStudyProperties(this, files);
+                    new Notice(`MSRE: Updated ${updated} note properties`);
                     return;
                 }
                 if (action === "study-base") {
