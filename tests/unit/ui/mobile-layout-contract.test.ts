@@ -31,4 +31,20 @@ describe("iPhone layout contracts", () => {
         );
         expect(css).toMatch(/\.sr-note-template-control select,[\s\S]*min-width:\s*0/);
     });
+
+    it("uses a dense three-line card browser row without overlapping deck and state", () => {
+        const css = source("src/ui/card-browser/card-browser-view.css");
+        const view = source("src/ui/card-browser/card-browser-view.ts");
+        expect(view).toMatch(/const MOBILE_ROW_HEIGHT = 82/);
+        expect(css).toMatch(
+            /@media \(max-width:\s*700px\)[\s\S]*\.sr-card-browser-row\s*{[^}]*height:\s*76px/s,
+        );
+        expect(css).toMatch(
+            /\.sr-card-browser-cell\.is-deck\s*{[^}]*grid-column:\s*2[^}]*grid-row:\s*3/s,
+        );
+        expect(css).toMatch(
+            /\.sr-card-browser-cell\.is-state\s*{[^}]*grid-column:\s*3[^}]*grid-row:\s*3/s,
+        );
+        expect(css).toMatch(/\.sr-card-browser-row-actions button\.is-menu\s*{[^}]*display:/s);
+    });
 });

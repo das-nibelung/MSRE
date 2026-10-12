@@ -2,6 +2,7 @@ import { Card } from "src/data/data-structures/card/card";
 import {
     annotateCardBrowserDiagnostics,
     CardBrowserRecord,
+    compactCardText,
     extractCardMediaPaths,
     filterCardBrowserRecords,
     getCardBrowserDeckNames,
@@ -253,6 +254,14 @@ describe("card browser filtering", () => {
                 '![[diagram.png|300]] ![x](audio/term.mp3) <video src="clips/demo.mp4">',
             ),
         ).toEqual(["diagram.png", "audio/term.mp3", "clips/demo.mp4"]);
+    });
+
+    it("turns rich card content into a clean compact summary", () => {
+        expect(
+            compactCardText(
+                "![[Media/00.jpg]]<br>**Бочки** [[Long note|Подсказка]] [источник](https://example.com) ^sr-kz-00",
+            ),
+        ).toBe("Бочки Подсказка источник");
     });
 
     it("validates incomplete queries without throwing", () => {

@@ -34,6 +34,7 @@ import {
     CardBrowserRecord,
     CardBrowserSort,
     CardBrowserSortDirection,
+    compactCardText,
     createCardBrowserRecords,
     extractCardMediaPaths,
     filterCardBrowserRecords,
@@ -46,21 +47,11 @@ import { DeckPickerModal } from "src/ui/deck-picker-modal";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
 
 const DESKTOP_ROW_HEIGHT = 64;
-const MOBILE_ROW_HEIGHT = 112;
+const MOBILE_ROW_HEIGHT = 82;
 const VIRTUAL_OVERSCAN = 7;
 
 function uiText(english: string, russian: string): string {
     return LocaleManagerInstance.getInstance().currentLocale.startsWith("ru") ? russian : english;
-}
-
-function compactCardText(value: string): string {
-    return value
-        .replace(/<!--SR:[\s\S]*?-->/g, "")
-        .replace(/!\[\[[^\]]+\]\]/g, "")
-        .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-        .replace(/<[^>]*>/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
 }
 
 function containsMedia(value: string): boolean {
@@ -1173,17 +1164,20 @@ export class CardBrowserView extends ItemView {
             new ButtonComponent(actions)
                 .setIcon("pencil-line")
                 .setTooltip(uiText("Edit in table", "Изменить в таблице"))
+                .setClass("is-edit")
                 .onClick(() => this.beginInlineEdit(row, record));
         }
         const flag = new ButtonComponent(actions)
             .setIcon("flag")
             .setTooltip(this.getFlagOptions(false)[String(record.flag)])
+            .setClass("is-flag")
             .setClass(`is-flag-${record.flag}`)
             .onClick((event) => this.openFlagMenu(event, [record]));
         flag.buttonEl.toggleClass("is-empty", record.flag === 0);
         new ButtonComponent(actions)
             .setIcon("ellipsis")
             .setTooltip(t("OPEN_MENU"))
+            .setClass("is-menu")
             .onClick((event) => this.openCardMenu(event, record));
         row.addEventListener("contextmenu", (event) => this.openCardMenu(event, record));
     }
@@ -1226,6 +1220,7 @@ export class CardBrowserView extends ItemView {
         new ButtonComponent(actions)
             .setIcon("check")
             .setTooltip(t("SAVE"))
+            .setClass("is-inline-save")
             .setCta()
             .onClick(
                 () =>
@@ -1242,6 +1237,7 @@ export class CardBrowserView extends ItemView {
         new ButtonComponent(actions)
             .setIcon("x")
             .setTooltip(t("CANCEL"))
+            .setClass("is-inline-cancel")
             .onClick(() => this.renderVirtualWindow(true));
         question.focus();
     }
@@ -1279,7 +1275,9 @@ export class CardBrowserView extends ItemView {
     ): void {
         if (column === "question" || column === "answer") {
             const raw = column === "question" ? record.front : record.back;
-            cell.setText(compactCardText(raw) || (record.hasMedia ? t("MEDIA_CARD") : "—"));
+            const summary = compactCardText(raw) || (record.hasMedia ? t("MEDIA_CARD") : "—");
+            cell.setText(summary);
+            cell.setAttribute("title", summary);
             if (record.diagnostics?.length && column === "question") {
                 const badges = cell.createSpan("sr-card-browser-diagnostics");
                 for (const diagnostic of record.diagnostics) {
@@ -1297,7 +1295,11 @@ export class CardBrowserView extends ItemView {
             }
             return;
         }
-        if (column === "deck") cell.setText(record.deckNames.join(", ") || "—");
+        if (column === "deck") {
+            const deck = record.deckNames.join(", ") || "—";
+            cell.setText(deck);
+            cell.setAttribute("title", deck);
+        }
         if (column === "area") cell.setText(record.areaNames?.join(", ") || "—");
         if (column === "type") cell.setText(record.noteTypeName ?? record.cardType);
         if (column === "state") {

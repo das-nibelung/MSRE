@@ -76,6 +76,26 @@ export const DEFAULT_CARD_BROWSER_COLUMNS: CardBrowserColumn[] = [
     "interval",
 ];
 
+/**
+ * Turn rich card content into a short, readable browser summary without
+ * leaking Markdown syntax or media embeds into the compact list row.
+ */
+export function compactCardText(value: string): string {
+    return value
+        .replace(/<!--SR:[\s\S]*?-->/g, "")
+        .replace(/!\[\[[^\]]+\]\]/g, "")
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+        .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2")
+        .replace(/\[\[([^\]]+)\]\]/g, "$1")
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+        .replace(/<[^>]*>/g, " ")
+        .replace(/\^[-\w]+\s*$/g, "")
+        .replace(/[*_~`]/g, "")
+        .replace(/^#{1,6}\s+/gm, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 export interface CardBrowserRecord {
     card: Card;
     id: string;
