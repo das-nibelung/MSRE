@@ -457,8 +457,12 @@ export class UIManager {
         this.focusObsidianWindow();
     }
 
-    public async openCardBrowser(notePath: string | null = null): Promise<void> {
-        await this.tabViewManager.openCardBrowser(notePath);
+    public async openCardBrowser(
+        notePath: string | null = null,
+        query = "",
+        deck = "all",
+    ): Promise<void> {
+        await this.tabViewManager.openCardBrowser(notePath, query, deck);
     }
 
     public async openNativeCardCreator(deckPath?: string): Promise<void> {

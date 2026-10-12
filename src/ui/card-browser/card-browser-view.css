@@ -731,6 +731,22 @@
     white-space: nowrap;
 }
 
+.sr-card-inspector-source {
+    display: block;
+    max-width: 100%;
+    margin-top: 5px;
+    overflow: hidden;
+    color: var(--text-accent);
+    font-size: var(--font-ui-smaller);
+    text-decoration: none;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sr-card-inspector-source:hover {
+    text-decoration: underline;
+}
+
 .sr-card-inspector-actions {
     display: flex;
     gap: 4px;

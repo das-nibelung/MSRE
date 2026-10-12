@@ -6,6 +6,8 @@ import SRPlugin from "src/main";
 import { ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
 import { createCardInEditor } from "src/ui/card-creation";
+import { generateKnowledgeCanvas } from "src/ui/obsidian-integrations/knowledge-canvas";
+import { createStudyBase } from "src/ui/obsidian-integrations/study-bases-view";
 import { UIManager, UIState } from "src/ui/ui-manager";
 import EmulatedPlatform from "src/utils/platform-detector";
 
@@ -397,6 +399,24 @@ export class CommandManager {
             callback: async () => {
                 if (!this.plugin.isInitialized) return;
                 await this.uiManager.openCardBrowser();
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "generate-knowledge-canvas",
+            name: "Generate knowledge map Canvas",
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await generateKnowledgeCanvas(this.plugin);
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "open-study-base",
+            name: "Create or open study Base",
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await createStudyBase(this.plugin);
             },
         });
 

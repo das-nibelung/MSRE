@@ -16,6 +16,13 @@ import { LocaleManagerInstance } from "src/lang/locale-manager";
 import { NextNoteReviewHandler } from "src/note/next-note-review-handler";
 import { NoteReviewQueue } from "src/note/note-review-queue";
 import { ReminderManager } from "src/scheduling/reminder-manager";
+import { generateKnowledgeCanvas } from "src/ui/obsidian-integrations/knowledge-canvas";
+import { SR_HOVER_SOURCE } from "src/ui/obsidian-integrations/obsidian-links";
+import {
+    createStudyBase,
+    STUDY_BASES_VIEW_TYPE,
+    StudyBasesView,
+} from "src/ui/obsidian-integrations/study-bases-view";
 import { REVIEW_QUEUE_VIEW_TYPE } from "src/ui/obsidian-ui-components/item-views/review-queue-list-view";
 import { UIManager } from "src/ui/ui-manager";
 import { TextDirection } from "src/utils/strings";
@@ -50,6 +57,24 @@ export default class SRPlugin extends Plugin {
             const uiManager = new UIManager(this, settingsManager);
             this.uiManager = uiManager;
             this.commandManager = new CommandManager(this, settingsManager, uiManager);
+            this.registerHoverLinkSource(SR_HOVER_SOURCE, {
+                display: "Personal Spaced Repetition",
+                defaultMod: false,
+            });
+            this.registerBasesView(STUDY_BASES_VIEW_TYPE, {
+                name: "Study",
+                icon: "graduation-cap",
+                factory: (controller, containerEl) =>
+                    new StudyBasesView(controller, containerEl, this),
+                options: () => [
+                    {
+                        key: "showEmpty",
+                        type: "toggle",
+                        displayName: "Show notes without cards",
+                        default: false,
+                    },
+                ],
+            });
 
             this.app.workspace.onLayoutReady(async () => {
                 this.dataManager.loadData();
@@ -88,7 +113,34 @@ export default class SRPlugin extends Plugin {
                     return;
                 }
                 if (action === "open-browser") {
-                    await this.uiManager.openCardBrowser();
+                    await this.uiManager.openCardBrowser(
+                        params.note ?? null,
+                        params.query ?? "",
+                        params.deck ?? "all",
+                    );
+                    return;
+                }
+                if (action === "open-source") {
+                    if (!params.file) {
+                        new Notice("MSRE: Missing source file");
+                        return;
+                    }
+                    const block = params.block
+                        ? `#${params.block.startsWith("^") ? params.block : `^${params.block}`}`
+                        : "";
+                    await this.app.workspace.openLinkText(
+                        `${params.file}${block}`,
+                        params.file,
+                        false,
+                    );
+                    return;
+                }
+                if (action === "knowledge-map") {
+                    await generateKnowledgeCanvas(this);
+                    return;
+                }
+                if (action === "study-base") {
+                    await createStudyBase(this);
                     return;
                 }
                 const operation = action as AutomationOperationKind;

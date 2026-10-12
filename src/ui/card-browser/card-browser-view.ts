@@ -44,6 +44,11 @@ import {
     validateCardBrowserQuery,
 } from "src/ui/card-browser/card-browser-model";
 import { DeckPickerModal } from "src/ui/deck-picker-modal";
+import {
+    attachObsidianLink,
+    cardSourceTarget,
+    enhanceRenderedObsidianLinks,
+} from "src/ui/obsidian-integrations/obsidian-links";
 import { ConfirmationModal } from "src/ui/obsidian-ui-components/modals/confirmation-modal";
 
 const DESKTOP_ROW_HEIGHT = 64;
@@ -330,6 +335,18 @@ class CardInspectorModal extends Modal {
                 .filter(Boolean)
                 .join(" · "),
         });
+        if (this.record.notePath) {
+            const sourceTarget = cardSourceTarget(
+                this.record.notePath,
+                this.record.card.question.questionText.obsidianBlockId,
+            );
+            const sourceLink = titles.createEl("a", {
+                cls: "sr-card-inspector-source",
+                text: this.record.notePath,
+                href: sourceTarget,
+            });
+            attachObsidianLink(this.plugin, sourceLink, sourceTarget, this.record.notePath);
+        }
         const actions = header.createDiv("sr-card-inspector-actions");
         new ButtonComponent(actions)
             .setIcon("file-input")
@@ -441,7 +458,13 @@ class CardInspectorModal extends Modal {
         const surface = parent.createDiv("sr-card-inspector-surface");
         surface.createEl("span", { cls: "sr-card-inspector-label", text: label });
         const content = surface.createDiv("sr-card-inspector-content");
-        void MarkdownRenderer.render(this.app, value, content, this.record.notePath, this.plugin);
+        void MarkdownRenderer.render(
+            this.app,
+            value,
+            content,
+            this.record.notePath,
+            this.plugin,
+        ).then(() => enhanceRenderedObsidianLinks(this.plugin, content, this.record.notePath));
     }
 }
 
@@ -508,6 +531,13 @@ export class CardBrowserView extends ItemView {
 
     setNoteScope(notePath: string | null): void {
         this.notePath = notePath;
+        this.render();
+    }
+
+    configureScope(notePath: string | null, query = "", deck = "all"): void {
+        this.notePath = notePath;
+        this.query = query;
+        this.deck = deck || "all";
         this.render();
     }
 
@@ -1337,7 +1367,18 @@ export class CardBrowserView extends ItemView {
             );
         }
         if (column === "created") cell.setText(formatDate(record.createdAt));
-        if (column === "note") cell.setText(record.notePath || "—");
+        if (column === "note") {
+            if (!record.notePath) {
+                cell.setText("—");
+            } else {
+                const target = cardSourceTarget(
+                    record.notePath,
+                    record.card.question.questionText.obsidianBlockId,
+                );
+                const link = cell.createEl("a", { text: record.notePath, href: target });
+                attachObsidianLink(this.plugin, link, target, record.notePath);
+            }
+        }
         if (column === "tags") cell.setText(record.tags.map((tag) => `#${tag}`).join(" ") || "—");
         if (column === "last-review") cell.setText(formatDate(record.lastReviewAt));
     }
@@ -2383,7 +2424,7 @@ export class CardBrowserView extends ItemView {
 
     private async openSource(record: CardBrowserRecord): Promise<void> {
         const blockId = record.card.question.questionText.obsidianBlockId;
-        const target = blockId ? `${record.notePath}#${blockId}` : record.notePath;
+        const target = cardSourceTarget(record.notePath, blockId);
         await this.app.workspace.openLinkText(target, record.notePath, false);
     }
 }

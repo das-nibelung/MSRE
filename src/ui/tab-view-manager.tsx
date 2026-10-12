@@ -80,9 +80,13 @@ export default class TabViewManager {
         }
     }
 
-    public async openCardBrowser(notePath: string | null = null): Promise<void> {
+    public async openCardBrowser(
+        notePath: string | null = null,
+        query = "",
+        deck = "all",
+    ): Promise<void> {
         const leaf = await this.openTabView(CARD_BROWSER_VIEW_TYPE, true);
-        if (leaf?.view instanceof CardBrowserView) leaf.view.setNoteScope(notePath);
+        if (leaf?.view instanceof CardBrowserView) leaf.view.configureScope(notePath, query, deck);
     }
 
     public refreshCardBrowser(): void {

@@ -1,6 +1,7 @@
 import { App, MarkdownRenderChild, MarkdownRenderer } from "obsidian";
 
 import SRPlugin from "src/main";
+import { enhanceRenderedObsidianLinks } from "src/ui/obsidian-integrations/obsidian-links";
 // import { CardState } from "src/ui/obsidian-ui-components/content-container/content-manager";
 import { TextDirection } from "src/utils/strings";
 
@@ -38,34 +39,6 @@ export class RenderMarkdownWrapper {
         this.plugin.addChild(renderChild);
         await MarkdownRenderer.render(this.app, markdownString, el, this.notePath, renderChild);
 
-        el.findAll(".internal-link").forEach((el: HTMLElement) => {
-            (el as HTMLAnchorElement).addEventListener("click", (e: MouseEvent) => {
-                e.preventDefault();
-                e.stopPropagation();
-
-                const href = el.getAttr("href") || el.getAttr("data-href");
-
-                if (href) {
-                    void this.app.workspace.openLinkText(href, this.notePath, true);
-                    return true;
-                }
-                return false;
-            });
-
-            (el as HTMLAnchorElement).addEventListener("mouseover", (ev: Event) => {
-                const href = el.getAttr("href") || el.getAttr("data-href");
-                if (href) {
-                    this.app.workspace.trigger("hover-link", {
-                        event: ev,
-                        source: "preview",
-                        hoverParent: this.plugin,
-                        targetEl: el,
-                        linktext: href,
-                    });
-                    return true;
-                }
-                return false;
-            });
-        });
+        enhanceRenderedObsidianLinks(this.plugin, el, this.notePath);
     }
 }
