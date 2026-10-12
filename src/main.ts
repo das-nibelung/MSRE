@@ -15,14 +15,21 @@ import { AiAssistantService } from "src/intelligence/ai-assistant";
 import { LocaleManagerInstance } from "src/lang/locale-manager";
 import { NextNoteReviewHandler } from "src/note/next-note-review-handler";
 import { NoteReviewQueue } from "src/note/note-review-queue";
+import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
 import { ReminderManager } from "src/scheduling/reminder-manager";
-import { generateKnowledgeCanvas } from "src/ui/obsidian-integrations/knowledge-canvas";
+import { filterCardBrowserRecords } from "src/ui/card-browser/card-browser-model";
+import {
+    generateKnowledgeCanvas,
+    KnowledgeCanvasAutoUpdater,
+} from "src/ui/obsidian-integrations/knowledge-canvas";
 import { SR_HOVER_SOURCE } from "src/ui/obsidian-integrations/obsidian-links";
 import {
     createStudyBase,
+    refreshStudyBasesViews,
     STUDY_BASES_VIEW_TYPE,
     StudyBasesView,
 } from "src/ui/obsidian-integrations/study-bases-view";
+import { createStudyRecords } from "src/ui/obsidian-integrations/study-records";
 import { REVIEW_QUEUE_VIEW_TYPE } from "src/ui/obsidian-ui-components/item-views/review-queue-list-view";
 import { UIManager } from "src/ui/ui-manager";
 import { TextDirection } from "src/utils/strings";
@@ -36,6 +43,7 @@ export default class SRPlugin extends Plugin {
     private _reminderManager: ReminderManager | null = null;
     private _api: PersonalSpacedRepetitionApi | null = null;
     private _ai: AiAssistantService | null = null;
+    private _knowledgeCanvasUpdater: KnowledgeCanvasAutoUpdater | null = null;
     public isInitialized: boolean = false;
 
     async onload(): Promise<void> {
@@ -67,6 +75,19 @@ export default class SRPlugin extends Plugin {
                 factory: (controller, containerEl) =>
                     new StudyBasesView(controller, containerEl, this),
                 options: () => [
+                    {
+                        key: "preset",
+                        type: "dropdown",
+                        displayName: "Study view",
+                        default: "all",
+                        options: {
+                            all: "All cards",
+                            today: "Today",
+                            errors: "Errors",
+                            weak: "Weak",
+                            "no-area": "No knowledge area",
+                        },
+                    },
                     {
                         key: "showEmpty",
                         type: "toggle",
@@ -101,6 +122,8 @@ export default class SRPlugin extends Plugin {
                 this._reminderManager = new ReminderManager(this, this.uiManager, this.dataManager);
 
                 this.isInitialized = true;
+                this._knowledgeCanvasUpdater = new KnowledgeCanvasAutoUpdater(this);
+                this._knowledgeCanvasUpdater.start();
                 await this.api.start();
                 this._reminderManager.restartReviewReminders();
             });
@@ -141,6 +164,27 @@ export default class SRPlugin extends Plugin {
                 }
                 if (action === "study-base") {
                     await createStudyBase(this);
+                    return;
+                }
+                if (action === "review") {
+                    const records = filterCardBrowserRecords(
+                        createStudyRecords(this),
+                        params.query ?? "",
+                        "all",
+                        params.deck ?? "all",
+                    ).filter((record) => record.lifecycleState === "active");
+                    const stableIds = records
+                        .map((record) => record.card.stableId)
+                        .filter((id): id is string => Boolean(id));
+                    if (!stableIds.length) {
+                        new Notice("MSRE: No cards match this study link");
+                        return;
+                    }
+                    await this.uiManager.openDeckContainer(
+                        FlashcardReviewMode.Review,
+                        undefined,
+                        stableIds,
+                    );
                     return;
                 }
                 const operation = action as AutomationOperationKind;
@@ -264,6 +308,8 @@ export default class SRPlugin extends Plugin {
     private async onOsrVaultDataChanged() {
         await this.uiManager.updateStatusBar();
         this.uiManager.tabViewManager.refreshCardBrowser();
+        refreshStudyBasesViews();
+        this._knowledgeCanvasUpdater?.schedule();
         if (this.dataManager.data.settings.enableNoteReviewPaneOnStartup) {
             this.uiManager.sidebarManager.redraw();
         }

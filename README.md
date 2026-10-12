@@ -172,8 +172,8 @@ Fight the forgetting curve by reviewing flashcards & notes using the FSRS or the
 
 #### Native Obsidian knowledge tools
 
-- **Study Base** — run `Personal Spaced Repetition: Create or open study Base` to create a native `.base` file. Its compact Study view shows card, due, and new counts for every note selected by the Base, with direct Browse and Review actions.
-- **Knowledge Canvas** — run `Personal Spaced Repetition: Generate knowledge map Canvas` to generate `Knowledge Map.canvas` from knowledge areas, decks, and source notes. Regenerating updates the map without changing card files.
+- **Study Base** — run `Personal Spaced Repetition: Create or open study Base` to create a native `.base` file. It includes All cards, Today, Errors, Weak, and No area views; shows retention, stability, difficulty and review activity; and supports selecting notes to review, move, tag, flag, suspend, or resume their cards.
+- **Knowledge Canvas** — run `Personal Spaced Repetition: Generate knowledge map Canvas` to generate `Knowledge Map.canvas` from knowledge areas, decks, source notes, and real wiki-links. The map refreshes after study or vault changes, keeps manual positions and annotations, and includes Browse/Review links for smart filters and every branch.
 - **Source links and previews** — card source links target the exact card block, support modifier-click to open in a new tab, and use Obsidian's Page Preview on hover.
 
 #### Reviewing Flashcards🗃️

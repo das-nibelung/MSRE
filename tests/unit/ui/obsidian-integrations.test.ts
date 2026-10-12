@@ -1,9 +1,15 @@
 import { Card } from "src/data/data-structures/card/card";
 import { KnowledgeArea } from "src/data/plugin-data";
 import { CardBrowserRecord } from "src/ui/card-browser/card-browser-model";
-import { buildKnowledgeCanvas } from "src/ui/obsidian-integrations/knowledge-canvas";
+import {
+    buildKnowledgeCanvas,
+    mergeKnowledgeCanvas,
+} from "src/ui/obsidian-integrations/knowledge-canvas";
 import { cardSourceTarget } from "src/ui/obsidian-integrations/obsidian-links";
-import { aggregateStudyBaseEntries } from "src/ui/obsidian-integrations/study-bases-model";
+import {
+    aggregateStudyBaseEntries,
+    filterStudyBaseSummaries,
+} from "src/ui/obsidian-integrations/study-bases-model";
 
 function record(overrides: Partial<CardBrowserRecord>): CardBrowserRecord {
     return {
@@ -33,8 +39,8 @@ describe("Obsidian knowledge integrations", () => {
                 { path: "Medicine/Lung.md", basename: "Lung" },
             ],
             [
-                record({ state: "due" }),
-                record({ id: "new", state: "new" }),
+                record({ state: "due", retention: 0.7, difficulty: 8, lapses: 3 }),
+                record({ id: "new", state: "new", retention: 0.9, difficulty: 6 }),
                 record({
                     id: "scheduled",
                     notePath: "Medicine/Lung.md",
@@ -46,6 +52,10 @@ describe("Obsidian knowledge integrations", () => {
 
         expect(summaries[0]).toMatchObject({ total: 2, due: 1, newCards: 1, scheduled: 0 });
         expect(summaries[0].decks).toEqual(["Medicine/Cardiology"]);
+        expect(summaries[0].retention).toBeCloseTo(0.8);
+        expect(summaries[0].difficulty).toBe(7);
+        expect(summaries[0].lapses).toBe(3);
+        expect(filterStudyBaseSummaries(summaries, "weak")).toEqual([summaries[0]]);
         expect(summaries[1]).toMatchObject({ total: 1, due: 0, newCards: 0, scheduled: 1 });
     });
 
@@ -61,8 +71,19 @@ describe("Obsidian knowledge integrations", () => {
         ];
         const canvas = buildKnowledgeCanvas(
             areas,
-            [record({ state: "due" })],
+            [
+                record({ state: "due", lapses: 2, retention: 0.7 }),
+                record({
+                    id: "lung",
+                    notePath: "Medicine/Lung.md",
+                    state: "scheduled",
+                }),
+            ],
             ["Medicine/Cardiology", "Languages/English"],
+            {
+                noteLinks: { "Medicine/Heart.md": ["Medicine/Lung.md"] },
+                sourceLimitPerDeck: 5,
+            },
         );
         const ids = new Set(canvas.nodes.map((node) => node.id));
 
@@ -78,9 +99,40 @@ describe("Obsidian knowledge integrations", () => {
         expect(
             canvas.nodes.some((node) => node.type === "text" && node.text.includes("Other decks")),
         ).toBe(true);
+        expect(
+            canvas.nodes.some(
+                (node) => node.type === "text" && node.text.includes("Recently studied"),
+            ),
+        ).toBe(true);
+        expect(canvas.edges.some((edge) => edge.label === "link")).toBe(true);
         expect(canvas.edges.every((edge) => ids.has(edge.fromNode) && ids.has(edge.toNode))).toBe(
             true,
         );
+    });
+
+    it("preserves manual Canvas positions and custom nodes", () => {
+        const generated = buildKnowledgeCanvas([], [record({})], ["Medicine/Cardiology"]);
+        const moved = {
+            ...generated.nodes[0],
+            x: 1234,
+            y: 5678,
+        };
+        const custom = {
+            id: "my-note",
+            type: "text" as const,
+            x: 20,
+            y: 30,
+            width: 200,
+            height: 100,
+            text: "Manual annotation",
+        };
+        const merged = mergeKnowledgeCanvas({ nodes: [moved, custom], edges: [] }, generated);
+
+        expect(merged.nodes.find((node) => node.id === moved.id)).toMatchObject({
+            x: 1234,
+            y: 5678,
+        });
+        expect(merged.nodes).toContainEqual(custom);
     });
 
     it("normalizes exact block links for Obsidian previews", () => {

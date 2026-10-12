@@ -381,6 +381,7 @@ function matchesQueryTerm(record: CardBrowserRecord, term: QueryTerm): boolean {
     }
     if (term.key === "is") {
         const value = normalizeForSearch(term.value);
+        if (value === "no-area") return (record.areaNames?.length ?? 0) === 0;
         if (value === "suspended" || value === "buried") return record.lifecycleState === value;
         if (value === "active") return record.lifecycleState === "active";
         if (value === "new" || value === "due" || value === "scheduled") {

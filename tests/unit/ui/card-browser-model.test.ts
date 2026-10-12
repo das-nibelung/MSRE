@@ -79,6 +79,14 @@ describe("card browser filtering", () => {
         expect(filterCardBrowserRecords(records, "", "scheduled")).toEqual([records[2]]);
     });
 
+    it("finds cards without a knowledge area", () => {
+        const assigned = record({ id: "assigned", areaNames: ["Medicine"] });
+        const unassigned = record({ id: "unassigned", areaNames: [] });
+        expect(filterCardBrowserRecords([assigned, unassigned], "is:no-area", "all")).toEqual([
+            unassigned,
+        ]);
+    });
+
     it("filters persistent suspended and buried states separately", () => {
         const suspended = record({ id: "suspended", lifecycleState: "suspended", state: "due" });
         const buried = record({ id: "buried", lifecycleState: "buried", state: "new" });
