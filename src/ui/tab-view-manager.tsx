@@ -1,9 +1,15 @@
 import { PaneType, WorkspaceLeaf } from "obsidian";
 
-import { CARD_BROWSER_VIEW_TYPE, CARD_CREATOR_VIEW_TYPE, SR_TAB_VIEW } from "src/data/constants";
+import {
+    CARD_BROWSER_VIEW_TYPE,
+    CARD_CREATOR_VIEW_TYPE,
+    KNOWLEDGE_GRAPH_VIEW_TYPE,
+    SR_TAB_VIEW,
+} from "src/data/constants";
 import { SettingsManager } from "src/data/settings-manager";
 import SRPlugin from "src/main";
 import { CardBrowserView } from "src/ui/card-browser/card-browser-view";
+import { KnowledgeGraphView } from "src/ui/knowledge-graph/knowledge-graph-view";
 import { NativeCreatorRequest, NativeCreatorView } from "src/ui/native-creator/native-creator-view";
 import { SRTabView } from "src/ui/obsidian-ui-components/item-views/sr-tab-view";
 import { ReviewQueueLoader } from "src/ui/review-queue-loader";
@@ -50,6 +56,10 @@ export default class TabViewManager {
                 view.configure(this.creatorRequest);
                 return view;
             },
+        },
+        {
+            type: KNOWLEDGE_GRAPH_VIEW_TYPE,
+            viewCreator: (leaf) => new KnowledgeGraphView(leaf, this.plugin),
         },
     ];
 
@@ -99,6 +109,11 @@ export default class TabViewManager {
         this.creatorRequest = request;
         const leaf = await this.openTabView(CARD_CREATOR_VIEW_TYPE, true);
         if (leaf?.view instanceof NativeCreatorView) leaf.view.configure(request);
+    }
+
+    public async openKnowledgeGraph(focusId?: string): Promise<void> {
+        const leaf = await this.openTabView(KNOWLEDGE_GRAPH_VIEW_TYPE, true);
+        if (focusId && leaf?.view instanceof KnowledgeGraphView) leaf.view.focusNode(focusId);
     }
 
     /**

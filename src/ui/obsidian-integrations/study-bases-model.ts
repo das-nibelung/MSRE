@@ -12,6 +12,7 @@ export interface StudyBaseSummary extends StudyBaseFile {
     scheduled: number;
     decks: string[];
     areas: string[];
+    tags: string[];
     lapses: number;
     retention: number | null;
     difficulty: number | null;
@@ -20,6 +21,44 @@ export interface StudyBaseSummary extends StudyBaseFile {
 }
 
 export type StudyBasePreset = "all" | "today" | "errors" | "weak" | "no-area";
+export type StudyCsvRow = Record<string, string>;
+
+/** Parses quoted, multiline-safe-enough CSV exported by the Study Base. */
+export function parseStudyCsv(content: string): StudyCsvRow[] {
+    const table: string[][] = [];
+    let row: string[] = [];
+    let value = "";
+    let quoted = false;
+    for (let index = 0; index < content.length; index++) {
+        const character = content[index];
+        if (quoted) {
+            if (character === '"' && content[index + 1] === '"') {
+                value += '"';
+                index++;
+            } else if (character === '"') quoted = false;
+            else value += character;
+        } else if (character === '"') quoted = true;
+        else if (character === ",") {
+            row.push(value);
+            value = "";
+        } else if (character === "\n") {
+            row.push(value.replace(/\r$/g, ""));
+            table.push(row);
+            row = [];
+            value = "";
+        } else value += character;
+    }
+    if (value || row.length) {
+        row.push(value.replace(/\r$/g, ""));
+        table.push(row);
+    }
+    const headers = table.shift()?.map((header) => header.trim()) ?? [];
+    return table
+        .filter((cells) => cells.some(Boolean))
+        .map((cells) =>
+            Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? ""])),
+        );
+}
 
 export function aggregateStudyBaseEntries(
     files: StudyBaseFile[],
@@ -45,6 +84,9 @@ export function aggregateStudyBaseEntries(
             areas: [...new Set(cards.flatMap((card) => card.areaNames ?? []))].sort((a, b) =>
                 a.localeCompare(b),
             ),
+            tags: [...new Set(cards.flatMap((card) => card.tags))].sort((a, b) =>
+                a.localeCompare(b),
+            ),
             lapses: cards.reduce((sum, card) => sum + (card.lapses ?? 0), 0),
             retention: average(cards.map((card) => card.retention)),
             difficulty: average(cards.map((card) => card.difficulty)),
@@ -53,6 +95,32 @@ export function aggregateStudyBaseEntries(
                 cards.reduce((latest, card) => Math.max(latest, card.lastReviewAt ?? 0), 0) || null,
         };
     });
+}
+
+export function filterStudyBaseRecords(
+    records: CardBrowserRecord[],
+    preset: StudyBasePreset,
+): CardBrowserRecord[] {
+    if (preset === "today") {
+        return records.filter(
+            (record) =>
+                record.lifecycleState === "active" &&
+                (record.state === "due" || record.state === "new"),
+        );
+    }
+    if (preset === "errors") return records.filter((record) => (record.lapses ?? 0) > 0);
+    if (preset === "weak") {
+        return records.filter(
+            (record) =>
+                (record.lapses ?? 0) >= 2 ||
+                (record.retention !== null &&
+                    record.retention !== undefined &&
+                    record.retention < 0.85) ||
+                (record.difficulty ?? 0) >= 7,
+        );
+    }
+    if (preset === "no-area") return records.filter((record) => !record.areaNames?.length);
+    return records;
 }
 
 function average(values: Array<number | null | undefined>): number | null {

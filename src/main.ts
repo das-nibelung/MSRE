@@ -18,6 +18,7 @@ import { NoteReviewQueue } from "src/note/note-review-queue";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
 import { ReminderManager } from "src/scheduling/reminder-manager";
 import { filterCardBrowserRecords } from "src/ui/card-browser/card-browser-model";
+import { refreshKnowledgeGraphViews } from "src/ui/knowledge-graph/knowledge-graph-view";
 import { openCanvasAreaPicker } from "src/ui/obsidian-integrations/knowledge-area-picker";
 import {
     controlKnowledgeCanvas,
@@ -51,6 +52,7 @@ export default class SRPlugin extends Plugin {
     private _api: PersonalSpacedRepetitionApi | null = null;
     private _ai: AiAssistantService | null = null;
     private _knowledgeCanvasUpdater: KnowledgeCanvasAutoUpdater | null = null;
+    private _studyPropertiesTimer: number | null = null;
     public isInitialized: boolean = false;
 
     async onload(): Promise<void> {
@@ -118,6 +120,40 @@ export default class SRPlugin extends Plugin {
                         displayName: "Expand cards by default",
                         default: false,
                     },
+                    {
+                        key: "rowMode",
+                        type: "dropdown",
+                        displayName: "Rows",
+                        default: "notes",
+                        options: {
+                            notes: "One row per note",
+                            cards: "One row per card",
+                        },
+                    },
+                    {
+                        key: "sort",
+                        type: "dropdown",
+                        displayName: "Sort cards",
+                        default: "due",
+                        options: {
+                            due: "Due first",
+                            question: "Question",
+                            deck: "Deck",
+                            retention: "Lowest retention",
+                            lapses: "Most lapses",
+                        },
+                    },
+                    {
+                        key: "columns",
+                        type: "dropdown",
+                        displayName: "Columns",
+                        default: "learning",
+                        options: {
+                            compact: "Compact",
+                            learning: "Learning",
+                            full: "Full diagnostics",
+                        },
+                    },
                 ],
             });
 
@@ -184,6 +220,10 @@ export default class SRPlugin extends Plugin {
                 }
                 if (action === "knowledge-map") {
                     await generateKnowledgeCanvas(this);
+                    return;
+                }
+                if (action === "knowledge-graph") {
+                    await this.uiManager.openKnowledgeGraph(params.focus);
                     return;
                 }
                 if (action === "canvas-control") {
@@ -331,6 +371,7 @@ export default class SRPlugin extends Plugin {
     }
 
     onunload(): void {
+        if (this._studyPropertiesTimer !== null) window.clearTimeout(this._studyPropertiesTimer);
         this._api?.stop();
         this._reminderManager?.stopReviewReminders();
         this._dataManager?.close();
@@ -363,7 +404,15 @@ export default class SRPlugin extends Plugin {
         await this.uiManager.updateStatusBar();
         this.uiManager.tabViewManager.refreshCardBrowser();
         refreshStudyBasesViews();
+        refreshKnowledgeGraphViews();
         this._knowledgeCanvasUpdater?.schedule();
+        if (this._studyPropertiesTimer !== null) window.clearTimeout(this._studyPropertiesTimer);
+        this._studyPropertiesTimer = window.setTimeout((): void => {
+            this._studyPropertiesTimer = null;
+            void syncStudyProperties(this).catch((error: unknown) => {
+                console.warn("MSRE: Could not sync study properties", error);
+            });
+        }, 1_200);
         if (this.dataManager.data.settings.enableNoteReviewPaneOnStartup) {
             this.uiManager.sidebarManager.redraw();
         }

@@ -416,6 +416,15 @@ export class CommandManager {
         });
 
         this.plugin.addCommand({
+            id: "open-interactive-knowledge-graph",
+            name: "Open interactive knowledge graph",
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await this.uiManager.openKnowledgeGraph();
+            },
+        });
+
+        this.plugin.addCommand({
             id: "open-study-base",
             name: "Create or open study Base",
             callback: async () => {

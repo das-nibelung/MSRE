@@ -65,6 +65,26 @@ export class PluginDataManager {
                 ...(this._pluginData.knowledgeCanvasView?.layers ?? {}),
             },
         };
+        this._pluginData.knowledgeGraphView = {
+            ...DEFAULT_DATA.knowledgeGraphView,
+            ...(this._pluginData.knowledgeGraphView ?? {}),
+            collapsedIds: Array.isArray(this._pluginData.knowledgeGraphView?.collapsedIds)
+                ? this._pluginData.knowledgeGraphView.collapsedIds.filter(
+                      (id): id is string => typeof id === "string",
+                  )
+                : [],
+            zoom: Math.max(
+                0.35,
+                Math.min(2.5, Number(this._pluginData.knowledgeGraphView?.zoom) || 1),
+            ),
+            panX: Number(this._pluginData.knowledgeGraphView?.panX) || 24,
+            panY: Number(this._pluginData.knowledgeGraphView?.panY) || 24,
+            positions:
+                this._pluginData.knowledgeGraphView?.positions &&
+                typeof this._pluginData.knowledgeGraphView.positions === "object"
+                    ? this._pluginData.knowledgeGraphView.positions
+                    : {},
+        };
         this._pluginData.managedDecks = Array.isArray(this._pluginData.managedDecks)
             ? [...new Set(this._pluginData.managedDecks.filter((path) => typeof path === "string"))]
             : [];

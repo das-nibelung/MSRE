@@ -208,7 +208,7 @@ export function buildKnowledgeCanvas(
         width: 320,
         height: 245,
         color: "6",
-        text: `# Knowledge map\n\n${focus} · ${metricText(visibleRecords)}\n${allDecks.length} decks · ${visibleAreas.length} areas\n\n${layerLinks}\n\n[Browse](${studyLink("open-browser", view.focusDeck ? { deck: view.focusDeck } : view.focusAreaId ? { query: `area:${areaById.get(view.focusAreaId)?.name ?? ""}` } : {})}) · [Reset focus](${studyLink("canvas-control", { reset: "focus" })}) · [New area](${studyLink("canvas-new-area")})`,
+        text: `# Knowledge map\n\n${focus} · ${metricText(visibleRecords)}\n${allDecks.length} decks · ${visibleAreas.length} areas\n\n${layerLinks}\n\n[Interactive graph](${studyLink("knowledge-graph")}) · [Browse](${studyLink("open-browser", view.focusDeck ? { deck: view.focusDeck } : view.focusAreaId ? { query: `area:${areaById.get(view.focusAreaId)?.name ?? ""}` } : {})}) · [Reset focus](${studyLink("canvas-control", { reset: "focus" })}) · [New area](${studyLink("canvas-new-area")})`,
     });
 
     if (view.layers.filters) {

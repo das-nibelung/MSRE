@@ -178,24 +178,33 @@ export async function syncStudyProperties(plugin: SRPlugin, files?: TFile[]): Pr
     for (const [path, cards] of grouped) {
         const file = plugin.app.vault.getFileByPath(path);
         if (!file) continue;
+        const retentions = cards
+            .map((card) => card.retention)
+            .filter((value): value is number => value !== null && value !== undefined);
+        const desired: Record<string, unknown> = {
+            ["sr_cards"]: cards.length,
+            ["sr_due"]: cards.filter((card) => card.state === "due").length,
+            ["sr_new"]: cards.filter((card) => card.state === "new").length,
+            ["sr_lapses"]: cards.reduce((sum, card) => sum + (card.lapses ?? 0), 0),
+            ["sr_decks"]: [...new Set(cards.flatMap((card) => card.deckNames))],
+            ["sr_areas"]: [...new Set(cards.flatMap((card) => card.areaNames ?? []))],
+        };
+        if (retentions.length) {
+            desired["sr_retention"] = Number(
+                (retentions.reduce((sum, value) => sum + value, 0) / retentions.length).toFixed(3),
+            );
+        }
+        const current = plugin.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+        const changed =
+            Object.entries(desired).some(
+                ([key, value]) => JSON.stringify(current[key]) !== JSON.stringify(value),
+            ) ||
+            (desired["sr_retention"] === undefined && current["sr_retention"] !== undefined);
+        if (!changed) continue;
         await plugin.app.fileManager.processFrontMatter(file, (frontmatter) => {
             const properties = frontmatter as Record<string, unknown>;
-            properties["sr_cards"] = cards.length;
-            properties["sr_due"] = cards.filter((card) => card.state === "due").length;
-            properties["sr_new"] = cards.filter((card) => card.state === "new").length;
-            properties["sr_lapses"] = cards.reduce((sum, card) => sum + (card.lapses ?? 0), 0);
-            properties["sr_decks"] = [...new Set(cards.flatMap((card) => card.deckNames))];
-            properties["sr_areas"] = [...new Set(cards.flatMap((card) => card.areaNames ?? []))];
-            const retentions = cards
-                .map((card) => card.retention)
-                .filter((value): value is number => value !== null && value !== undefined);
-            if (retentions.length) {
-                properties["sr_retention"] = Number(
-                    (retentions.reduce((sum, value) => sum + value, 0) / retentions.length).toFixed(
-                        3,
-                    ),
-                );
-            } else delete properties["sr_retention"];
+            Object.assign(properties, desired);
+            if (desired["sr_retention"] === undefined) delete properties["sr_retention"];
             properties["sr_updated"] = new Date().toISOString();
         });
         updated++;

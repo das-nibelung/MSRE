@@ -2,13 +2,21 @@ import { Card } from "src/data/data-structures/card/card";
 import { KnowledgeArea } from "src/data/plugin-data";
 import { CardBrowserRecord } from "src/ui/card-browser/card-browser-model";
 import {
+    buildKnowledgeGraph,
+    graphMatches,
+    shortestKnowledgePath,
+    visibleKnowledgeGraph,
+} from "src/ui/knowledge-graph/knowledge-graph-model";
+import {
     buildKnowledgeCanvas,
     mergeKnowledgeCanvas,
 } from "src/ui/obsidian-integrations/knowledge-canvas";
 import { cardSourceTarget } from "src/ui/obsidian-integrations/obsidian-links";
 import {
     aggregateStudyBaseEntries,
+    filterStudyBaseRecords,
     filterStudyBaseSummaries,
+    parseStudyCsv,
 } from "src/ui/obsidian-integrations/study-bases-model";
 
 function record(overrides: Partial<CardBrowserRecord>): CardBrowserRecord {
@@ -39,7 +47,7 @@ describe("Obsidian knowledge integrations", () => {
                 { path: "Medicine/Lung.md", basename: "Lung" },
             ],
             [
-                record({ state: "due", retention: 0.7, difficulty: 8, lapses: 3 }),
+                record({ state: "due", retention: 0.7, difficulty: 8, lapses: 3, tags: ["heart"] }),
                 record({ id: "new", state: "new", retention: 0.9, difficulty: 6 }),
                 record({
                     id: "scheduled",
@@ -55,8 +63,67 @@ describe("Obsidian knowledge integrations", () => {
         expect(summaries[0].retention).toBeCloseTo(0.8);
         expect(summaries[0].difficulty).toBe(7);
         expect(summaries[0].lapses).toBe(3);
+        expect(summaries[0].tags).toEqual(["heart"]);
         expect(filterStudyBaseSummaries(summaries, "weak")).toEqual([summaries[0]]);
         expect(summaries[1]).toMatchObject({ total: 1, due: 0, newCards: 0, scheduled: 1 });
+    });
+
+    it("filters exact cards for every Base preset", () => {
+        const due = record({ id: "due", state: "due", lifecycleState: "active" });
+        const weak = record({ id: "weak", state: "scheduled", lapses: 2, retention: 0.7 });
+        const suspended = record({ id: "suspended", state: "due", lifecycleState: "suspended" });
+        const unassigned = record({ id: "unassigned", areaNames: [] });
+        const records = [due, weak, suspended, unassigned];
+
+        expect(filterStudyBaseRecords(records, "today")).toEqual([due, unassigned]);
+        expect(filterStudyBaseRecords(records, "weak")).toEqual([weak]);
+        expect(filterStudyBaseRecords(records, "no-area")).toContain(unassigned);
+    });
+
+    it("round-trips quoted Study CSV values", () => {
+        expect(parseStudyCsv('"Card ID","Question","Tags"\n"card-1","A, B","one | two"\n')).toEqual(
+            [{ "Card ID": "card-1", Question: "A, B", Tags: "one | two" }],
+        );
+    });
+
+    it("builds, collapses, searches, and routes an interactive knowledge graph", () => {
+        const areas: KnowledgeArea[] = [
+            {
+                id: "medicine",
+                name: "Medicine",
+                deckPaths: ["Medicine/Cardiology"],
+                pinned: true,
+            },
+        ];
+        const graph = buildKnowledgeGraph(
+            areas,
+            [
+                record({ id: "heart", state: "due", lapses: 3, retention: 0.7 }),
+                record({
+                    id: "lung",
+                    notePath: "Medicine/Lung.md",
+                    state: "scheduled",
+                }),
+            ],
+            ["Medicine/Cardiology"],
+            { noteLinks: { "Medicine/Heart.md": ["Medicine/Lung.md"] } },
+        );
+        const deck = graph.nodes.find((node) => node.id === "deck:Medicine/Cardiology");
+
+        expect(deck).toBeDefined();
+        if (!deck) throw new Error("Expected Cardiology deck node");
+        expect(graphMatches(deck, "cardio", "weak")).toBe(true);
+        expect(
+            visibleKnowledgeGraph(graph, ["area:medicine"], true).nodes.some(
+                (node) => node.kind === "deck",
+            ),
+        ).toBe(false);
+        expect(
+            visibleKnowledgeGraph(graph, [], false).nodes.every((node) => node.kind !== "note"),
+        ).toBe(true);
+        expect(
+            shortestKnowledgePath(graph, "note:Medicine/Heart.md", "note:Medicine/Lung.md"),
+        ).toEqual(["note:Medicine/Heart.md", "note:Medicine/Lung.md"]);
     });
 
     it("builds a valid linked JSON Canvas knowledge map", () => {

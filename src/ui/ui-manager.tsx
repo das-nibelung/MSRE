@@ -22,7 +22,6 @@ import { RepItemState, ReviewResponse } from "src/scheduling/algorithms/base/rep
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
 import { CardCreationMode, createCardInEditor } from "src/ui/card-creation";
 import { deriveQuickAddSeeds } from "src/ui/native-creator/quick-add";
-import { controlKnowledgeCanvas } from "src/ui/obsidian-integrations/knowledge-canvas";
 import {
     studyEmbedTemplate,
     syncStudyProperties,
@@ -488,6 +487,10 @@ export class UIManager {
         await this.tabViewManager.openNativeCreator({ mode: "transfer" });
     }
 
+    public async openKnowledgeGraph(focusId?: string): Promise<void> {
+        await this.tabViewManager.openKnowledgeGraph(focusId);
+    }
+
     public async openNativeCardEditor(card: Card, deckPath?: string): Promise<void> {
         await this.tabViewManager.openNativeCreator({ mode: "card", deckPath, card });
     }
@@ -594,15 +597,13 @@ export class UIManager {
                 });
         });
         menu.addItem((item) => {
-            item.setTitle("Focus in knowledge map")
+            item.setTitle("Focus in knowledge graph")
                 .setIcon("waypoints")
                 .setSection("spaced-repetition")
                 .setDisabled(!noteRecords[0]?.deckNames[0])
                 .onClick(
                     () =>
-                        void controlKnowledgeCanvas(this.plugin, {
-                            deck: noteRecords[0]?.deckNames[0] ?? "",
-                        }),
+                        void this.openKnowledgeGraph(`deck:${noteRecords[0]?.deckNames[0] ?? ""}`),
                 );
         });
         menu.addItem((item) => {

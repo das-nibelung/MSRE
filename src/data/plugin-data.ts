@@ -90,6 +90,15 @@ export interface KnowledgeCanvasViewState {
     };
 }
 
+export interface KnowledgeGraphViewState {
+    collapsedIds: string[];
+    showSources: boolean;
+    zoom: number;
+    panX: number;
+    panY: number;
+    positions: Record<string, { x: number; y: number }>;
+}
+
 export interface PluginData {
     settings: SRSettings;
     buryDate: string;
@@ -108,6 +117,8 @@ export interface PluginData {
     cardBrowserColumns: string[];
     /** The generated Canvas is a saved workspace, not a one-shot export. */
     knowledgeCanvasView: KnowledgeCanvasViewState;
+    /** Layout and visibility preferences for the live interactive knowledge graph. */
+    knowledgeGraphView: KnowledgeGraphViewState;
     scheduleData: ISerializedScheduleData;
 }
 
@@ -132,6 +143,14 @@ export const DEFAULT_DATA: PluginData = {
             sources: true,
             links: true,
         },
+    },
+    knowledgeGraphView: {
+        collapsedIds: [],
+        showSources: true,
+        zoom: 1,
+        panX: 24,
+        panY: 24,
+        positions: {},
     },
     scheduleData: {
         version: 1,

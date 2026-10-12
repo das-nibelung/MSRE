@@ -172,10 +172,10 @@ Fight the forgetting curve by reviewing flashcards & notes using the FSRS or the
 
 #### Native Obsidian knowledge tools
 
-- **Study Base** — run `Personal Spaced Repetition: Create or open study Base` to create a native `.base` file. It includes All cards, Today, Errors, Weak, and No area views; compact or comfortable rows; expandable per-card editing; select-all, bulk deck/tag/area/state actions with Undo; CSV export; and reusable Base snapshots.
-- **Interactive Knowledge Canvas** — `Knowledge Map.canvas` is now a persistent workspace rather than a static export. Its own nodes can toggle smart-filter, area, deck, source, and wiki-link layers; focus a branch; expand a limited source-note branch; edit an area; or assign a deck. Automatic refresh keeps manual positions, annotations, and user edges intact.
+- **Study Base** — run `Personal Spaced Repetition: Create or open study Base` to create a native `.base` file. It includes All cards, Today, Errors, Weak, and No area views; one-row-per-note or one-row-per-card layouts; saved sorts and diagnostic column sets; inline deck/tag/area editing; bulk note-type and template changes; multi-level Undo; editable CSV round trips; and reusable Base snapshots.
+- **Interactive Knowledge Graph + Canvas** — open the live graph to search, filter, collapse, pan, zoom, find the shortest path, drag decks into areas, and create areas or decks in context. Switch to `Knowledge Map.canvas` whenever you want a free-form Obsidian canvas; automatic refresh preserves manual positions, annotations, and user edges.
 - **Knowledge Hub and embeds** — the generated `Knowledge Hub.md` is a live MOC for areas, decks, source notes, and review actions. A `spaced-repetition` Markdown code block embeds a compact study dashboard or linked-note panel in any note.
-- **Properties, menus, links, and previews** — commands and file-menu actions can write `sr_cards`, `sr_due`, `sr_decks`, `sr_areas`, and retention to Obsidian Properties for use by ordinary Bases. Source links target the exact card block, support modifier-click, and use Obsidian Page Preview on hover.
+- **Properties, menus, links, and previews** — `sr_cards`, `sr_due`, `sr_decks`, `sr_areas`, lapses, and retention are synchronized automatically when study data changes, without rewriting unchanged notes. Source links target the exact card block, support modifier-click, and use Obsidian Page Preview on hover.
 
 #### Reviewing Flashcards🗃️
 
