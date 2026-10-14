@@ -407,6 +407,25 @@ export class CommandManager {
         });
 
         this.plugin.addCommand({
+            id: "open-reminder-center",
+            name: "Open Reminder Center",
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await this.uiManager.openReminderCenter();
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "check-review-reminders-now",
+            name: "Check review reminders now",
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                const count = await this.plugin.reminderManager.checkNow();
+                if (!count) new Notice("No reminder rules match right now");
+            },
+        });
+
+        this.plugin.addCommand({
             id: "generate-knowledge-canvas",
             name: "Generate knowledge map Canvas",
             callback: async () => {

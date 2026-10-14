@@ -4,6 +4,7 @@ import {
     CARD_BROWSER_VIEW_TYPE,
     CARD_CREATOR_VIEW_TYPE,
     KNOWLEDGE_GRAPH_VIEW_TYPE,
+    REMINDER_CENTER_VIEW_TYPE,
     SR_TAB_VIEW,
 } from "src/data/constants";
 import { SettingsManager } from "src/data/settings-manager";
@@ -12,6 +13,7 @@ import { CardBrowserView } from "src/ui/card-browser/card-browser-view";
 import { KnowledgeGraphView } from "src/ui/knowledge-graph/knowledge-graph-view";
 import { NativeCreatorRequest, NativeCreatorView } from "src/ui/native-creator/native-creator-view";
 import { SRTabView } from "src/ui/obsidian-ui-components/item-views/sr-tab-view";
+import { ReminderCenterView } from "src/ui/reminders/reminder-center-view";
 import { ReviewQueueLoader } from "src/ui/review-queue-loader";
 import { TabViewType } from "src/utils/types";
 
@@ -60,6 +62,10 @@ export default class TabViewManager {
         {
             type: KNOWLEDGE_GRAPH_VIEW_TYPE,
             viewCreator: (leaf) => new KnowledgeGraphView(leaf, this.plugin),
+        },
+        {
+            type: REMINDER_CENTER_VIEW_TYPE,
+            viewCreator: (leaf) => new ReminderCenterView(leaf, this.plugin),
         },
     ];
 
@@ -114,6 +120,16 @@ export default class TabViewManager {
     public async openKnowledgeGraph(focusId?: string): Promise<void> {
         const leaf = await this.openTabView(KNOWLEDGE_GRAPH_VIEW_TYPE, true);
         if (focusId && leaf?.view instanceof KnowledgeGraphView) leaf.view.focusNode(focusId);
+    }
+
+    public async openReminderCenter(): Promise<void> {
+        await this.openTabView(REMINDER_CENTER_VIEW_TYPE, true);
+    }
+
+    public refreshReminderCenter(): void {
+        for (const leaf of this.plugin.app.workspace.getLeavesOfType(REMINDER_CENTER_VIEW_TYPE)) {
+            if (leaf.view instanceof ReminderCenterView) leaf.view.refresh();
+        }
     }
 
     /**

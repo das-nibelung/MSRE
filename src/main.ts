@@ -73,6 +73,9 @@ export default class SRPlugin extends Plugin {
             this._api = new PersonalSpacedRepetitionApi(this);
             const uiManager = new UIManager(this, settingsManager);
             this.uiManager = uiManager;
+            // Create the coordinator before Obsidian restores saved workspace views. The manager
+            // remains dormant until initialization, but Reminder Center can render safely.
+            this._reminderManager = new ReminderManager(this, this.uiManager, this.dataManager);
             this.commandManager = new CommandManager(this, settingsManager, uiManager);
             this.registerHoverLinkSource(SR_HOVER_SOURCE, {
                 display: "Personal Spaced Repetition",
@@ -179,8 +182,6 @@ export default class SRPlugin extends Plugin {
 
                 await this.uiManager.onLayoutReady();
                 this.commandManager.onLayoutReady();
-                this._reminderManager = new ReminderManager(this, this.uiManager, this.dataManager);
-
                 this.isInitialized = true;
                 this._knowledgeCanvasUpdater = new KnowledgeCanvasAutoUpdater(this);
                 this._knowledgeCanvasUpdater.start();
@@ -279,6 +280,20 @@ export default class SRPlugin extends Plugin {
                         undefined,
                         stableIds,
                     );
+                    return;
+                }
+                if (action === "reminder-center") {
+                    await this.uiManager.openReminderCenter();
+                    return;
+                }
+                if (action === "reminder-snooze") {
+                    await this.reminderManager.snooze(
+                        Math.max(1, Number.parseInt(params.minutes ?? "10", 10) || 10),
+                    );
+                    return;
+                }
+                if (action === "reminder-skip") {
+                    await this.reminderManager.skipToday();
                     return;
                 }
                 const operation = action as AutomationOperationKind;

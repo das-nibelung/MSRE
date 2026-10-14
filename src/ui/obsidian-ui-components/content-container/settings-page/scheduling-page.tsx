@@ -1,7 +1,7 @@
 import { Notice, Setting, SettingGroup } from "obsidian";
 
 import { DataManager } from "src/data/data-manager";
-import { DEFAULT_SETTINGS } from "src/data/settings";
+import { DEFAULT_SETTINGS, ReviewReminderExternalProvider } from "src/data/settings";
 import { SettingsManager } from "src/data/settings-manager";
 import { t, tHTML } from "src/lang/helpers";
 import SRPlugin from "src/main";
@@ -204,6 +204,328 @@ export class SchedulingPage extends SettingsPage {
                             }),
                     );
             });
+
+        const saveReminderPolicy = async (): Promise<void> => {
+            await this.settingsManager.save();
+            this.plugin.reminderManager.restartReviewReminders();
+            this.plugin.uiManager.tabViewManager.refreshReminderCenter();
+        };
+
+        new SettingGroup(this.containerEl)
+            .setHeading("Reminder policy")
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Reminder Center")
+                    .setDesc(
+                        "See study load, focused rules, snooze controls, and delivery history.",
+                    )
+                    .addButton((button) =>
+                        button
+                            .setIcon("bell-ring")
+                            .setButtonText("Open")
+                            .setCta()
+                            .onClick(() => void this.plugin.uiManager.openReminderCenter()),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Active days")
+                    .setDesc("The global reminder can fire only on the selected days.");
+                const labels = ["S", "M", "T", "W", "T", "F", "S"];
+                const strip = setting.controlEl.createDiv("sr-reminder-day-strip");
+                labels.forEach((label, day) => {
+                    const button = strip.createEl("button", { text: label });
+                    const update = (): void =>
+                        button.toggleClass(
+                            "is-active",
+                            this.settingsManager.settings.reviewReminderDays.includes(day),
+                        );
+                    update();
+                    button.addEventListener("click", () => {
+                        const days = this.settingsManager.settings.reviewReminderDays;
+                        if (days.includes(day)) {
+                            if (days.length === 1) {
+                                new Notice("At least one reminder day is required");
+                                return;
+                            }
+                            this.settingsManager.settings.reviewReminderDays = days.filter(
+                                (value) => value !== day,
+                            );
+                        } else {
+                            this.settingsManager.settings.reviewReminderDays = [
+                                ...days,
+                                day,
+                            ].sort();
+                        }
+                        update();
+                        void saveReminderPolicy();
+                    });
+                });
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Exact times")
+                    .setDesc("Optional local times separated by commas, for example 09:00, 18:30.")
+                    .addText((text) =>
+                        text
+                            .setPlaceholder("09:00, 18:30")
+                            .setValue(this.settingsManager.settings.reviewReminderTimes.join(", "))
+                            .onChange((value) => {
+                                this.applySettingsUpdate(async () => {
+                                    this.settingsManager.settings.reviewReminderTimes = value
+                                        .split(",")
+                                        .map((time) => time.trim())
+                                        .filter((time) => /^([01]\d|2[0-3]):[0-5]\d$/.test(time));
+                                    await saveReminderPolicy();
+                                });
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Quiet hours")
+                    .setDesc("No reminders are sent inside this local time window.")
+                    .addToggle((toggle) =>
+                        toggle
+                            .setValue(this.settingsManager.settings.reviewReminderQuietHoursEnabled)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.reviewReminderQuietHoursEnabled =
+                                    value;
+                                await saveReminderPolicy();
+                                this.display();
+                            }),
+                    );
+                if (this.settingsManager.settings.reviewReminderQuietHoursEnabled) {
+                    const range = setting.controlEl.createDiv("sr-reminder-time-range");
+                    const start = range.createEl("input", { type: "time" });
+                    start.value = this.settingsManager.settings.reviewReminderQuietHoursStart;
+                    start.ariaLabel = "Quiet hours start";
+                    const separator = range.createSpan({ text: "–" });
+                    separator.ariaHidden = "true";
+                    const end = range.createEl("input", { type: "time" });
+                    end.value = this.settingsManager.settings.reviewReminderQuietHoursEnd;
+                    end.ariaLabel = "Quiet hours end";
+                    start.addEventListener("change", () => {
+                        this.settingsManager.settings.reviewReminderQuietHoursStart = start.value;
+                        void saveReminderPolicy();
+                    });
+                    end.addEventListener("change", () => {
+                        this.settingsManager.settings.reviewReminderQuietHoursEnd = end.value;
+                        void saveReminderPolicy();
+                    });
+                }
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Minimum ready cards")
+                    .setDesc("Ignore tiny queues below this threshold.")
+                    .addText((text) => {
+                        text.inputEl.type = "number";
+                        text.inputEl.min = "1";
+                        text.setValue(
+                            String(this.settingsManager.settings.reviewReminderMinimumCards),
+                        ).onChange((value) => {
+                            this.applySettingsUpdate(async () => {
+                                this.settingsManager.settings.reviewReminderMinimumCards = Math.max(
+                                    1,
+                                    Number.parseInt(value, 10) || 1,
+                                );
+                                await saveReminderPolicy();
+                            });
+                        });
+                    });
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Cooldown")
+                    .setDesc("Minimum minutes between signals from the same rule.")
+                    .addText((text) => {
+                        text.inputEl.type = "number";
+                        text.inputEl.min = "1";
+                        text.setValue(
+                            String(this.settingsManager.settings.reviewReminderCooldownMinutes),
+                        ).onChange((value) => {
+                            this.applySettingsUpdate(async () => {
+                                this.settingsManager.settings.reviewReminderCooldownMinutes =
+                                    Math.max(1, Number.parseInt(value, 10) || 120);
+                                await saveReminderPolicy();
+                            });
+                        });
+                    });
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Intelligent load forecast")
+                    .setDesc(
+                        "Use due dates, retention, deadlines, and capacity in focused reminder rules.",
+                    )
+                    .addToggle((toggle) =>
+                        toggle
+                            .setValue(this.settingsManager.settings.reviewReminderSmartEnabled)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.reviewReminderSmartEnabled = value;
+                                await saveReminderPolicy();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Planning horizon")
+                    .setDesc("Forecast days and sustainable cards per day.")
+                    .addText((text) => {
+                        text.inputEl.type = "number";
+                        text.inputEl.min = "1";
+                        text.inputEl.max = "30";
+                        text.inputEl.ariaLabel = "Forecast days";
+                        text.setValue(
+                            String(this.settingsManager.settings.reviewReminderForecastDays),
+                        ).onChange((value) => {
+                            this.applySettingsUpdate(async () => {
+                                this.settingsManager.settings.reviewReminderForecastDays = Math.min(
+                                    30,
+                                    Math.max(1, Number.parseInt(value, 10) || 3),
+                                );
+                                await saveReminderPolicy();
+                            });
+                        });
+                    })
+                    .addText((text) => {
+                        text.inputEl.type = "number";
+                        text.inputEl.min = "1";
+                        text.inputEl.ariaLabel = "Daily card capacity";
+                        text.setValue(
+                            String(this.settingsManager.settings.reviewReminderDailyCapacity),
+                        ).onChange((value) => {
+                            this.applySettingsUpdate(async () => {
+                                this.settingsManager.settings.reviewReminderDailyCapacity =
+                                    Math.max(1, Number.parseInt(value, 10) || 50);
+                                await saveReminderPolicy();
+                            });
+                        });
+                    });
+            });
+
+        new SettingGroup(this.containerEl)
+            .setHeading("Reminder delivery")
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("System notification")
+                    .setDesc("Send a desktop notification; opening it starts the matching review.")
+                    .addToggle((toggle) =>
+                        toggle
+                            .setValue(
+                                this.settingsManager.settings.reviewReminderSystemNotification,
+                            )
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.reviewReminderSystemNotification =
+                                    value;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("External channel")
+                    .setDesc(
+                        "Optional self-hosted delivery through ntfy, Gotify, or Home Assistant.",
+                    )
+                    .addDropdown((dropdown) =>
+                        dropdown
+                            .addOptions({
+                                off: "Off",
+                                ntfy: "ntfy",
+                                gotify: "Gotify",
+                                "home-assistant": "Home Assistant webhook",
+                            })
+                            .setValue(this.settingsManager.settings.reviewReminderExternalProvider)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.reviewReminderExternalProvider =
+                                    value as ReviewReminderExternalProvider;
+                                await this.settingsManager.save();
+                                this.display();
+                            }),
+                    );
+            });
+
+        if (this.settingsManager.settings.reviewReminderExternalProvider !== "off") {
+            new SettingGroup(this.containerEl)
+                .setHeading("External channel connection")
+                .addSetting((setting: Setting) => {
+                    setting
+                        .setName("Endpoint")
+                        .setDesc(
+                            "Server URL or webhook URL. Gotify endpoints should end in /message.",
+                        )
+                        .addText((text) =>
+                            text
+                                .setPlaceholder("https://…")
+                                .setValue(
+                                    this.settingsManager.settings.reviewReminderExternalEndpoint,
+                                )
+                                .onChange((value) => {
+                                    this.applySettingsUpdate(async () => {
+                                        this.settingsManager.settings.reviewReminderExternalEndpoint =
+                                            value.trim();
+                                        await this.settingsManager.save();
+                                    });
+                                }),
+                        );
+                })
+                .addSetting((setting: Setting) => {
+                    setting
+                        .setName("Topic")
+                        .setDesc("Used by ntfy. Leave empty for Gotify and Home Assistant.")
+                        .addText((text) =>
+                            text
+                                .setValue(this.settingsManager.settings.reviewReminderExternalTopic)
+                                .onChange((value) => {
+                                    this.applySettingsUpdate(async () => {
+                                        this.settingsManager.settings.reviewReminderExternalTopic =
+                                            value.trim();
+                                        await this.settingsManager.save();
+                                    });
+                                }),
+                        );
+                })
+                .addSetting((setting: Setting) => {
+                    setting
+                        .setName("Access token")
+                        .setDesc("Stored only on this device, outside synced plugin settings.")
+                        .addText((text) => {
+                            text.inputEl.type = "password";
+                            text.setValue(this.plugin.reminderManager.getExternalToken()).onChange(
+                                (value) => this.plugin.reminderManager.setExternalToken(value),
+                            );
+                        });
+                })
+                .addSetting((setting: Setting) => {
+                    setting
+                        .setName("Connection test")
+                        .setDesc(
+                            "Send one harmless test notification through the selected channel.",
+                        )
+                        .addButton((button) =>
+                            button
+                                .setButtonText("Send test")
+                                .setCta()
+                                .onClick(
+                                    () =>
+                                        void this.plugin.reminderManager
+                                            .testExternalDelivery()
+                                            .catch(
+                                                (error: unknown) =>
+                                                    new Notice(
+                                                        `Delivery failed: ${
+                                                            error instanceof Error
+                                                                ? error.message
+                                                                : "Unknown error"
+                                                        }`,
+                                                    ),
+                                            ),
+                                ),
+                        );
+                });
+        }
 
         const algorithmGroup = new SettingGroup(this.containerEl).setHeading(t("ALGORITHM"));
 

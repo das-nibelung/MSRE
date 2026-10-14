@@ -26,6 +26,24 @@ validated operations through MSRE instead of editing the collection directly.
 Enable the API, write access, and MCP queue independently in **Settings → Data**.
 See [the API guide](docs/automation-api.md) and [MCP setup](mcp/README.md).
 
+## Review reminders
+
+The **Reminder Center** turns reminders into a small study control panel rather
+than a wall of settings. Open it from the command palette to inspect today's
+load, the short forecast, weak cards, focused rules, and delivery history.
+Global reminders support selected weekdays, exact local times, quiet hours,
+minimum-card thresholds, cooldowns, and one-tap snooze or skip-until-tomorrow.
+Additional rules can target one deck or knowledge area and react to overload,
+the upcoming forecast, an area deadline, or weak cards.
+
+Delivery can stay completely local through Obsidian notices and desktop system
+notifications. Optional self-hosted delivery supports **ntfy**, **Gotify**, and
+**Home Assistant**. External messages include an `obsidian://msre` link that
+opens the matching review queue on mobile. Connection tokens remain in local
+device storage and are never written into synced plugin data. Configure the
+schedule and channels in **Settings → Scheduling → Reminder policy**, then use
+**Send test** before relying on an external channel.
+
 ## Obsidian-native card workflow
 
 The fork includes a persistent **Cards** view that uses the already-loaded

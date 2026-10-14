@@ -14,6 +14,7 @@ import {
 
 import { DataStore } from "src/data/data-store/base/data-store";
 import { Card } from "src/data/data-structures/card/card";
+import { ReminderHistoryEntry } from "src/data/plugin-data";
 import { SettingsManager } from "src/data/settings-manager";
 import { appIcon } from "src/icons/app-icon";
 import { t } from "src/lang/helpers";
@@ -78,6 +79,7 @@ export class UIManager {
     private settingsManager: SettingsManager;
     private ribbonIcon: HTMLElement | null = null;
     private externalModalObserver: MutationObserver | null = null;
+    private reminderBannerEl: HTMLElement | null = null;
 
     constructor(plugin: SRPlugin, settingsManager: SettingsManager) {
         this.plugin = plugin;
@@ -130,6 +132,8 @@ export class UIManager {
 
     public destroy() {
         this.removeSRFocusListener();
+        this.reminderBannerEl?.remove();
+        this.reminderBannerEl = null;
     }
 
     public async updateStatusBar() {
@@ -304,10 +308,12 @@ export class UIManager {
      * Notice, sound, dock bounce, and optional auto-open are deliberately separated so users can
      * enable only the channels that make sense for their workflow.
      */
-    public async notifyReviewReminder(): Promise<void> {
+    public async notifyReviewReminder(messageOverride = ""): Promise<void> {
         const settings = this.settingsManager.settings;
         const reminderMessage =
-            settings.reviewReminderMessage.trim() || t("REVIEW_REMINDER_NOTICE");
+            messageOverride.trim() ||
+            settings.reviewReminderMessage.trim() ||
+            t("REVIEW_REMINDER_NOTICE");
         // This method only dispatches reminder channels. The decision to auto-open review remains
         // in the scheduler layer so the UI manager is not responsible for reminder policy.
         if (settings.reviewReminderShowNotice) {
@@ -319,6 +325,48 @@ export class UIManager {
         if (settings.reviewReminderBounceDock) {
             this.bounceDockIcon();
         }
+    }
+
+    public showReminderActionBanner(
+        entry: ReminderHistoryEntry,
+        actions: { start: () => void; snooze: () => void; skip: () => void },
+    ): void {
+        this.reminderBannerEl?.remove();
+        const banner = activeDocument.body.createDiv("sr-reminder-action-banner");
+        this.reminderBannerEl = banner;
+        const copy = banner.createDiv("sr-reminder-banner-copy");
+        copy.createEl("strong", { text: entry.title });
+        copy.createSpan({ text: entry.message });
+        const controls = banner.createDiv("sr-reminder-banner-actions");
+        const addAction = (label: string, className: string, callback: () => void): void => {
+            const button = controls.createEl("button", { cls: className, text: label });
+            button.addEventListener("click", () => {
+                banner.remove();
+                this.reminderBannerEl = null;
+                callback();
+            });
+        };
+        addAction("Start", "mod-cta", actions.start);
+        addAction("10 min", "", actions.snooze);
+        addAction("Today", "", actions.skip);
+        const close = banner.createEl("button", {
+            cls: "clickable-icon sr-reminder-banner-close",
+            attr: { "aria-label": "Close reminder" },
+            text: "×",
+        });
+        close.addEventListener("click", () => {
+            banner.remove();
+            this.reminderBannerEl = null;
+        });
+        window.setTimeout(() => {
+            if (this.reminderBannerEl === banner) {
+                banner.addClass("is-expiring");
+                window.setTimeout(() => {
+                    banner.remove();
+                    if (this.reminderBannerEl === banner) this.reminderBannerEl = null;
+                }, 250);
+            }
+        }, 20_000);
     }
 
     /**
@@ -489,6 +537,10 @@ export class UIManager {
 
     public async openKnowledgeGraph(focusId?: string): Promise<void> {
         await this.tabViewManager.openKnowledgeGraph(focusId);
+    }
+
+    public async openReminderCenter(): Promise<void> {
+        await this.tabViewManager.openReminderCenter();
     }
 
     public async openNativeCardEditor(card: Card, deckPath?: string): Promise<void> {

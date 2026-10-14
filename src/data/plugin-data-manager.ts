@@ -85,6 +85,20 @@ export class PluginDataManager {
                     ? this._pluginData.knowledgeGraphView.positions
                     : {},
         };
+        this._pluginData.reminderState = {
+            ...DEFAULT_DATA.reminderState,
+            ...(this._pluginData.reminderState ?? {}),
+            history: Array.isArray(this._pluginData.reminderState?.history)
+                ? this._pluginData.reminderState.history.slice(0, 500)
+                : [],
+            lastSentAt:
+                this._pluginData.reminderState?.lastSentAt &&
+                typeof this._pluginData.reminderState.lastSentAt === "object"
+                    ? this._pluginData.reminderState.lastSentAt
+                    : {},
+            snoozedUntil: Number(this._pluginData.reminderState?.snoozedUntil) || 0,
+            skippedUntil: Number(this._pluginData.reminderState?.skippedUntil) || 0,
+        };
         this._pluginData.managedDecks = Array.isArray(this._pluginData.managedDecks)
             ? [...new Set(this._pluginData.managedDecks.filter((path) => typeof path === "string"))]
             : [];

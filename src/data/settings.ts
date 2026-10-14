@@ -3,6 +3,24 @@ import { t } from "src/lang/helpers";
 import { SRAlgorithmType } from "src/scheduling/algorithms/base/isr-algorithm";
 import { pathMatchesPattern } from "src/utils/fs";
 
+export type ReviewReminderScope = "all" | "deck" | "area";
+export type ReviewReminderSmartMode = "none" | "overload" | "forecast" | "deadline" | "weak";
+export type ReviewReminderExternalProvider = "off" | "ntfy" | "gotify" | "home-assistant";
+
+export interface ReviewReminderRule {
+    id: string;
+    name: string;
+    enabled: boolean;
+    scope: ReviewReminderScope;
+    scopeValue: string;
+    days: number[];
+    times: string[];
+    minimumCards: number;
+    cooldownMinutes: number;
+    smartMode: ReviewReminderSmartMode;
+    message: string;
+}
+
 export interface SRSettings {
     // flashcards
     flashcardTags: string[];
@@ -25,8 +43,7 @@ export interface SRSettings {
     multilineReversedCardSeparator: string;
     multilineCardEndMarker: string;
     editLaterTag: string | undefined;
-    // Reminder settings are intentionally limited to "when and how to nudge the user back
-    // into review". They do not model richer calendar-style scheduling for reminder delivery.
+    // Review reminder policy, delivery channels, and scoped rules.
     enableReviewReminders: boolean;
     reviewReminderIntervalMinutes: number;
     reviewReminderCheckOnStartup: boolean;
@@ -35,6 +52,22 @@ export interface SRSettings {
     reviewReminderShowNotice: boolean;
     reviewReminderPlaySound: boolean;
     reviewReminderBounceDock: boolean;
+    reviewReminderDays: number[];
+    reviewReminderTimes: string[];
+    reviewReminderQuietHoursEnabled: boolean;
+    reviewReminderQuietHoursStart: string;
+    reviewReminderQuietHoursEnd: string;
+    reviewReminderCooldownMinutes: number;
+    reviewReminderMinimumCards: number;
+    reviewReminderSmartEnabled: boolean;
+    reviewReminderForecastDays: number;
+    reviewReminderDailyCapacity: number;
+    reviewReminderSystemNotification: boolean;
+    reviewReminderExternalProvider: ReviewReminderExternalProvider;
+    reviewReminderExternalEndpoint: string;
+    reviewReminderExternalTopic: string;
+    reviewReminderHistoryLimit: number;
+    reviewReminderRules: ReviewReminderRule[];
 
     // notes
     enableNoteReviewPaneOnStartup: boolean;
@@ -156,6 +189,22 @@ export const DEFAULT_SETTINGS: SRSettings = {
     reviewReminderShowNotice: true,
     reviewReminderPlaySound: true,
     reviewReminderBounceDock: true,
+    reviewReminderDays: [0, 1, 2, 3, 4, 5, 6],
+    reviewReminderTimes: [],
+    reviewReminderQuietHoursEnabled: false,
+    reviewReminderQuietHoursStart: "22:00",
+    reviewReminderQuietHoursEnd: "08:00",
+    reviewReminderCooldownMinutes: 120,
+    reviewReminderMinimumCards: 1,
+    reviewReminderSmartEnabled: true,
+    reviewReminderForecastDays: 3,
+    reviewReminderDailyCapacity: 50,
+    reviewReminderSystemNotification: false,
+    reviewReminderExternalProvider: "off",
+    reviewReminderExternalEndpoint: "",
+    reviewReminderExternalTopic: "",
+    reviewReminderHistoryLimit: 100,
+    reviewReminderRules: [],
     randomizeCardOrder: undefined,
 
     // notes
@@ -374,6 +423,86 @@ export function upgradeSettings(settings: SRSettings) {
     ) {
         settings.reviewReminderBounceDock = DEFAULT_SETTINGS.reviewReminderBounceDock;
     }
+
+    settings.reviewReminderDays = Array.isArray(settings.reviewReminderDays)
+        ? [
+              ...new Set(
+                  settings.reviewReminderDays.map(Number).filter((day) => day >= 0 && day <= 6),
+              ),
+          ]
+        : [...DEFAULT_SETTINGS.reviewReminderDays];
+    settings.reviewReminderTimes = Array.isArray(settings.reviewReminderTimes)
+        ? settings.reviewReminderTimes
+              .map(String)
+              .filter((time) => /^([01]\d|2[0-3]):[0-5]\d$/.test(time))
+        : [];
+    settings.reviewReminderQuietHoursEnabled = settings.reviewReminderQuietHoursEnabled === true;
+    settings.reviewReminderQuietHoursStart = /^([01]\d|2[0-3]):[0-5]\d$/.test(
+        String(settings.reviewReminderQuietHoursStart ?? ""),
+    )
+        ? String(settings.reviewReminderQuietHoursStart)
+        : DEFAULT_SETTINGS.reviewReminderQuietHoursStart;
+    settings.reviewReminderQuietHoursEnd = /^([01]\d|2[0-3]):[0-5]\d$/.test(
+        String(settings.reviewReminderQuietHoursEnd ?? ""),
+    )
+        ? String(settings.reviewReminderQuietHoursEnd)
+        : DEFAULT_SETTINGS.reviewReminderQuietHoursEnd;
+    settings.reviewReminderCooldownMinutes = Math.max(
+        1,
+        Math.min(10_080, Number(settings.reviewReminderCooldownMinutes) || 120),
+    );
+    settings.reviewReminderMinimumCards = Math.max(
+        1,
+        Math.min(100_000, Number(settings.reviewReminderMinimumCards) || 1),
+    );
+    settings.reviewReminderSmartEnabled = settings.reviewReminderSmartEnabled !== false;
+    settings.reviewReminderForecastDays = Math.max(
+        1,
+        Math.min(30, Number(settings.reviewReminderForecastDays) || 3),
+    );
+    settings.reviewReminderDailyCapacity = Math.max(
+        1,
+        Math.min(10_000, Number(settings.reviewReminderDailyCapacity) || 50),
+    );
+    settings.reviewReminderSystemNotification = settings.reviewReminderSystemNotification === true;
+    settings.reviewReminderExternalProvider = ["ntfy", "gotify", "home-assistant"].includes(
+        String(settings.reviewReminderExternalProvider),
+    )
+        ? (settings.reviewReminderExternalProvider as ReviewReminderExternalProvider)
+        : "off";
+    settings.reviewReminderExternalEndpoint = String(settings.reviewReminderExternalEndpoint ?? "");
+    settings.reviewReminderExternalTopic = String(settings.reviewReminderExternalTopic ?? "");
+    settings.reviewReminderHistoryLimit = Math.max(
+        20,
+        Math.min(500, Number(settings.reviewReminderHistoryLimit) || 100),
+    );
+    settings.reviewReminderRules = Array.isArray(settings.reviewReminderRules)
+        ? settings.reviewReminderRules
+              .filter((rule) => rule && typeof rule === "object")
+              .map((rule, index) => ({
+                  id: String(rule.id || `reminder-rule-${index}`),
+                  name: String(rule.name || "Reminder rule"),
+                  enabled: rule.enabled !== false,
+                  scope: (["deck", "area"].includes(rule.scope)
+                      ? rule.scope
+                      : "all") as ReviewReminderScope,
+                  scopeValue: String(rule.scopeValue ?? ""),
+                  days: Array.isArray(rule.days)
+                      ? [...new Set(rule.days.map(Number).filter((day) => day >= 0 && day <= 6))]
+                      : [...DEFAULT_SETTINGS.reviewReminderDays],
+                  times: Array.isArray(rule.times)
+                      ? rule.times
+                            .map(String)
+                            .filter((time) => /^([01]\d|2[0-3]):[0-5]\d$/.test(time))
+                      : [],
+                  minimumCards: Math.max(1, Number(rule.minimumCards) || 1),
+                  cooldownMinutes: Math.max(1, Number(rule.cooldownMinutes) || 120),
+                  smartMode: (["overload", "forecast", "deadline", "weak"].includes(rule.smartMode)
+                      ? rule.smartMode
+                      : "none") as ReviewReminderSmartMode,
+                  message: String(rule.message ?? ""),
+              }))
+        : [];
 }
 
 export class SettingsUtil {

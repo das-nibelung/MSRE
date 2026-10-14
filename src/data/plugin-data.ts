@@ -99,6 +99,30 @@ export interface KnowledgeGraphViewState {
     positions: Record<string, { x: number; y: number }>;
 }
 
+export interface ReminderHistoryEntry {
+    id: string;
+    createdAt: number;
+    ruleId: string;
+    title: string;
+    message: string;
+    scope: "all" | "deck" | "area";
+    scopeValue: string;
+    due: number;
+    newCards: number;
+    forecast: number;
+    delivery: string[];
+    status: "sent" | "snoozed" | "skipped" | "failed";
+    deepLink: string;
+    readAt?: number;
+}
+
+export interface ReminderRuntimeState {
+    history: ReminderHistoryEntry[];
+    lastSentAt: Record<string, number>;
+    snoozedUntil: number;
+    skippedUntil: number;
+}
+
 export interface PluginData {
     settings: SRSettings;
     buryDate: string;
@@ -119,6 +143,8 @@ export interface PluginData {
     knowledgeCanvasView: KnowledgeCanvasViewState;
     /** Layout and visibility preferences for the live interactive knowledge graph. */
     knowledgeGraphView: KnowledgeGraphViewState;
+    /** Durable notification history and scheduler state; secrets remain device-local. */
+    reminderState: ReminderRuntimeState;
     scheduleData: ISerializedScheduleData;
 }
 
@@ -151,6 +177,12 @@ export const DEFAULT_DATA: PluginData = {
         panX: 24,
         panY: 24,
         positions: {},
+    },
+    reminderState: {
+        history: [],
+        lastSentAt: {},
+        snoozedUntil: 0,
+        skippedUntil: 0,
     },
     scheduleData: {
         version: 1,
