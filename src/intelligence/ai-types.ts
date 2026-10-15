@@ -41,6 +41,16 @@ export interface AiContextNote {
     excerpt: string;
 }
 
+export interface AiAttachment {
+    name: string;
+    mimeType: string;
+    kind: "image" | "audio";
+    /** Vault-local path remains useful to MCP and registered Obsidian providers. */
+    vaultPath: string;
+    /** Direct API providers receive an in-memory data URL; it is never persisted. */
+    dataUrl?: string;
+}
+
 export interface AiAssistantRequest {
     id: string;
     task: AiAssistantTask;
@@ -56,6 +66,7 @@ export interface AiAssistantRequest {
     maximumCards: number;
     /** Read-only candidates selected locally; they may be used only as prerequisite references. */
     contextNotes?: AiContextNote[];
+    attachments?: AiAttachment[];
 }
 
 export interface AiAssistantResult {

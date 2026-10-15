@@ -3,6 +3,7 @@ import { PaneType, WorkspaceLeaf } from "obsidian";
 import {
     CARD_BROWSER_VIEW_TYPE,
     CARD_CREATOR_VIEW_TYPE,
+    INTELLIGENCE_CENTER_VIEW_TYPE,
     KNOWLEDGE_COMPILER_VIEW_TYPE,
     KNOWLEDGE_GRAPH_VIEW_TYPE,
     REMINDER_CENTER_VIEW_TYPE,
@@ -12,6 +13,7 @@ import {
 import { SettingsManager } from "src/data/settings-manager";
 import SRPlugin from "src/main";
 import { CardBrowserView } from "src/ui/card-browser/card-browser-view";
+import { IntelligenceCenterView } from "src/ui/intelligence/intelligence-center-view";
 import { KnowledgeCompilerView } from "src/ui/knowledge-compiler/knowledge-compiler-view";
 import { KnowledgeGraphView } from "src/ui/knowledge-graph/knowledge-graph-view";
 import { NativeCreatorRequest, NativeCreatorView } from "src/ui/native-creator/native-creator-view";
@@ -79,6 +81,10 @@ export default class TabViewManager {
             type: REVIEW_PLAN_VIEW_TYPE,
             viewCreator: (leaf) => new ReviewPlanView(leaf, this.plugin),
         },
+        {
+            type: INTELLIGENCE_CENTER_VIEW_TYPE,
+            viewCreator: (leaf) => new IntelligenceCenterView(leaf, this.plugin),
+        },
     ];
 
     // Add any needed resource
@@ -143,6 +149,10 @@ export default class TabViewManager {
 
     public async openReminderCenter(): Promise<void> {
         await this.openTabView(REMINDER_CENTER_VIEW_TYPE, true);
+    }
+
+    public async openIntelligenceCenter(): Promise<void> {
+        await this.openTabView(INTELLIGENCE_CENTER_VIEW_TYPE, true);
     }
 
     public async openReviewPlan(reviewQueueLoader: ReviewQueueLoader): Promise<void> {

@@ -416,6 +416,15 @@ export class CommandManager {
         });
 
         this.plugin.addCommand({
+            id: "open-intelligence-center",
+            name: "Open Intelligence Center",
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await this.uiManager.openIntelligenceCenter();
+            },
+        });
+
+        this.plugin.addCommand({
             id: "check-review-reminders-now",
             name: "Check review reminders now",
             callback: async () => {

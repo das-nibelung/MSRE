@@ -885,6 +885,10 @@ export class CardBrowserView extends ItemView {
         semantic.buttonEl.addClass("sr-card-browser-semantic-toggle");
         semantic.buttonEl.toggleClass("is-active", this.semanticSearch);
         new ButtonComponent(primary)
+            .setIcon("brain-circuit")
+            .setTooltip(uiText("Audit collection", "Аудит коллекции"))
+            .onClick(() => void this.plugin.uiManager.openIntelligenceCenter());
+        new ButtonComponent(primary)
             .setIcon("circle-help")
             .setTooltip(uiText("Search language", "Язык поиска"))
             .onClick(() => this.openQueryHelp());

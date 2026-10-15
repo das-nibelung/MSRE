@@ -29,6 +29,7 @@ export default {
         "src/automation/",
         "src/intelligence/ai-assistant.ts",
         "src/intelligence/ai-types.ts",
+        "src/intelligence/source-ingestion.ts",
         "src/scheduling/reminder-manager.ts",
         "src/data/data-manager.ts",
         "src/data/debug-logger.ts",

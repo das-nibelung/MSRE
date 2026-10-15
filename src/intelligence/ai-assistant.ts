@@ -153,6 +153,11 @@ function promptFor(request: AiAssistantRequest): { system: string; user: string 
               .map((note) => `- ${note.path} | ${note.title} | ${note.excerpt}`)
               .join("\n")}`
         : "";
+    const attachments = request.attachments?.length
+        ? `\nATTACHMENTS\n${request.attachments
+              .map((attachment) => `- ${attachment.name} (${attachment.mimeType})`)
+              .join("\n")}`
+        : "";
     return {
         system: [
             "You are the AI co-author inside MSRE, a file-native spaced-repetition plugin.",
@@ -164,8 +169,51 @@ function promptFor(request: AiAssistantRequest): { system: string; user: string 
             "For non-compiler card tasks, knowledge metadata may be empty strings, empty arrays, and confidence 0.",
             "Return only JSON with {summary,cards,replacement,acceptedAnswers,hint,explanation}. Use empty strings/arrays for fields not used by the task.",
         ].join("\n"),
-        user: [current, context, `\nSOURCE\n${request.sourceText}`].join("\n"),
+        user: [current, context, attachments, `\nSOURCE\n${request.sourceText}`].join("\n"),
     };
+}
+
+function dataUrlParts(value: string): { data: string; mimeType: string } | null {
+    const match = value.match(/^data:([^;,]+);base64,(.+)$/s);
+    return match ? { mimeType: match[1], data: match[2] } : null;
+}
+
+function chatUserContent(request: AiAssistantRequest, text: string): unknown {
+    const media: unknown[] = [];
+    for (const attachment of request.attachments ?? []) {
+        if (!attachment.dataUrl) continue;
+        if (attachment.kind === "image") {
+            media.push({ type: "image_url", ["image_url"]: { url: attachment.dataUrl } });
+            continue;
+        }
+        const parsed = dataUrlParts(attachment.dataUrl);
+        if (!parsed) continue;
+        const extension = attachment.name.split(".").pop()?.toLocaleLowerCase() || "wav";
+        media.push({
+            type: "input_audio",
+            ["input_audio"]: { data: parsed.data, format: extension },
+        });
+    }
+    return media.length ? [{ type: "text", text }, ...media] : text;
+}
+
+function responsesUserContent(request: AiAssistantRequest, text: string): unknown[] {
+    const content: unknown[] = [{ type: "input_text", text }];
+    for (const attachment of request.attachments ?? []) {
+        if (!attachment.dataUrl) continue;
+        if (attachment.kind === "image") {
+            content.push({ type: "input_image", ["image_url"]: attachment.dataUrl });
+            continue;
+        }
+        const parsed = dataUrlParts(attachment.dataUrl);
+        if (!parsed) continue;
+        const extension = attachment.name.split(".").pop()?.toLocaleLowerCase() || "wav";
+        content.push({
+            type: "input_audio",
+            ["input_audio"]: { data: parsed.data, format: extension },
+        });
+    }
+    return content;
 }
 
 class AiMcpBridge {
@@ -192,6 +240,9 @@ class AiMcpBridge {
         const responsePath = normalizePath(`${this.responsesPath}/${request.id}.response.json`);
         const payload: AiBridgeRequest = {
             ...request,
+            attachments: request.attachments?.map(
+                ({ dataUrl: _dataUrl, ...attachment }) => attachment,
+            ),
             version: 1,
             requestedAt: Date.now(),
             responseSchema: "msre-ai-cards-v1",
@@ -349,7 +400,7 @@ export class AiAssistantService {
                       model: settings.aiApiModel,
                       messages: [
                           { role: "system", content: prompt.system },
-                          { role: "user", content: prompt.user },
+                          { role: "user", content: chatUserContent(request, prompt.user) },
                       ],
                       ["response_format"]: { type: "json_object" },
                   }
@@ -362,7 +413,7 @@ export class AiAssistantService {
                           },
                           {
                               role: "user",
-                              content: [{ type: "input_text", text: prompt.user }],
+                              content: responsesUserContent(request, prompt.user),
                           },
                       ],
                       text: {

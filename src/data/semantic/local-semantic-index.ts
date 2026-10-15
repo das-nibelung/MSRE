@@ -551,6 +551,14 @@ export class SemanticIndexService {
         return this.index.search(query, { limit });
     }
 
+    related(id: string, limit = 8): SemanticMatch[] {
+        return this.index.related(id, limit);
+    }
+
+    documents(): SemanticDocument[] {
+        return this.index.getRecords().map(publicDocument);
+    }
+
     suggest(query: string, excludeId?: string): SemanticSuggestions {
         return this.index.suggest(query, excludeId);
     }
