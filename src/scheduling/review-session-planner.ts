@@ -44,6 +44,83 @@ export interface KnowledgeDependencyEdge {
     source: "frontmatter" | "compiler" | "manual";
 }
 
+export interface ReviewPlanInsight {
+    cardId: string;
+    stableId: string | null;
+    kind: "prerequisite" | "dependent" | "learning" | "overdue" | "new" | "scheduled";
+    headline: string;
+    detail: string;
+    score: number;
+    unlocks: string[];
+    blockedBy: string[];
+}
+
+export function explainPlannedCard(item: PlannedCard, now = Date.now()): ReviewPlanInsight {
+    const stableId = item.card.legacyStableId;
+    if (item.dependencyBoost > 0) {
+        return {
+            cardId: item.card.id,
+            stableId,
+            kind: "prerequisite",
+            headline: "Prerequisite first",
+            detail: `Reviewing this now unlocks ${item.unlocks.length} dependent knowledge ${item.unlocks.length === 1 ? "path" : "paths"}.`,
+            score: item.score,
+            unlocks: item.unlocks,
+            blockedBy: item.blockedBy,
+        };
+    }
+    if (item.blockedBy.length > 0) {
+        return {
+            cardId: item.card.id,
+            stableId,
+            kind: "dependent",
+            headline: "Dependent knowledge",
+            detail: `${item.blockedBy.length} weak ${item.blockedBy.length === 1 ? "prerequisite is" : "prerequisites are"} scheduled before this card.`,
+            score: item.score,
+            unlocks: item.unlocks,
+            blockedBy: item.blockedBy,
+        };
+    }
+    if (item.card.queue === "learning" || item.card.queue === "relearning") {
+        return {
+            cardId: item.card.id,
+            stableId,
+            kind: "learning",
+            headline: "Learning step",
+            detail: "This card is in an active learning sequence and should not wait.",
+            score: item.score,
+            unlocks: [],
+            blockedBy: [],
+        };
+    }
+    if (item.card.queue === "new") {
+        return {
+            cardId: item.card.id,
+            stableId,
+            kind: "new",
+            headline: "New knowledge",
+            detail: "Selected inside today’s new-card and time limits.",
+            score: item.score,
+            unlocks: [],
+            blockedBy: [],
+        };
+    }
+    const overdueDays = item.dueAt === null ? 0 : Math.max(0, Math.floor((now - item.dueAt) / DAY));
+    return {
+        cardId: item.card.id,
+        stableId,
+        kind: overdueDays > 0 ? "overdue" : "scheduled",
+        headline: overdueDays > 0 ? `${overdueDays}d overdue` : "Memory due",
+        detail:
+            overdueDays > 0
+                ? "Forgetting risk and overdue time raised this card in the queue."
+                : "The scheduler placed this card inside the current review horizon.",
+        score: item.score,
+        unlocks: [],
+        blockedBy: [],
+    };
+}
+
 export function averageReviewDuration(reviewLog: ReviewLogData): number {
     const recent = Object.values(reviewLog.entries)
         .filter((entry) => !entry.deletedAt && entry.durationMs !== null && entry.durationMs > 0)

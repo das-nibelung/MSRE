@@ -3,6 +3,7 @@ import { SRAlgorithmType } from "src/scheduling/algorithms/base/isr-algorithm";
 import {
     averageReviewDuration,
     cardDueAt,
+    explainPlannedCard,
     planReviewSession,
 } from "src/scheduling/review-session-planner";
 
@@ -289,6 +290,15 @@ describe("review session planner", () => {
         expect(cards[0].dependencyBoost).toBeGreaterThan(0);
         expect(cards[0].unlocks).toEqual(["Medicine/Diagnosis.md"]);
         expect(cards[1].blockedBy).toEqual(["Medicine/Foundation.md"]);
+        expect(explainPlannedCard(cards[0], now)).toMatchObject({
+            kind: "prerequisite",
+            headline: "Prerequisite first",
+            unlocks: ["Medicine/Diagnosis.md"],
+        });
+        expect(explainPlannedCard(cards[1], now)).toMatchObject({
+            kind: "dependent",
+            blockedBy: ["Medicine/Foundation.md"],
+        });
     });
 
     test("honors the daily-limit baseline and does not pull a strong prerequisite", () => {

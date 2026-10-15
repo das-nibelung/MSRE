@@ -26,6 +26,7 @@ import type SRPlugin from "src/main";
 import { RepItemScheduleInfo } from "src/scheduling/algorithms/base/rep-item-schedule-info";
 import { ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
+import { ReviewPlanInsight } from "src/scheduling/review-session-planner";
 import ContextSectionComponent from "src/ui/obsidian-ui-components/content-container/card-container/context-section/context-section";
 import ResponseSectionComponent from "src/ui/obsidian-ui-components/content-container/card-container/response-section/response-section";
 import CardToolbarComponent from "src/ui/obsidian-ui-components/content-container/card-container/toolbar/toolbar";
@@ -75,6 +76,7 @@ export class CardContainer {
     private postponeCurrentCardHandler: () => Promise<void>;
     private suspendCurrentCardHandler: () => Promise<void>;
     private setCurrentCardFlagHandler: (flag: CardFlag) => Promise<void>;
+    private getPlanInsight: (stableId: string | null) => ReviewPlanInsight | null;
     private gestureStart: {
         pointerId: number;
         x: number;
@@ -120,6 +122,7 @@ export class CardContainer {
         suspendCurrentCardHandler: () => Promise<void>,
         setCurrentCardFlagHandler: (flag: CardFlag) => Promise<void>,
         undoLastReviewHandler: () => Promise<void>,
+        getPlanInsight: (stableId: string | null) => ReviewPlanInsight | null,
         closeModal?: () => void,
     ) {
         // Init properties
@@ -138,6 +141,7 @@ export class CardContainer {
         this.postponeCurrentCardHandler = postponeCurrentCardHandler;
         this.suspendCurrentCardHandler = suspendCurrentCardHandler;
         this.setCurrentCardFlagHandler = setCurrentCardFlagHandler;
+        this.getPlanInsight = getPlanInsight;
 
         // Build ui
         this.view = parentEl.createDiv();
@@ -304,6 +308,8 @@ export class CardContainer {
         const cardSurface = this.content.createDiv("sr-study-card");
         this.applyNoteTypeAppearance(cardSurface, sessionData);
 
+        this.renderPlanInsight(cardSurface, sessionData.cardData.currentCard.stableId);
+
         // Create context section
         this.drawCardContext(sessionData, settings, cardSurface);
 
@@ -346,6 +352,33 @@ export class CardContainer {
         }
         // Set scroll position back to top
         this.content.scrollTop = 0;
+    }
+
+    private renderPlanInsight(cardSurface: HTMLElement, stableId: string | null): void {
+        const insight = this.getPlanInsight(stableId);
+        if (!insight) return;
+        const explanation = cardSurface.createEl("details", {
+            cls: `sr-review-plan-explanation is-${insight.kind}`,
+        });
+        if (insight.kind === "prerequisite" || insight.kind === "dependent") {
+            explanation.open = true;
+        }
+        const summary = explanation.createEl("summary");
+        const icon = summary.createSpan();
+        setIcon(icon, insight.kind === "prerequisite" ? "git-branch-plus" : "route");
+        const copy = summary.createSpan();
+        copy.createEl("strong", { text: insight.headline });
+        copy.createSpan({ text: insight.detail });
+        const details = explanation.createDiv("sr-review-plan-details");
+        if (insight.unlocks.length) {
+            details.createEl("span", { text: "UNLOCKS" });
+            insight.unlocks.forEach((path) => details.createEl("code", { text: path }));
+        }
+        if (insight.blockedBy.length) {
+            details.createEl("span", { text: "WAITING FOR" });
+            insight.blockedBy.forEach((path) => details.createEl("code", { text: path }));
+        }
+        details.createEl("small", { text: `Plan score ${Math.round(insight.score)}` });
     }
 
     private getAnswerContext(sessionData: SessionData): AnswerEvaluationContext | null {

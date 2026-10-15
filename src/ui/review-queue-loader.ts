@@ -25,7 +25,9 @@ import {
 import {
     applyStableIdPlanToQueue,
     averageReviewDuration,
+    explainPlannedCard,
     planReviewSession,
+    ReviewPlanInsight,
 } from "src/scheduling/review-session-planner";
 import { collectKnowledgeDependencies } from "src/ui/obsidian-integrations/knowledge-dependencies";
 import { globalDateProvider } from "src/utils/dates";
@@ -185,6 +187,7 @@ export class ReviewQueueLoader {
     private reviewMode: FlashcardReviewMode;
     private customStudyOptions: CustomStudyOptions | null = null;
     private selectedStableIds: Set<string> | null = null;
+    private planInsights = new Map<string, ReviewPlanInsight>();
 
     constructor(
         plugin: SRPlugin,
@@ -216,6 +219,14 @@ export class ReviewQueueLoader {
 
     setSelectedStableIds(stableIds: Iterable<string> | null): void {
         this.selectedStableIds = stableIds === null ? null : new Set(stableIds);
+    }
+
+    getPlanInsight(stableId: string | null | undefined): ReviewPlanInsight | null {
+        return stableId ? (this.planInsights.get(stableId) ?? null) : null;
+    }
+
+    getPlanInsights(): ReviewPlanInsight[] {
+        return [...this.planInsights.values()];
     }
 
     public async loadReviewQueue(): Promise<IFlashcardReviewSequencer> {
@@ -270,6 +281,7 @@ export class ReviewQueueLoader {
             );
         }
 
+        this.planInsights.clear();
         if (
             this.reviewMode === FlashcardReviewMode.Review &&
             !this.singleNote &&
@@ -349,6 +361,10 @@ export class ReviewQueueLoader {
                 const stableIds = planned.cards.flatMap(({ card }) =>
                     card.legacyStableId ? [card.legacyStableId] : [],
                 );
+                for (const item of planned.cards) {
+                    const insight = explainPlannedCard(item);
+                    if (insight.stableId) this.planInsights.set(insight.stableId, insight);
+                }
                 if (stableIds.length > 0) {
                     remainingDeckTree = applyStableIdPlanToQueue(
                         settings.dependencyAwareScheduling ? deckTree : remainingDeckTree,

@@ -22,6 +22,90 @@ function resolvePath(app: App, reference: string, dependentPath: string): string
     return direct instanceof TFile ? direct.path : null;
 }
 
+function plainReference(value: string): string {
+    return value.replace(/^\[\[|\]\]$/g, "").trim();
+}
+
+/** Prevents contradictory prerequisite edits before they reach Markdown. */
+export function wouldCreateKnowledgeCycle(
+    edges: ReadonlyArray<Pick<KnowledgeDependencyEdge, "prerequisitePath" | "dependentPath">>,
+    prerequisitePath: string,
+    dependentPath: string,
+): boolean {
+    if (prerequisitePath === dependentPath) return true;
+    const outgoing = new Map<string, string[]>();
+    for (const edge of edges) {
+        outgoing.set(edge.prerequisitePath, [
+            ...(outgoing.get(edge.prerequisitePath) ?? []),
+            edge.dependentPath,
+        ]);
+    }
+    const visited = new Set<string>();
+    const pending = [dependentPath];
+    while (pending.length) {
+        const current = pending.pop();
+        if (!current || visited.has(current)) continue;
+        if (current === prerequisitePath) return true;
+        visited.add(current);
+        pending.push(...(outgoing.get(current) ?? []));
+    }
+    return false;
+}
+
+export async function addKnowledgeDependency(
+    app: App,
+    dependentPath: string,
+    prerequisitePath: string,
+    reason = "Manual knowledge-graph dependency",
+): Promise<boolean> {
+    const dependent = app.vault.getFileByPath(dependentPath);
+    const prerequisite = app.vault.getFileByPath(prerequisitePath);
+    if (!(dependent instanceof TFile) || !(prerequisite instanceof TFile)) return false;
+    if (dependent.path === prerequisite.path) return false;
+    await app.fileManager.processFrontMatter(dependent, (frontmatter) => {
+        const data = frontmatter as Record<string, unknown>;
+        const existing = prerequisiteValues(data["sr-prerequisites"]).map(plainReference);
+        data["sr-prerequisites"] = [...new Set([...existing, prerequisite.path])].map(
+            (path) => `[[${path}]]`,
+        );
+        const reasons =
+            data["sr-dependency-reasons"] &&
+            typeof data["sr-dependency-reasons"] === "object" &&
+            !Array.isArray(data["sr-dependency-reasons"])
+                ? { ...(data["sr-dependency-reasons"] as Record<string, unknown>) }
+                : {};
+        reasons[prerequisite.path] = reason;
+        data["sr-dependency-reasons"] = reasons;
+    });
+    return true;
+}
+
+export async function removeKnowledgeDependency(
+    app: App,
+    dependentPath: string,
+    prerequisitePath: string,
+): Promise<boolean> {
+    const dependent = app.vault.getFileByPath(dependentPath);
+    if (!(dependent instanceof TFile)) return false;
+    await app.fileManager.processFrontMatter(dependent, (frontmatter) => {
+        const data = frontmatter as Record<string, unknown>;
+        data["sr-prerequisites"] = prerequisiteValues(data["sr-prerequisites"])
+            .map(plainReference)
+            .filter((path) => path !== prerequisitePath)
+            .map((path) => `[[${path}]]`);
+        if (
+            data["sr-dependency-reasons"] &&
+            typeof data["sr-dependency-reasons"] === "object" &&
+            !Array.isArray(data["sr-dependency-reasons"])
+        ) {
+            const reasons = { ...(data["sr-dependency-reasons"] as Record<string, unknown>) };
+            delete reasons[prerequisitePath];
+            data["sr-dependency-reasons"] = reasons;
+        }
+    });
+    return true;
+}
+
 /** Reads the deliberately explicit, user-editable dependency property from Markdown notes. */
 export function collectKnowledgeDependencies(
     app: App,

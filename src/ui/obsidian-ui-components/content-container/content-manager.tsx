@@ -172,6 +172,7 @@ export default class ContentManager {
             () => this._suspendCurrentCard(),
             (flag) => this._setCurrentCardFlag(flag),
             () => this._undoLastReview(),
+            (stableId) => this.reviewQueueLoader.getPlanInsight(stableId),
             closeModal,
         );
     }

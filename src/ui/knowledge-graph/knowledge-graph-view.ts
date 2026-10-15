@@ -1,9 +1,19 @@
-import { ButtonComponent, ItemView, Menu, Notice, setIcon, WorkspaceLeaf } from "obsidian";
+import {
+    App,
+    ButtonComponent,
+    FuzzySuggestModal,
+    ItemView,
+    Menu,
+    Notice,
+    setIcon,
+    WorkspaceLeaf,
+} from "obsidian";
 
 import { KNOWLEDGE_GRAPH_VIEW_TYPE } from "src/data/constants";
 import { NativeCardStore } from "src/data/native-card-store";
 import type SRPlugin from "src/main";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
+import { compactCardText } from "src/ui/card-browser/card-browser-model";
 import {
     buildKnowledgeGraph,
     graphMatches,
@@ -15,7 +25,12 @@ import {
 } from "src/ui/knowledge-graph/knowledge-graph-model";
 import { openCanvasAreaPicker } from "src/ui/obsidian-integrations/knowledge-area-picker";
 import { generateKnowledgeCanvas } from "src/ui/obsidian-integrations/knowledge-canvas";
-import { collectKnowledgeDependencies } from "src/ui/obsidian-integrations/knowledge-dependencies";
+import {
+    addKnowledgeDependency,
+    collectKnowledgeDependencies,
+    removeKnowledgeDependency,
+    wouldCreateKnowledgeCycle,
+} from "src/ui/obsidian-integrations/knowledge-dependencies";
 import { createStudyRecords } from "src/ui/obsidian-integrations/study-records";
 
 const activeKnowledgeGraphViews = new Set<KnowledgeGraphView>();
@@ -33,6 +48,29 @@ function resolvedLinks(plugin: SRPlugin): Record<string, string[]> {
             Object.keys(links),
         ]),
     );
+}
+
+class DependencyPickerModal extends FuzzySuggestModal<KnowledgeGraphNode> {
+    constructor(
+        app: App,
+        private readonly candidates: KnowledgeGraphNode[],
+        private readonly onChoose: (node: KnowledgeGraphNode) => void,
+    ) {
+        super(app);
+        this.setPlaceholder("Choose a prerequisite concept or source…");
+    }
+
+    getItems(): KnowledgeGraphNode[] {
+        return this.candidates;
+    }
+
+    getItemText(item: KnowledgeGraphNode): string {
+        return `${item.label} — ${item.subtitle}`;
+    }
+
+    onChooseItem(item: KnowledgeGraphNode): void {
+        this.onChoose(item);
+    }
 }
 
 export class KnowledgeGraphView extends ItemView {
@@ -111,6 +149,39 @@ export class KnowledgeGraphView extends ItemView {
             this.plugin.app,
             records.map((record) => record.notePath).filter(Boolean),
         );
+        const concepts = Object.fromEntries(
+            records.map((record) => {
+                const frontmatter = (
+                    record.notePath
+                        ? this.plugin.app.metadataCache.getCache(record.notePath)?.frontmatter
+                        : undefined
+                ) as Record<string, unknown> | undefined;
+                const explicit = frontmatter?.["sr-concept"];
+                const concept =
+                    typeof explicit === "string" && explicit.trim()
+                        ? explicit.trim()
+                        : compactCardText(record.front).slice(0, 96) || "Untitled concept";
+                return [record.notePath, concept];
+            }),
+        );
+        const conceptKeys = Object.fromEntries(
+            records.map((record) => {
+                const frontmatter = (
+                    record.notePath
+                        ? this.plugin.app.metadataCache.getCache(record.notePath)?.frontmatter
+                        : undefined
+                ) as Record<string, unknown> | undefined;
+                const explicitId = frontmatter?.["sr-concept-id"];
+                const compilerKey = frontmatter?.["sr-compiler-key"];
+                const key =
+                    typeof explicitId === "string" && explicitId.trim()
+                        ? explicitId.trim()
+                        : typeof compilerKey === "string" && compilerKey.trim()
+                          ? compilerKey.trim()
+                          : "";
+                return [record.notePath, key || `note:${record.notePath}`];
+            }),
+        );
         return buildKnowledgeGraph(
             this.plugin.dataManager.data.knowledgeAreas,
             records,
@@ -118,6 +189,8 @@ export class KnowledgeGraphView extends ItemView {
             {
                 noteLinks: resolvedLinks(this.plugin),
                 dependencies,
+                concepts,
+                conceptKeys,
                 positions: state.positions,
             },
         );
@@ -328,9 +401,11 @@ export class KnowledgeGraphView extends ItemView {
                 ? "library-big"
                 : node.kind === "deck"
                   ? "folder"
-                  : node.kind === "note"
-                    ? "file-text"
-                    : "orbit",
+                  : node.kind === "concept"
+                    ? "brain-circuit"
+                    : node.kind === "note"
+                      ? "file-text"
+                      : "orbit",
         );
         const copy = top.createDiv("sr-graph-node-copy");
         copy.createEl("strong", { text: node.label });
@@ -411,6 +486,123 @@ export class KnowledgeGraphView extends ItemView {
                 .setIcon("route")
                 .onClick(() => this.beginPath());
         }
+        if (node.kind === "concept" || node.kind === "note") {
+            this.renderDependencyEditor(inspector, node);
+        }
+    }
+
+    private renderDependencyEditor(inspector: HTMLElement, node: KnowledgeGraphNode): void {
+        const section = inspector.createDiv("sr-graph-dependency-editor");
+        const heading = section.createDiv("sr-graph-dependency-heading");
+        heading.createEl("strong", { text: "Knowledge dependencies" });
+        const add = heading.createEl("button", {
+            cls: "clickable-icon",
+            attr: { "aria-label": "Add prerequisite" },
+        });
+        setIcon(add, "plus");
+        const dependentPath = node.notePath ?? node.notePaths?.[0] ?? "";
+        add.disabled = !dependentPath;
+        add.addEventListener("click", () => this.openDependencyPicker(node, dependentPath));
+
+        const inbound = this.graph.edges.filter(
+            (edge) => edge.kind === "prerequisite" && edge.to === node.id,
+        );
+        const outbound = this.graph.edges.filter(
+            (edge) => edge.kind === "prerequisite" && edge.from === node.id,
+        );
+        const list = section.createDiv("sr-graph-dependency-list");
+        if (!inbound.length && !outbound.length) {
+            list.createSpan({ text: "No explicit graph edges yet", cls: "is-empty" });
+        }
+        for (const edge of inbound) {
+            const source = this.graph.nodes.find((candidate) => candidate.id === edge.from);
+            const row = list.createDiv("sr-graph-dependency-row");
+            row.createSpan({ text: "requires" });
+            row.createEl("strong", { text: source?.label ?? edge.prerequisitePath ?? "Source" });
+            const remove = row.createEl("button", {
+                cls: "clickable-icon",
+                attr: { "aria-label": "Remove prerequisite" },
+            });
+            setIcon(remove, "x");
+            remove.addEventListener("click", () => void this.removeDependency(edge));
+        }
+        for (const edge of outbound) {
+            const target = this.graph.nodes.find((candidate) => candidate.id === edge.to);
+            const row = list.createDiv("sr-graph-dependency-row is-outbound");
+            row.createSpan({ text: "unlocks" });
+            row.createEl("strong", { text: target?.label ?? edge.dependentPath ?? "Target" });
+        }
+    }
+
+    private openDependencyPicker(node: KnowledgeGraphNode, dependentPath: string): void {
+        if (!dependentPath) return;
+        const ownPaths = new Set([node.notePath, ...(node.notePaths ?? [])].filter(Boolean));
+        const conceptCandidates = this.graph.nodes.filter(
+            (candidate) =>
+                candidate.kind === "concept" &&
+                candidate.id !== node.id &&
+                [candidate.notePath, ...(candidate.notePaths ?? [])].some(
+                    (path) => path && !ownPaths.has(path),
+                ),
+        );
+        const candidates = conceptCandidates.length
+            ? conceptCandidates
+            : this.graph.nodes.filter(
+                  (candidate) =>
+                      candidate.kind === "note" &&
+                      candidate.id !== node.id &&
+                      Boolean(candidate.notePath && !ownPaths.has(candidate.notePath)),
+              );
+        new DependencyPickerModal(this.app, candidates, (candidate) => {
+            const prerequisitePath = candidate.notePath ?? candidate.notePaths?.[0] ?? "";
+            if (prerequisitePath) {
+                void this.addDependency(
+                    dependentPath,
+                    prerequisitePath,
+                    candidate.label,
+                    node.label,
+                );
+            }
+        }).open();
+    }
+
+    private async addDependency(
+        dependentPath: string,
+        prerequisitePath: string,
+        prerequisiteLabel: string,
+        dependentLabel: string,
+    ): Promise<void> {
+        const currentEdges = collectKnowledgeDependencies(
+            this.plugin.app,
+            createStudyRecords(this.plugin)
+                .map((record) => record.notePath)
+                .filter(Boolean),
+        );
+        if (wouldCreateKnowledgeCycle(currentEdges, prerequisitePath, dependentPath)) {
+            new Notice("This edge would create a circular prerequisite");
+            return;
+        }
+        const added = await addKnowledgeDependency(
+            this.plugin.app,
+            dependentPath,
+            prerequisitePath,
+            `${prerequisiteLabel} is required before ${dependentLabel}`,
+        );
+        if (!added) {
+            new Notice("Could not add this dependency");
+            return;
+        }
+        await this.plugin.dataManager.sync();
+        new Notice("Knowledge dependency added to Markdown properties");
+        this.refresh();
+    }
+
+    private async removeDependency(edge: KnowledgeGraphEdge): Promise<void> {
+        if (!edge.dependentPath || !edge.prerequisitePath) return;
+        await removeKnowledgeDependency(this.plugin.app, edge.dependentPath, edge.prerequisitePath);
+        await this.plugin.dataManager.sync();
+        new Notice("Knowledge dependency removed");
+        this.refresh();
     }
 
     private renderMinimap(viewport: HTMLElement, graph: KnowledgeGraphData): void {
@@ -616,6 +808,10 @@ export class KnowledgeGraphView extends ItemView {
             await this.app.workspace.openLinkText(node.notePath, node.notePath, false);
             return;
         }
+        if (node.kind === "concept" && node.notePaths?.[0]) {
+            await this.app.workspace.openLinkText(node.notePaths[0], node.notePaths[0], false);
+            return;
+        }
         if (node.deckPath) await this.plugin.uiManager.openCardBrowser(null, "", node.deckPath);
         else if (node.areaId) {
             const area = this.plugin.dataManager.data.knowledgeAreas.find(
@@ -631,7 +827,9 @@ export class KnowledgeGraphView extends ItemView {
                 ? record.deckNames.includes(node.deckPath)
                 : node.notePath
                   ? record.notePath === node.notePath
-                  : true,
+                  : node.notePaths?.length
+                    ? node.notePaths.includes(record.notePath)
+                    : true,
         );
         const ids = records
             .map((record) => record.card.stableId)

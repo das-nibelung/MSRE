@@ -11,6 +11,7 @@ import {
     buildKnowledgeCanvas,
     mergeKnowledgeCanvas,
 } from "src/ui/obsidian-integrations/knowledge-canvas";
+import { wouldCreateKnowledgeCycle } from "src/ui/obsidian-integrations/knowledge-dependencies";
 import { cardSourceTarget } from "src/ui/obsidian-integrations/obsidian-links";
 import {
     aggregateStudyBaseEntries,
@@ -143,6 +144,50 @@ describe("Obsidian knowledge integrations", () => {
                 }),
             ]),
         );
+    });
+
+    it("uses concepts as real graph nodes and rejects circular prerequisites", () => {
+        const graph = buildKnowledgeGraph(
+            [],
+            [record({ id: "heart" }), record({ id: "lung", notePath: "Medicine/Lung.md" })],
+            ["Medicine/Cardiology"],
+            {
+                concepts: {
+                    "Medicine/Heart.md": "Circulation",
+                    "Medicine/Lung.md": "Respiration",
+                },
+                dependencies: [
+                    {
+                        prerequisitePath: "Medicine/Lung.md",
+                        dependentPath: "Medicine/Heart.md",
+                        source: "compiler",
+                    },
+                ],
+            },
+        );
+        const concepts = graph.nodes.filter((node) => node.kind === "concept");
+        const edge = graph.edges.find((candidate) => candidate.kind === "prerequisite");
+
+        expect(concepts.map((node) => node.label).sort()).toEqual(["Circulation", "Respiration"]);
+        expect(edge?.from).toMatch(/^concept:/);
+        expect(edge?.to).toMatch(/^concept:/);
+        expect(
+            wouldCreateKnowledgeCycle(
+                [
+                    {
+                        prerequisitePath: "A.md",
+                        dependentPath: "B.md",
+                    },
+                    {
+                        prerequisitePath: "B.md",
+                        dependentPath: "C.md",
+                    },
+                ],
+                "C.md",
+                "A.md",
+            ),
+        ).toBe(true);
+        expect(wouldCreateKnowledgeCycle([], "A.md", "B.md")).toBe(false);
     });
 
     it("builds a valid linked JSON Canvas knowledge map", () => {

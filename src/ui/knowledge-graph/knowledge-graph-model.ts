@@ -2,7 +2,7 @@ import { KnowledgeArea } from "src/data/plugin-data";
 import { KnowledgeDependencyEdge } from "src/scheduling/review-session-planner";
 import { CardBrowserRecord } from "src/ui/card-browser/card-browser-model";
 
-export type KnowledgeGraphNodeKind = "root" | "area" | "deck" | "note";
+export type KnowledgeGraphNodeKind = "root" | "area" | "deck" | "concept" | "note";
 
 export interface KnowledgeGraphMetrics {
     cards: number;
@@ -21,6 +21,8 @@ export interface KnowledgeGraphNode {
     areaId?: string;
     deckPath?: string;
     notePath?: string;
+    notePaths?: string[];
+    concept?: string;
     metrics: KnowledgeGraphMetrics;
     x: number;
     y: number;
@@ -32,6 +34,8 @@ export interface KnowledgeGraphEdge {
     to: string;
     kind: "contains" | "link" | "prerequisite";
     reason?: string;
+    prerequisitePath?: string;
+    dependentPath?: string;
 }
 
 export interface KnowledgeGraphData {
@@ -42,6 +46,8 @@ export interface KnowledgeGraphData {
 export interface KnowledgeGraphBuildOptions {
     noteLinks?: Record<string, string[]>;
     dependencies?: KnowledgeDependencyEdge[];
+    concepts?: Record<string, string>;
+    conceptKeys?: Record<string, string>;
     positions?: Record<string, { x: number; y: number }>;
 }
 
@@ -68,6 +74,15 @@ function withPosition(
     positions: Record<string, { x: number; y: number }>,
 ): KnowledgeGraphNode {
     return { ...node, ...(positions[node.id] ?? fallback) };
+}
+
+function graphKey(value: string): string {
+    let hash = 2_166_136_261;
+    for (let index = 0; index < value.length; index++) {
+        hash ^= value.charCodeAt(index);
+        hash = Math.imul(hash, 16_777_619);
+    }
+    return (hash >>> 0).toString(36);
 }
 
 export function buildKnowledgeGraph(
@@ -152,15 +167,55 @@ export function buildKnowledgeGraph(
     });
 
     const noteNodeIds = new Map<string, string>();
+    const conceptNodeIdsByNote = new Map<string, string>();
     const notePaths = [...new Set(records.map((record) => record.notePath).filter(Boolean))].sort(
         (left, right) => left.localeCompare(right),
     );
+    const conceptGroups = new Map<string, { label: string; notePaths: string[] }>();
+    for (const notePath of notePaths) {
+        const label = options.concepts?.[notePath]?.trim();
+        if (!label) continue;
+        const key =
+            options.conceptKeys?.[notePath] ||
+            label.normalize("NFKC").toLocaleLowerCase().replace(/\s+/g, " ");
+        const group = conceptGroups.get(key) ?? { label, notePaths: [] };
+        group.notePaths.push(notePath);
+        conceptGroups.set(key, group);
+    }
+    [...conceptGroups.entries()].forEach(([key, group], index) => {
+        const id = `concept:${graphKey(key)}`;
+        const conceptRecords = records.filter((record) =>
+            group.notePaths.includes(record.notePath),
+        );
+        const deck = conceptRecords[0]?.deckNames[0] ?? "";
+        const parentId = deckNodeIds.get(deck) ?? KNOWLEDGE_GRAPH_ROOT_ID;
+        nodes.push(
+            withPosition(
+                {
+                    id,
+                    kind: "concept",
+                    label: group.label,
+                    subtitle: `${group.notePaths.length} ${group.notePaths.length === 1 ? "source" : "sources"}`,
+                    parentId,
+                    deckPath: deck,
+                    concept: group.label,
+                    notePaths: [...group.notePaths],
+                    metrics: metrics(conceptRecords),
+                },
+                { x: 1030, y: 28 + index * 112 },
+                positions,
+            ),
+        );
+        edges.push({ id: `contains:${parentId}:${id}`, from: parentId, to: id, kind: "contains" });
+        group.notePaths.forEach((path) => conceptNodeIdsByNote.set(path, id));
+    });
     notePaths.forEach((notePath, index) => {
         const id = `note:${notePath}`;
         noteNodeIds.set(notePath, id);
         const noteRecords = records.filter((record) => record.notePath === notePath);
         const deck = noteRecords[0]?.deckNames[0] ?? "";
-        const parentId = deckNodeIds.get(deck) ?? KNOWLEDGE_GRAPH_ROOT_ID;
+        const parentId =
+            conceptNodeIdsByNote.get(notePath) ?? deckNodeIds.get(deck) ?? KNOWLEDGE_GRAPH_ROOT_ID;
         nodes.push(
             withPosition(
                 {
@@ -173,7 +228,7 @@ export function buildKnowledgeGraph(
                     deckPath: deck,
                     metrics: metrics(noteRecords),
                 },
-                { x: 1030, y: 28 + index * 106 },
+                { x: 1370, y: 28 + index * 106 },
                 positions,
             ),
         );
@@ -189,8 +244,12 @@ export function buildKnowledgeGraph(
         }
     }
     for (const dependency of options.dependencies ?? []) {
-        const from = noteNodeIds.get(dependency.prerequisitePath);
-        const to = noteNodeIds.get(dependency.dependentPath);
+        const from =
+            conceptNodeIdsByNote.get(dependency.prerequisitePath) ??
+            noteNodeIds.get(dependency.prerequisitePath);
+        const to =
+            conceptNodeIdsByNote.get(dependency.dependentPath) ??
+            noteNodeIds.get(dependency.dependentPath);
         if (!from || !to || from === to) continue;
         const id = `prerequisite:${from}:${to}`;
         if (edges.some((edge) => edge.id === id)) continue;
@@ -200,6 +259,8 @@ export function buildKnowledgeGraph(
             to,
             kind: "prerequisite",
             reason: dependency.reason,
+            prerequisitePath: dependency.prerequisitePath,
+            dependentPath: dependency.dependentPath,
         });
     }
     return { nodes, edges };
