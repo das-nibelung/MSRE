@@ -4,6 +4,7 @@ import {
     ButtonComponent,
     ItemView,
     MarkdownRenderer,
+    MarkdownView,
     Menu,
     Modal,
     Notice,
@@ -77,6 +78,33 @@ function nextLocalDayStart(): number {
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
     return tomorrow.getTime();
+}
+
+function compilerSourceLocation(
+    plugin: SRPlugin,
+    notePath: string,
+): { path: string; startLine: number; endLine: number } | null {
+    const file = plugin.app.vault.getFileByPath(notePath);
+    if (!(file instanceof TFile)) return null;
+    const frontmatter = plugin.app.metadataCache.getFileCache(file)?.frontmatter as
+        Record<string, unknown> | undefined;
+    const sourceValue: unknown = frontmatter?.["sr-source"];
+    const rawSource: unknown = Array.isArray(sourceValue) ? sourceValue[0] : sourceValue;
+    if (typeof rawSource !== "string") return null;
+    const path = rawSource
+        .replace(/^\[\[|\]\]$/g, "")
+        .split("|")[0]
+        .trim();
+    if (!path) return null;
+    const linesValue: unknown = frontmatter?.["sr-source-lines"];
+    const lines =
+        typeof linesValue === "string" || typeof linesValue === "number" ? String(linesValue) : "";
+    const match = lines.match(/^(\d+)-(\d+)$/);
+    return {
+        path,
+        startLine: Math.max(1, Number(match?.[1]) || 1),
+        endLine: Math.max(1, Number(match?.[2]) || Number(match?.[1]) || 1),
+    };
 }
 
 function formatDate(timestamp: number | null | undefined): string {
@@ -336,16 +364,26 @@ class CardInspectorModal extends Modal {
                 .join(" · "),
         });
         if (this.record.notePath) {
-            const sourceTarget = cardSourceTarget(
-                this.record.notePath,
-                this.record.card.question.questionText.obsidianBlockId,
-            );
+            const provenance = compilerSourceLocation(this.plugin, this.record.notePath);
+            const sourceTarget = provenance
+                ? provenance.path
+                : cardSourceTarget(
+                      this.record.notePath,
+                      this.record.card.question.questionText.obsidianBlockId,
+                  );
             const sourceLink = titles.createEl("a", {
                 cls: "sr-card-inspector-source",
-                text: this.record.notePath,
+                text: provenance
+                    ? `${provenance.path} · lines ${provenance.startLine}–${provenance.endLine}`
+                    : this.record.notePath,
                 href: sourceTarget,
             });
-            attachObsidianLink(this.plugin, sourceLink, sourceTarget, this.record.notePath);
+            attachObsidianLink(
+                this.plugin,
+                sourceLink,
+                sourceTarget,
+                provenance?.path ?? this.record.notePath,
+            );
         }
         const actions = header.createDiv("sr-card-inspector-actions");
         new ButtonComponent(actions)
@@ -2423,6 +2461,26 @@ export class CardBrowserView extends ItemView {
     }
 
     private async openSource(record: CardBrowserRecord): Promise<void> {
+        const provenance = compilerSourceLocation(this.plugin, record.notePath);
+        if (provenance) {
+            const file = this.app.vault.getFileByPath(provenance.path);
+            if (file instanceof TFile) {
+                await this.app.workspace.getLeaf(false).openFile(file);
+                const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+                view?.editor.setSelection(
+                    { line: provenance.startLine - 1, ch: 0 },
+                    { line: provenance.endLine - 1, ch: 0 },
+                );
+                view?.editor.scrollIntoView(
+                    {
+                        from: { line: provenance.startLine - 1, ch: 0 },
+                        to: { line: provenance.endLine - 1, ch: 0 },
+                    },
+                    true,
+                );
+                return;
+            }
+        }
         const blockId = record.card.question.questionText.obsidianBlockId;
         const target = cardSourceTarget(record.notePath, blockId);
         await this.app.workspace.openLinkText(target, record.notePath, false);

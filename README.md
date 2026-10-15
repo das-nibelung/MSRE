@@ -194,6 +194,7 @@ Fight the forgetting curve by reviewing flashcards & notes using the FSRS or the
 - **Interactive Knowledge Graph + Canvas** — open the live graph to search, filter, collapse, pan, zoom, find the shortest path, drag decks into areas, and create areas or decks in context. Switch to `Knowledge Map.canvas` whenever you want a free-form Obsidian canvas; automatic refresh preserves manual positions, annotations, and user edges.
 - **Knowledge Hub and embeds** — the generated `Knowledge Hub.md` is a live MOC for areas, decks, source notes, and review actions. A `spaced-repetition` Markdown code block embeds a compact study dashboard or linked-note panel in any note.
 - **Properties, menus, links, and previews** — `sr_cards`, `sr_due`, `sr_decks`, `sr_areas`, lapses, and retention are synchronized automatically when study data changes, without rewriting unchanged notes. Source links target the exact card block, support modifier-click, and use Obsidian Page Preview on hover.
+- **Knowledge Compiler lifecycle** — compile a note, folder, or hand-picked queue into traceable cards. Before writing, the workbench shows an exact create/update/rename/orphan diff. Renamed concepts keep their existing card, stale sources can be queued together, manual versions are never overwritten, and every operation can be rolled back from portable history files after a LiveSync-safe conflict check. Compiled cards link back to the exact source lines.
 
 #### Reviewing Flashcards🗃️
 

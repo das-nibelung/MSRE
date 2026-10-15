@@ -40,8 +40,15 @@ export function knowledgeCompilerKey(sourcePath: string, concept: string): strin
 
 /** Splits a note into independently compilable heading sections without changing its Markdown. */
 export function splitKnowledgeSource(value: string): KnowledgeSourceSection[] {
-    const normalized = normalizeKnowledgeSource(value);
-    const lines = normalized.split("\n");
+    const unix = value.replace(/\r\n/g, "\n");
+    const frontmatter = unix.match(/^---\n[\s\S]*?\n---\n?/);
+    const bodyOffset = frontmatter ? (frontmatter[0].match(/\n/g) ?? []).length : 0;
+    const body = frontmatter ? unix.slice(frontmatter[0].length) : unix;
+    // Hide comments while preserving their newline count so editor coordinates stay exact.
+    const visibleBody = body.replace(/<!--[\s\S]*?-->/g, (comment) =>
+        comment.replace(/[^\n]/g, " "),
+    );
+    const lines = visibleBody.split("\n");
     const headings: Array<{ line: number; level: number; title: string }> = [];
     let fence = "";
     lines.forEach((line, index) => {
@@ -60,9 +67,9 @@ export function splitKnowledgeSource(value: string): KnowledgeSourceSection[] {
         id: "all",
         title: "Entire note",
         level: 0,
-        text: normalized,
+        text: normalizeKnowledgeSource(value),
         startLine: 1,
-        endLine: lines.length,
+        endLine: unix.split("\n").length,
     };
     if (!headings.length) return [whole];
     const sections = headings.map((heading, index): KnowledgeSourceSection => {
@@ -75,8 +82,8 @@ export function splitKnowledgeSource(value: string): KnowledgeSourceSection[] {
             title: `${"·".repeat(Math.max(0, heading.level - 1))}${heading.title}`,
             level: heading.level,
             text: lines.slice(heading.line, end).join("\n").trim(),
-            startLine: heading.line + 1,
-            endLine: end,
+            startLine: bodyOffset + heading.line + 1,
+            endLine: bodyOffset + end,
         };
     });
     return [whole, ...sections.filter((section) => section.text.length > 0)];

@@ -29,4 +29,14 @@ describe("knowledge compiler provenance", () => {
         expect(sections[1].text).toContain("SA node");
         expect(sections[1].text).not.toContain("Gas exchange");
     });
+
+    test("reports exact editor lines when frontmatter and comments precede a section", () => {
+        const sections = splitKnowledgeSource(
+            "---\ntags: [medicine]\nstatus: active\n---\n<!-- private\ncomment -->\n# Heart\nSA node\n## Rhythm\nAV node",
+        );
+
+        expect(sections[0]).toMatchObject({ startLine: 1, endLine: 10 });
+        expect(sections[1]).toMatchObject({ title: "Heart", startLine: 7, endLine: 10 });
+        expect(sections[2]).toMatchObject({ title: "·Rhythm", startLine: 9, endLine: 10 });
+    });
 });

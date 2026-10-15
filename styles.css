@@ -1132,6 +1132,30 @@ button.sr-reminder-rule-status {
 .sr-compiler-badge.is-warning {
   color: var(--sr-compiler-warm);
 }
+.sr-compiler-badge.is-diff-create {
+  color: var(--text-success);
+}
+.sr-compiler-badge.is-diff-update,
+.sr-compiler-badge.is-diff-rename {
+  border-color: color-mix(
+    in srgb,
+    var(--sr-compiler-accent) 45%,
+    var(--background-modifier-border)
+  );
+  color: var(--sr-compiler-accent);
+}
+.sr-compiler-badge.is-diff-unchanged {
+  color: var(--text-faint);
+}
+.sr-compiler-manual-button {
+  min-height: 25px;
+  padding: 2px 8px;
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: var(--font-ui-smaller);
+}
 .sr-compiler-card-fields {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1190,6 +1214,162 @@ button.sr-reminder-rule-status {
   margin-top: 9px;
   color: var(--sr-compiler-warm);
   font-size: var(--font-ui-smaller);
+}
+.sr-compiler-field-changes {
+  display: grid;
+  grid-template-columns: 105px minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 11px;
+}
+.sr-compiler-field-changes > div {
+  display: grid;
+  gap: 4px;
+}
+.sr-compiler-field-change {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  font-size: var(--font-ui-smaller);
+}
+.sr-compiler-field-change strong {
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+.sr-compiler-field-change del,
+.sr-compiler-field-change ins {
+  overflow: hidden;
+  padding: 3px 6px;
+  border-radius: 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sr-compiler-field-change del {
+  color: var(--text-error);
+  background: color-mix(in srgb, var(--text-error) 8%, transparent);
+}
+.sr-compiler-field-change ins {
+  color: var(--text-success);
+  background: color-mix(in srgb, var(--text-success) 8%, transparent);
+  text-decoration: none;
+}
+.sr-compiler-orphans {
+  margin-top: 18px;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--sr-compiler-warm) 38%,
+      var(--background-modifier-border)
+    );
+  border-radius: 14px;
+  overflow: hidden;
+}
+.sr-compiler-orphans-header,
+.sr-compiler-orphan-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+}
+.sr-compiler-orphans-header {
+  background: color-mix(
+    in srgb,
+    var(--sr-compiler-warm) 7%,
+    var(--background-secondary)
+  );
+}
+.sr-compiler-orphans-header h3,
+.sr-compiler-orphans-header p {
+  margin: 0;
+}
+.sr-compiler-orphans-header p,
+.sr-compiler-orphan-row span {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.sr-compiler-orphan-row + .sr-compiler-orphan-row {
+  border-top: 1px solid var(--background-modifier-border);
+}
+.sr-compiler-orphan-row > div {
+  min-width: 0;
+}
+.sr-compiler-orphan-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sr-compiler-batch-progress {
+  color: var(--sr-compiler-accent);
+  font-size: var(--font-ui-smaller);
+}
+.sr-compiler-sheet {
+  width: min(680px, calc(100vw - 24px));
+}
+.sr-compiler-sheet h2,
+.sr-compiler-sheet p {
+  margin-top: 0;
+}
+.sr-compiler-sheet > p,
+.sr-compiler-sheet-header p {
+  color: var(--text-muted);
+}
+.sr-compiler-sheet-search .search-input-container,
+.sr-compiler-sheet-search input {
+  width: 100%;
+}
+.sr-compiler-batch-controls,
+.sr-compiler-sheet-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+.sr-compiler-batch-controls span {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+.sr-compiler-batch-list,
+.sr-compiler-history-list {
+  max-height: min(54vh, 520px);
+  overflow-y: auto;
+  border-block: 1px solid var(--background-modifier-border);
+}
+.sr-compiler-batch-row,
+.sr-compiler-history-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 8px 2px;
+}
+.sr-compiler-batch-row + .sr-compiler-batch-row,
+.sr-compiler-history-row + .sr-compiler-history-row {
+  border-top: 1px solid var(--background-modifier-border);
+}
+.sr-compiler-batch-row > div,
+.sr-compiler-history-row > div {
+  min-width: 0;
+  flex: 1;
+}
+.sr-compiler-batch-row strong,
+.sr-compiler-batch-row span,
+.sr-compiler-history-row strong,
+.sr-compiler-history-row span {
+  display: block;
+}
+.sr-compiler-batch-row span,
+.sr-compiler-history-row span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sr-compiler-sheet-actions {
+  justify-content: flex-end;
+  margin-bottom: 0;
 }
 .sr-compiler-apply {
   position: sticky;
@@ -1273,8 +1453,22 @@ button.sr-reminder-rule-status {
   .sr-compiler-card-fields,
   .sr-compiler-evidence,
   .sr-compiler-dependencies,
-  .sr-compiler-issues {
+  .sr-compiler-issues,
+  .sr-compiler-field-changes {
     grid-template-columns: 1fr;
+  }
+  .sr-compiler-field-change {
+    grid-template-columns: 58px minmax(0, 1fr);
+  }
+  .sr-compiler-field-change ins {
+    grid-column: 2;
+  }
+  .sr-compiler-orphan-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .sr-compiler-orphan-row select {
+    width: 100%;
   }
   .sr-compiler-dependency-add {
     grid-column: 1;
