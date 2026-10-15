@@ -1067,8 +1067,11 @@ describe("Anki-style collection store", () => {
             questionId: "^original",
         });
         timestamp = 620;
+        const changed = jest.fn();
+        store.setChangeListener(changed);
         await store.restoreBackup(backup.path);
         expect(store.getCollectionSnapshot().notes[note.id].fields.front).toBe("Original");
+        expect(changed).toHaveBeenCalledTimes(1);
         expect((await store.listBackups()).map((item) => item.reason)).toEqual(
             expect.arrayContaining(["manual test", "before-restore"]),
         );

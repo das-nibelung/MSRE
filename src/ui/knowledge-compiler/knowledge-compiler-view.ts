@@ -25,6 +25,7 @@ interface CompilerContext {
 
 interface CompilerArtifact {
     path: string;
+    mtime: number;
     key: string;
     fingerprint: string;
     sectionId: string;
@@ -71,6 +72,7 @@ export class KnowledgeCompilerView extends ItemView {
     private providerId = "";
     private context: CompilerContext = { notes: [], allowedPaths: [] };
     private compilation: KnowledgeCompilation | null = null;
+    private compiledSourceFingerprint = "";
     private busy = false;
     private error = "";
 
@@ -133,6 +135,7 @@ export class KnowledgeCompilerView extends ItemView {
             this.selectedSectionId = "all";
         }
         this.compilation = null;
+        this.compiledSourceFingerprint = "";
         this.error = "";
         const suggestions = this.plugin.dataManager.semanticIndex.suggest(this.sourceText);
         this.targetDeck =
@@ -157,6 +160,7 @@ export class KnowledgeCompilerView extends ItemView {
             const fingerprint = frontmatterText(frontmatter?.["sr-source-fingerprint"]);
             result.push({
                 path: file.path,
+                mtime: file.stat.mtime,
                 key: frontmatterText(
                     frontmatter?.["sr-compiler-key"],
                     knowledgeCompilerKey(this.sourcePath, concept),
@@ -543,10 +547,28 @@ export class KnowledgeCompilerView extends ItemView {
     }
 
     private async compile(): Promise<void> {
-        const sourceText = this.activeSection?.text;
+        const source = this.app.vault.getFileByPath(this.sourcePath);
+        if (!(source instanceof TFile)) return;
+        const latestText = await this.app.vault.cachedRead(source);
+        const latestSections = splitKnowledgeSource(latestText);
+        const latestSection = latestSections.find(
+            (section) => section.id === this.selectedSectionId,
+        );
+        if (!latestSection) {
+            this.error =
+                "The selected source section changed. Reload the source and compile again.";
+            this.render();
+            return;
+        }
+        this.sourceText = latestText;
+        this.sections = latestSections;
+        this.artifacts = this.inspectArtifacts();
+        const sourceText = latestSection.text;
         if (!sourceText || !this.providerId) return;
         this.busy = true;
         this.error = "";
+        this.compilation = null;
+        this.compiledSourceFingerprint = "";
         this.render();
         try {
             const result = await this.plugin.ai.run(this.providerId, {
@@ -561,6 +583,7 @@ export class KnowledgeCompilerView extends ItemView {
                 sourceText,
                 this.context.allowedPaths,
             );
+            this.compiledSourceFingerprint = knowledgeSourceFingerprint(sourceText);
         } catch (error) {
             this.error = displayError(error);
         } finally {
@@ -578,9 +601,29 @@ export class KnowledgeCompilerView extends ItemView {
             this.render();
             return;
         }
+        const selectedKeys = selected.map((card) =>
+            knowledgeCompilerKey(this.sourcePath, card.concept.trim() || card.front.trim()),
+        );
+        if (new Set(selectedKeys).size !== selectedKeys.length) {
+            this.error = "Give every selected proposal a unique concept before applying it.";
+            this.render();
+            return;
+        }
         this.busy = true;
         this.updateApplyCount();
         try {
+            const currentSource = this.app.vault.getFileByPath(this.sourcePath);
+            if (!(currentSource instanceof TFile)) throw new Error("source-note-missing");
+            const currentText = await this.app.vault.cachedRead(currentSource);
+            const currentSection = splitKnowledgeSource(currentText).find(
+                (candidate) => candidate.id === this.selectedSectionId,
+            );
+            if (
+                !currentSection ||
+                knowledgeSourceFingerprint(currentSection.text) !== this.compiledSourceFingerprint
+            ) {
+                throw new Error("source-changed-during-compilation");
+            }
             await this.plugin.dataManager.collectionStore.createBackup(
                 "before-knowledge-compile-v2",
             );
@@ -590,7 +633,7 @@ export class KnowledgeCompilerView extends ItemView {
                     .map((record) => [record.notePath, record]),
             );
             const artifactsByKey = new Map(
-                this.inspectArtifacts().map((artifact) => [artifact.key, artifact]),
+                this.artifacts.map((artifact) => [artifact.key, artifact]),
             );
             const fileBySourceIndex = new Map<number, TFile>();
             let created = 0;
@@ -611,6 +654,9 @@ export class KnowledgeCompilerView extends ItemView {
                 const record = artifact ? recordsByPath.get(artifact.path) : undefined;
                 let file: TFile;
                 if (existing instanceof TFile && record) {
+                    if (existing.stat.mtime !== artifact.mtime) {
+                        throw new Error(`sync-conflict-${existing.path}`);
+                    }
                     await this.store.updateCard(record.card, draft);
                     file = existing;
                     updated++;

@@ -1081,6 +1081,8 @@ export class CollectionStore {
             throw new Error("invalid-backup");
         }
         await this.writeBackupSnapshot("before-restore", this.collection, this.reviewLog);
+        const previousCollection = this.collection;
+        const previousReviewLog = this.reviewLog;
         const timestamp = this.now();
         const restored = migrateCollection(backup.collection);
         const touchRecord = (record: Record<string, { updatedAt: number }>): void => {
@@ -1101,8 +1103,15 @@ export class CollectionStore {
         this.reviewLog = mergeReviewLogs(this.reviewLog, migrateReviewLog(backup.reviewLog));
         this.reviewLog.revision++;
         this.reviewLog.updatedAt = timestamp;
-        await this.storage.writeCollection(formatCollection(this.collection));
-        await this.storage.writeReviewLog(formatReviewLog(this.reviewLog));
+        try {
+            await this.storage.writeCollection(formatCollection(this.collection));
+            await this.storage.writeReviewLog(formatReviewLog(this.reviewLog));
+        } catch (error) {
+            this.collection = previousCollection;
+            this.reviewLog = previousReviewLog;
+            throw error;
+        }
+        await this.changeListener?.();
     }
 
     getNoteTypes(): NoteTypeDefinition[] {

@@ -190,6 +190,32 @@ describe("Obsidian knowledge integrations", () => {
         expect(wouldCreateKnowledgeCycle([], "A.md", "B.md")).toBe(false);
     });
 
+    it("builds a large file-native concept graph without collapsing distinct identities", () => {
+        const count = 2_000;
+        const records = Array.from({ length: count }, (_, index) =>
+            record({
+                id: `card-${index}`,
+                notePath: `Knowledge/Concept-${index}.md`,
+                deckNames: ["Knowledge"],
+            }),
+        );
+        const concepts = Object.fromEntries(
+            records.map((item, index) => [item.notePath, `Concept ${index}`]),
+        );
+        const conceptKeys = Object.fromEntries(
+            records.map((item, index) => [item.notePath, `concept-${index}`]),
+        );
+
+        const graph = buildKnowledgeGraph([], records, ["Knowledge"], {
+            concepts,
+            conceptKeys,
+        });
+
+        expect(graph.nodes.filter((node) => node.kind === "concept")).toHaveLength(count);
+        expect(graph.nodes.filter((node) => node.kind === "note")).toHaveLength(count);
+        expect(new Set(graph.nodes.map((node) => node.id)).size).toBe(graph.nodes.length);
+    });
+
     it("builds a valid linked JSON Canvas knowledge map", () => {
         const areas: KnowledgeArea[] = [
             {

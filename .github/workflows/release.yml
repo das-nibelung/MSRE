@@ -4,6 +4,7 @@ on:
     push:
         branches:
             - main
+            - personal-main
         paths:
             - manifest.json
             - package.json

@@ -41,6 +41,10 @@ import {
 } from "src/data/semantic/local-semantic-index";
 import { SettingsUtil, SRSettings } from "src/data/settings";
 import { SettingsManager } from "src/data/settings-manager";
+import {
+    KnowledgeCompilerMigrationReport,
+    migrateKnowledgeCompilerV1Artifacts,
+} from "src/intelligence/knowledge-compiler-migration";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { Note } from "src/note/note";
@@ -159,6 +163,11 @@ export class DataManager {
     ): Promise<void> {
         const recovery = await this.vaultWriter.recover();
         this.reportVaultRecovery(recovery);
+        const compilerMigration = await migrateKnowledgeCompilerV1Artifacts(
+            this.plugin.app,
+            this.vaultWriter,
+        );
+        this.reportCompilerMigration(compilerMigration);
         await this.collectionStore.initialize();
         await this.hydrateFileNativeState();
         await this.semanticIndex.initialize(
@@ -202,6 +211,26 @@ export class DataManager {
         if (report.failed > 0) {
             new Notice(
                 `Spaced Repetition could not automatically recover ${report.failed} save(s). Recovery data was kept.`,
+                10_000,
+            );
+        }
+    }
+
+    private reportCompilerMigration(report: KnowledgeCompilerMigrationReport): void {
+        if (report.migrated > 0) {
+            new Notice(
+                `Spaced Repetition upgraded ${report.migrated} knowledge compiler artifact${report.migrated === 1 ? "" : "s"} to V2.`,
+            );
+        }
+        if (report.conflicts > 0) {
+            new Notice(
+                `Spaced Repetition preserved ${report.conflicts} compiler migration conflict${report.conflicts === 1 ? "" : "s"} in Recovery/Conflicts.`,
+                10_000,
+            );
+        }
+        if (report.failed > 0) {
+            new Notice(
+                `${report.failed} compiler artifact${report.failed === 1 ? "" : "s"} could not be upgraded. The original files were kept.`,
                 10_000,
             );
         }

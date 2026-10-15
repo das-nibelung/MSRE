@@ -168,6 +168,13 @@ export function buildKnowledgeGraph(
 
     const noteNodeIds = new Map<string, string>();
     const conceptNodeIdsByNote = new Map<string, string>();
+    const recordsByNotePath = new Map<string, CardBrowserRecord[]>();
+    for (const record of records) {
+        if (!record.notePath) continue;
+        const grouped = recordsByNotePath.get(record.notePath);
+        if (grouped) grouped.push(record);
+        else recordsByNotePath.set(record.notePath, [record]);
+    }
     const notePaths = [...new Set(records.map((record) => record.notePath).filter(Boolean))].sort(
         (left, right) => left.localeCompare(right),
     );
@@ -184,8 +191,8 @@ export function buildKnowledgeGraph(
     }
     [...conceptGroups.entries()].forEach(([key, group], index) => {
         const id = `concept:${graphKey(key)}`;
-        const conceptRecords = records.filter((record) =>
-            group.notePaths.includes(record.notePath),
+        const conceptRecords = group.notePaths.flatMap(
+            (notePath) => recordsByNotePath.get(notePath) ?? [],
         );
         const deck = conceptRecords[0]?.deckNames[0] ?? "";
         const parentId = deckNodeIds.get(deck) ?? KNOWLEDGE_GRAPH_ROOT_ID;
@@ -212,7 +219,7 @@ export function buildKnowledgeGraph(
     notePaths.forEach((notePath, index) => {
         const id = `note:${notePath}`;
         noteNodeIds.set(notePath, id);
-        const noteRecords = records.filter((record) => record.notePath === notePath);
+        const noteRecords = recordsByNotePath.get(notePath) ?? [];
         const deck = noteRecords[0]?.deckNames[0] ?? "";
         const parentId =
             conceptNodeIdsByNote.get(notePath) ?? deckNodeIds.get(deck) ?? KNOWLEDGE_GRAPH_ROOT_ID;
