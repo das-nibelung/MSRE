@@ -79,6 +79,7 @@ export interface SavedCardQuery {
 export interface KnowledgeCanvasViewState {
     focusAreaId?: string | null;
     focusDeck?: string | null;
+    focusSourcePath?: string | null;
     expandedDecks: string[];
     sourceLimit: number;
     layers: {
@@ -93,6 +94,8 @@ export interface KnowledgeCanvasViewState {
 export interface KnowledgeGraphViewState {
     collapsedIds: string[];
     showSources: boolean;
+    showCards: boolean;
+    showDiagnostics: boolean;
     zoom: number;
     panX: number;
     panY: number;
@@ -170,6 +173,7 @@ export const DEFAULT_DATA: PluginData = {
     knowledgeCanvasView: {
         focusAreaId: null,
         focusDeck: null,
+        focusSourcePath: null,
         expandedDecks: [],
         sourceLimit: 6,
         layers: {
@@ -183,6 +187,8 @@ export const DEFAULT_DATA: PluginData = {
     knowledgeGraphView: {
         collapsedIds: [],
         showSources: true,
+        showCards: true,
+        showDiagnostics: true,
         zoom: 1,
         panX: 24,
         panY: 24,

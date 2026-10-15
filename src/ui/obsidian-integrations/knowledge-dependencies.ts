@@ -2,6 +2,58 @@ import { App, TFile } from "obsidian";
 
 import { KnowledgeDependencyEdge } from "src/scheduling/review-session-planner";
 
+export const KNOWLEDGE_RELATION_TYPES = [
+    "prerequisite",
+    "part",
+    "example",
+    "supports",
+    "contradicts",
+] as const;
+
+export type KnowledgeRelationType = (typeof KNOWLEDGE_RELATION_TYPES)[number];
+
+export interface KnowledgeRelationEdge {
+    fromPath: string;
+    toPath: string;
+    type: KnowledgeRelationType;
+    reason?: string;
+    source: "manual" | "compiler" | "frontmatter";
+}
+
+interface StoredKnowledgeRelation {
+    type: KnowledgeRelationType;
+    target: string;
+    reason?: string;
+}
+
+function isKnowledgeRelationType(value: unknown): value is KnowledgeRelationType {
+    return (
+        typeof value === "string" &&
+        KNOWLEDGE_RELATION_TYPES.includes(value as KnowledgeRelationType)
+    );
+}
+
+function storedRelations(value: unknown): StoredKnowledgeRelation[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((entry) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+        const candidate = entry as Record<string, unknown>;
+        if (!isKnowledgeRelationType(candidate.type) || typeof candidate.target !== "string")
+            return [];
+        const target = plainReference(candidate.target);
+        if (!target) return [];
+        return [
+            {
+                type: candidate.type,
+                target,
+                ...(typeof candidate.reason === "string" && candidate.reason.trim()
+                    ? { reason: candidate.reason.trim() }
+                    : {}),
+            },
+        ];
+    });
+}
+
 function prerequisiteValues(value: unknown): string[] {
     if (Array.isArray(value)) return value.flatMap(prerequisiteValues);
     if (typeof value !== "string") return [];
@@ -131,6 +183,98 @@ export async function removeKnowledgeDependency(
         }
     });
     return true;
+}
+
+/** Stores every semantic relation as portable Markdown frontmatter. Prerequisites also keep the
+ * legacy property used by the scheduler, so the graph and review order never diverge. */
+export async function addKnowledgeRelation(
+    app: App,
+    fromPath: string,
+    toPath: string,
+    type: KnowledgeRelationType,
+    reason = "Manual knowledge-graph relation",
+): Promise<boolean> {
+    if (type === "prerequisite") return addKnowledgeDependency(app, toPath, fromPath, reason);
+    const from = app.vault.getFileByPath(fromPath);
+    const to = app.vault.getFileByPath(toPath);
+    if (!(from instanceof TFile) || !(to instanceof TFile) || from.path === to.path) return false;
+    await app.fileManager.processFrontMatter(from, (frontmatter) => {
+        const data = frontmatter as Record<string, unknown>;
+        const relations = storedRelations(data["sr-relations"]);
+        const next = relations.filter(
+            (relation) => !(relation.type === type && relation.target === to.path),
+        );
+        next.push({ type, target: to.path, ...(reason.trim() ? { reason: reason.trim() } : {}) });
+        data["sr-relations"] = next.map((relation) => ({
+            type: relation.type,
+            target: `[[${relation.target}]]`,
+            ...(relation.reason ? { reason: relation.reason } : {}),
+        }));
+    });
+    return true;
+}
+
+export async function removeKnowledgeRelation(
+    app: App,
+    fromPath: string,
+    toPath: string,
+    type: KnowledgeRelationType,
+): Promise<boolean> {
+    if (type === "prerequisite") return removeKnowledgeDependency(app, toPath, fromPath);
+    const from = app.vault.getFileByPath(fromPath);
+    if (!(from instanceof TFile)) return false;
+    await app.fileManager.processFrontMatter(from, (frontmatter) => {
+        const data = frontmatter as Record<string, unknown>;
+        data["sr-relations"] = storedRelations(data["sr-relations"])
+            .filter((relation) => !(relation.type === type && relation.target === toPath))
+            .map((relation) => ({
+                type: relation.type,
+                target: `[[${relation.target}]]`,
+                ...(relation.reason ? { reason: relation.reason } : {}),
+            }));
+    });
+    return true;
+}
+
+/** Collects typed graph relations while preserving existing prerequisite metadata. */
+export function collectKnowledgeRelations(
+    app: App,
+    sourcePaths: Iterable<string>,
+): KnowledgeRelationEdge[] {
+    const paths = [...new Set(sourcePaths)];
+    const relations: KnowledgeRelationEdge[] = collectKnowledgeDependencies(app, paths).map(
+        (edge) => ({
+            fromPath: edge.prerequisitePath,
+            toPath: edge.dependentPath,
+            type: "prerequisite",
+            reason: edge.reason,
+            source: edge.source,
+        }),
+    );
+    const seen = new Set(
+        relations.map((edge) => `${edge.type}\u0000${edge.fromPath}\u0000${edge.toPath}`),
+    );
+    for (const fromPath of paths) {
+        const file = app.vault.getFileByPath(fromPath);
+        if (!(file instanceof TFile)) continue;
+        const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter as
+            Record<string, unknown> | undefined;
+        for (const relation of storedRelations(frontmatter?.["sr-relations"])) {
+            const toPath = resolvePath(app, relation.target, fromPath);
+            if (!toPath || toPath === fromPath) continue;
+            const key = `${relation.type}\u0000${fromPath}\u0000${toPath}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            relations.push({
+                fromPath,
+                toPath,
+                type: relation.type,
+                reason: relation.reason,
+                source: "frontmatter",
+            });
+        }
+    }
+    return relations;
 }
 
 /** Reads the deliberately explicit, user-editable dependency property from Markdown notes. */

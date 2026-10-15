@@ -721,6 +721,12 @@ button.sr-reminder-rule-status {
     min-height: 34px;
 }
 
+.sr-graph-relation-select {
+    width: 138px;
+    min-height: 34px;
+    color: var(--color-orange, #d59b52);
+}
+
 .sr-graph-controls button {
     width: 36px;
     height: 36px;
@@ -787,6 +793,33 @@ button.sr-reminder-rule-status {
     stroke: color-mix(in srgb, var(--color-orange, #d59b52) 74%, var(--text-muted));
     stroke-width: 2;
     stroke-dasharray: 10 5;
+}
+
+.sr-graph-edge.is-part {
+    stroke: color-mix(in srgb, var(--color-cyan, #62aeb4) 76%, var(--text-muted));
+    stroke-width: 2.5;
+}
+
+.sr-graph-edge.is-example {
+    stroke: color-mix(in srgb, var(--color-purple, #9b7fd8) 72%, var(--text-muted));
+    stroke-dasharray: 3 5;
+}
+
+.sr-graph-edge.is-supports {
+    stroke: color-mix(in srgb, var(--color-green, #63b477) 78%, var(--text-muted));
+    stroke-width: 2.5;
+}
+
+.sr-graph-edge.is-contradicts {
+    stroke: color-mix(in srgb, var(--color-red, #d85a62) 86%, var(--text-muted));
+    stroke-width: 3;
+    stroke-dasharray: 2 5;
+}
+
+.sr-graph-edge.is-issue {
+    opacity: 1;
+    stroke-width: 5;
+    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--color-red) 52%, transparent));
 }
 
 .sr-graph-prerequisite-arrow {
@@ -1611,6 +1644,66 @@ button.sr-reminder-rule-status {
     color: var(--color-cyan, #62aeb4);
 }
 
+.sr-graph-node.is-card {
+    min-height: 78px;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--background-primary) 92%, var(--color-purple, #9b7fd8) 8%);
+}
+
+.sr-graph-node.is-card .sr-graph-node-kind {
+    color: var(--color-purple, #9b7fd8);
+}
+
+.sr-graph-node.is-multi-selected {
+    border-color: var(--interactive-accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 28%, transparent), 0 14px 34px rgb(0 0 0 / 18%);
+}
+
+.sr-graph-node.is-issue {
+    border-color: var(--color-red, #d85a62);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-red, #d85a62) 22%, transparent);
+}
+
+.sr-graph-node.is-linking-source,
+.sr-graph-node.is-relation-target {
+    border-color: var(--color-orange, #d59b52);
+    outline: 3px solid color-mix(in srgb, var(--color-orange, #d59b52) 24%, transparent);
+}
+
+.sr-graph-relation-port {
+    position: absolute;
+    z-index: 4;
+    top: 50%;
+    right: -14px;
+    display: grid;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    transform: translateY(-50%);
+    place-items: center;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 999px;
+    background: var(--background-primary);
+    color: var(--color-orange, #d59b52);
+    opacity: 0;
+    transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.sr-graph-node:hover .sr-graph-relation-port,
+.sr-graph-node.is-selected .sr-graph-relation-port,
+.sr-graph-node.is-linking-source .sr-graph-relation-port {
+    opacity: 1;
+}
+
+.sr-graph-relation-port:hover {
+    transform: translateY(-50%) scale(1.12);
+}
+
+.sr-graph-relation-port svg {
+    width: 15px;
+    height: 15px;
+}
+
 .sr-graph-dependency-editor {
     margin-top: 14px;
     padding-top: 12px;
@@ -1889,6 +1982,114 @@ button.sr-reminder-rule-status {
     flex: 1;
 }
 
+.sr-graph-selection-bar {
+    position: absolute;
+    z-index: 10;
+    bottom: 18px;
+    left: 50%;
+    display: flex;
+    max-width: calc(100% - 36px);
+    align-items: center;
+    gap: 6px;
+    padding: 7px;
+    transform: translateX(-50%);
+    border: 1px solid color-mix(in srgb, var(--interactive-accent) 42%, var(--background-modifier-border));
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--background-primary-alt) 96%, transparent);
+    box-shadow: var(--shadow-l);
+    backdrop-filter: blur(18px);
+}
+
+.sr-graph-selection-bar > strong {
+    padding: 0 7px;
+    white-space: nowrap;
+}
+
+.sr-graph-diagnostics {
+    position: absolute;
+    z-index: 7;
+    bottom: 14px;
+    left: 14px;
+    width: 210px;
+    padding: 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 13px;
+    background: color-mix(in srgb, var(--background-primary-alt) 94%, transparent);
+    box-shadow: var(--shadow-s);
+    backdrop-filter: blur(14px);
+}
+
+.sr-graph-diagnostics-header,
+.sr-graph-diagnostic-counts,
+.sr-graph-cluster-summary {
+    display: flex;
+    align-items: center;
+}
+
+.sr-graph-diagnostics-header {
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.sr-graph-diagnostics-header span {
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
+.sr-graph-diagnostics-header .is-warning {
+    color: var(--color-orange, #d59b52);
+}
+
+.sr-graph-diagnostics-header .is-clean {
+    color: var(--color-green, #63b477);
+}
+
+.sr-graph-diagnostic-counts {
+    gap: 5px;
+    margin-top: 8px;
+}
+
+.sr-graph-diagnostic {
+    display: flex;
+    min-width: 0;
+    height: 30px;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 0;
+}
+
+.sr-graph-diagnostic svg {
+    width: 14px;
+    height: 14px;
+}
+
+.sr-graph-diagnostic.is-cycle,
+.sr-graph-diagnostic.is-contradiction {
+    color: var(--color-red, #d85a62);
+}
+
+.sr-graph-cluster-summary {
+    width: 100%;
+    justify-content: space-between;
+    margin-top: 6px;
+    padding: 5px 7px;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.sr-graph-prompt input {
+    width: 100%;
+}
+
+.sr-graph-prompt-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 7px;
+    margin-top: 14px;
+}
+
 .sr-graph-minimap {
     position: absolute;
     z-index: 6;
@@ -1956,6 +2157,15 @@ button.sr-reminder-rule-status {
         min-width: 132px;
     }
 
+    .sr-graph-relation-select {
+        width: 128px;
+        min-width: 128px;
+    }
+
+    .sr-graph-relation-port {
+        opacity: 1;
+    }
+
     .sr-graph-inspector {
         top: auto;
         right: 8px;
@@ -1972,6 +2182,20 @@ button.sr-reminder-rule-status {
         bottom: auto;
         width: 106px;
         height: 72px;
+    }
+
+    .sr-graph-diagnostics {
+        bottom: 8px;
+        left: 8px;
+        width: 180px;
+    }
+
+    .sr-graph-selection-bar {
+        right: 8px;
+        bottom: 8px;
+        left: 8px;
+        overflow-x: auto;
+        transform: none;
     }
 }
 

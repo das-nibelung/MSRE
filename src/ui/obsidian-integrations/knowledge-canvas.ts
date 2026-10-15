@@ -82,6 +82,7 @@ function studyLink(action: string, params: Record<string, string> = {}): string 
 const DEFAULT_CANVAS_VIEW: KnowledgeCanvasViewState = {
     focusAreaId: null,
     focusDeck: null,
+    focusSourcePath: null,
     expandedDecks: [],
     sourceLimit: 6,
     layers: { filters: true, areas: true, decks: true, sources: true, links: true },
@@ -196,7 +197,7 @@ export function buildKnowledgeCanvas(
         .map((layer) => layerControl(layer, view.layers[layer]))
         .join(" · ");
     const focus = view.focusDeck
-        ? `Deck: **${view.focusDeck}**`
+        ? `Deck: **${view.focusDeck}**${view.focusSourcePath ? ` · Source: **${view.focusSourcePath}**` : ""}`
         : view.focusAreaId
           ? `Area: **${areaById.get(view.focusAreaId)?.name ?? "Unknown"}**`
           : "All knowledge";
@@ -338,7 +339,16 @@ export function buildKnowledgeCanvas(
                 ...new Set(cards.map((record) => record.notePath).filter(Boolean)),
             ];
             const deckLimit = view.expandedDecks.includes(deck) ? allNotePaths.length : sourceLimit;
-            const notePaths = view.layers.sources ? allNotePaths.slice(0, deckLimit) : [];
+            const notePaths = view.layers.sources
+                ? [
+                      ...new Set([
+                          ...(view.focusSourcePath && allNotePaths.includes(view.focusSourcePath)
+                              ? [view.focusSourcePath]
+                              : []),
+                          ...allNotePaths.slice(0, deckLimit),
+                      ]),
+                  ]
+                : [];
             for (const notePath of notePaths) {
                 let fileNodeId = fileNodeByPath.get(notePath);
                 if (!fileNodeId) {
@@ -352,6 +362,7 @@ export function buildKnowledgeCanvas(
                         y: fileIndex++ * 170,
                         width: 310,
                         height: 135,
+                        ...(view.focusSourcePath === notePath ? { color: "1" } : {}),
                     });
                 }
                 edges.push({
@@ -511,10 +522,12 @@ export async function controlKnowledgeCanvas(
     if (params.area) {
         view.focusAreaId = params.area;
         view.focusDeck = null;
+        view.focusSourcePath = null;
     }
     if (params.deck) {
         view.focusDeck = params.deck;
         view.focusAreaId = null;
+        view.focusSourcePath = null;
     }
     if (params.expand && !view.expandedDecks.includes(params.expand)) {
         view.expandedDecks.push(params.expand);
@@ -522,6 +535,7 @@ export async function controlKnowledgeCanvas(
     if (params.reset === "focus") {
         view.focusAreaId = null;
         view.focusDeck = null;
+        view.focusSourcePath = null;
     }
     if (params.reset === "all") {
         plugin.dataManager.data.knowledgeCanvasView = resolvedView();

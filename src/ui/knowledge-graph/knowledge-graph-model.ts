@@ -1,8 +1,13 @@
 import { KnowledgeArea } from "src/data/plugin-data";
 import { KnowledgeDependencyEdge } from "src/scheduling/review-session-planner";
 import { CardBrowserRecord } from "src/ui/card-browser/card-browser-model";
+import {
+    KnowledgeRelationEdge,
+    KnowledgeRelationType,
+} from "src/ui/obsidian-integrations/knowledge-dependencies";
 
-export type KnowledgeGraphNodeKind = "root" | "area" | "deck" | "concept" | "note";
+export type KnowledgeGraphNodeKind =
+    "root" | "area" | "deck" | "concept" | "note" | "card" | "cluster";
 
 export interface KnowledgeGraphMetrics {
     cards: number;
@@ -23,6 +28,8 @@ export interface KnowledgeGraphNode {
     notePath?: string;
     notePaths?: string[];
     concept?: string;
+    cardId?: string;
+    clusterNodeIds?: string[];
     metrics: KnowledgeGraphMetrics;
     x: number;
     y: number;
@@ -32,10 +39,12 @@ export interface KnowledgeGraphEdge {
     id: string;
     from: string;
     to: string;
-    kind: "contains" | "link" | "prerequisite";
+    kind: "contains" | "link" | KnowledgeRelationType;
     reason?: string;
     prerequisitePath?: string;
     dependentPath?: string;
+    fromPath?: string;
+    toPath?: string;
 }
 
 export interface KnowledgeGraphData {
@@ -46,9 +55,28 @@ export interface KnowledgeGraphData {
 export interface KnowledgeGraphBuildOptions {
     noteLinks?: Record<string, string[]>;
     dependencies?: KnowledgeDependencyEdge[];
+    relations?: KnowledgeRelationEdge[];
     concepts?: Record<string, string>;
     conceptKeys?: Record<string, string>;
     positions?: Record<string, { x: number; y: number }>;
+    showCardNodes?: boolean;
+}
+
+export type KnowledgeGraphIssueKind = "cycle" | "contradiction" | "isolated";
+
+export interface KnowledgeGraphIssue {
+    id: string;
+    kind: KnowledgeGraphIssueKind;
+    nodeIds: string[];
+    edgeIds: string[];
+    message: string;
+}
+
+export interface KnowledgeGraphBounds {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
 }
 
 export const KNOWLEDGE_GRAPH_ROOT_ID = "root:knowledge";
@@ -240,6 +268,35 @@ export function buildKnowledgeGraph(
             ),
         );
         edges.push({ id: `contains:${parentId}:${id}`, from: parentId, to: id, kind: "contains" });
+        if (options.showCardNodes && noteRecords.length > 1) {
+            noteRecords.forEach((record, cardIndex) => {
+                const cardId = record.card.stableId || record.collectionCardId || record.id;
+                const cardNodeId = `card:${graphKey(`${notePath}\u0000${cardId}`)}`;
+                nodes.push(
+                    withPosition(
+                        {
+                            id: cardNodeId,
+                            kind: "card",
+                            label: compactGraphLabel(record.front, `Card ${cardIndex + 1}`),
+                            subtitle: `${record.noteTypeName ?? record.cardType} · variant ${cardIndex + 1}`,
+                            parentId: id,
+                            notePath,
+                            deckPath: deck,
+                            cardId,
+                            metrics: metrics([record]),
+                        },
+                        { x: 1690, y: 28 + (index * 3 + cardIndex) * 92 },
+                        positions,
+                    ),
+                );
+                edges.push({
+                    id: `contains:${id}:${cardNodeId}`,
+                    from: id,
+                    to: cardNodeId,
+                    kind: "contains",
+                });
+            });
+        }
     });
 
     for (const [sourcePath, destinations] of Object.entries(options.noteLinks ?? {})) {
@@ -250,27 +307,281 @@ export function buildKnowledgeGraph(
             if (to && to !== from) edges.push({ id: `link:${from}:${to}`, from, to, kind: "link" });
         }
     }
-    for (const dependency of options.dependencies ?? []) {
+    const relations: KnowledgeRelationEdge[] =
+        options.relations ??
+        (options.dependencies ?? []).map((dependency) => ({
+            fromPath: dependency.prerequisitePath,
+            toPath: dependency.dependentPath,
+            type: "prerequisite" as const,
+            reason: dependency.reason,
+            source: dependency.source,
+        }));
+    for (const relation of relations) {
         const from =
-            conceptNodeIdsByNote.get(dependency.prerequisitePath) ??
-            noteNodeIds.get(dependency.prerequisitePath);
-        const to =
-            conceptNodeIdsByNote.get(dependency.dependentPath) ??
-            noteNodeIds.get(dependency.dependentPath);
+            conceptNodeIdsByNote.get(relation.fromPath) ?? noteNodeIds.get(relation.fromPath);
+        const to = conceptNodeIdsByNote.get(relation.toPath) ?? noteNodeIds.get(relation.toPath);
         if (!from || !to || from === to) continue;
-        const id = `prerequisite:${from}:${to}`;
+        const id = `${relation.type}:${from}:${to}`;
         if (edges.some((edge) => edge.id === id)) continue;
         edges.push({
             id,
             from,
             to,
-            kind: "prerequisite",
-            reason: dependency.reason,
-            prerequisitePath: dependency.prerequisitePath,
-            dependentPath: dependency.dependentPath,
+            kind: relation.type,
+            reason: relation.reason,
+            fromPath: relation.fromPath,
+            toPath: relation.toPath,
+            ...(relation.type === "prerequisite"
+                ? {
+                      prerequisitePath: relation.fromPath,
+                      dependentPath: relation.toPath,
+                  }
+                : {}),
         });
     }
     return { nodes, edges };
+}
+
+function compactGraphLabel(value: string, fallback: string): string {
+    const label = value
+        .replace(/<[^>]+>/g, " ")
+        .replace(/!\[\[[^\]]+\]\]/g, " ")
+        .replace(/[*_~`#]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    return label.slice(0, 72) || fallback;
+}
+
+/** Finds structural problems without changing the graph. Contains/link edges are intentionally
+ * excluded: diagnostics describe the explicit knowledge model, not the folder hierarchy. */
+export function diagnoseKnowledgeGraph(graph: KnowledgeGraphData): KnowledgeGraphIssue[] {
+    const semantic = graph.edges.filter((edge) => edge.kind !== "contains" && edge.kind !== "link");
+    const issues: KnowledgeGraphIssue[] = [];
+    const prerequisites = semantic.filter((edge) => edge.kind === "prerequisite");
+    const outgoing = new Map<string, KnowledgeGraphEdge[]>();
+    prerequisites.forEach((edge) =>
+        outgoing.set(edge.from, [...(outgoing.get(edge.from) ?? []), edge]),
+    );
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const stack: string[] = [];
+    const cycleKeys = new Set<string>();
+    const visit = (id: string): void => {
+        if (visiting.has(id)) {
+            const start = stack.indexOf(id);
+            const nodeIds = [...stack.slice(Math.max(0, start)), id];
+            const key = [...new Set(nodeIds)].sort().join("|");
+            if (!cycleKeys.has(key)) {
+                cycleKeys.add(key);
+                const edgeIds = nodeIds.slice(0, -1).flatMap<string>((nodeId, index) => {
+                    const next = nodeIds[index + 1];
+                    const edgeId = outgoing.get(nodeId)?.find((edge) => edge.to === next)?.id;
+                    return edgeId ? [edgeId] : [];
+                });
+                issues.push({
+                    id: `cycle:${key}`,
+                    kind: "cycle",
+                    nodeIds: [...new Set(nodeIds)],
+                    edgeIds,
+                    message: `Circular prerequisite across ${Math.max(1, nodeIds.length - 1)} concepts`,
+                });
+            }
+            return;
+        }
+        if (visited.has(id)) return;
+        visiting.add(id);
+        stack.push(id);
+        for (const edge of outgoing.get(id) ?? []) visit(edge.to);
+        stack.pop();
+        visiting.delete(id);
+        visited.add(id);
+    };
+    graph.nodes.forEach((node) => visit(node.id));
+
+    semantic
+        .filter((edge) => edge.kind === "contradicts")
+        .forEach((edge) => {
+            const pair = [edge.from, edge.to].sort();
+            const id = `contradiction:${pair.join(":")}`;
+            if (issues.some((issue) => issue.id === id)) return;
+            issues.push({
+                id,
+                kind: "contradiction",
+                nodeIds: pair,
+                edgeIds: [edge.id],
+                message: "Explicit contradiction between two concepts",
+            });
+        });
+
+    const connected = new Set(semantic.flatMap((edge) => [edge.from, edge.to]));
+    graph.nodes
+        .filter((node) => node.kind === "concept" && !connected.has(node.id))
+        .forEach((node) =>
+            issues.push({
+                id: `isolated:${node.id}`,
+                kind: "isolated",
+                nodeIds: [node.id],
+                edgeIds: [],
+                message: `${node.label} has no knowledge relations`,
+            }),
+        );
+    return issues;
+}
+
+/** Returns only nodes intersecting the viewport plus structural ancestors. This keeps DOM size
+ * bounded for very large vaults while retaining a complete in-memory graph for search/routes. */
+export function virtualizeKnowledgeGraph(
+    graph: KnowledgeGraphData,
+    bounds: KnowledgeGraphBounds,
+    padding = 360,
+    limit = 900,
+): KnowledgeGraphData {
+    if (graph.nodes.length <= limit) return graph;
+    const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+    const visible = graph.nodes.filter(
+        (node) =>
+            node.x >= bounds.left - padding &&
+            node.x <= bounds.right + padding &&
+            node.y >= bounds.top - padding &&
+            node.y <= bounds.bottom + padding,
+    );
+    const ids = new Set(visible.slice(0, limit).map((node) => node.id));
+    for (const node of visible) {
+        let parent = node.parentId;
+        while (parent) {
+            ids.add(parent);
+            parent = byId.get(parent)?.parentId ?? null;
+        }
+    }
+    const nodes = graph.nodes.filter((node) => ids.has(node.id));
+    return {
+        nodes,
+        edges: graph.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)),
+    };
+}
+
+/** Connected semantic components become named clusters for overview mode. */
+export function knowledgeGraphClusters(graph: KnowledgeGraphData): KnowledgeGraphNode[][] {
+    const candidates = graph.nodes.filter((node) => node.kind === "concept");
+    const candidateIds = new Set(candidates.map((node) => node.id));
+    const adjacent = new Map<string, Set<string>>();
+    graph.edges
+        .filter((edge) => edge.kind !== "contains" && edge.kind !== "link")
+        .forEach((edge) => {
+            if (!candidateIds.has(edge.from) || !candidateIds.has(edge.to)) return;
+            adjacent.set(edge.from, new Set([...(adjacent.get(edge.from) ?? []), edge.to]));
+            adjacent.set(edge.to, new Set([...(adjacent.get(edge.to) ?? []), edge.from]));
+        });
+    const seen = new Set<string>();
+    const clusters: KnowledgeGraphNode[][] = [];
+    for (const node of candidates) {
+        if (seen.has(node.id)) continue;
+        const ids: string[] = [];
+        const pending = [node.id];
+        while (pending.length) {
+            const id = pending.pop();
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            ids.push(id);
+            pending.push(...(adjacent.get(id) ?? []));
+        }
+        clusters.push(
+            ids.flatMap((id) => {
+                const match = graph.nodes.find((item) => item.id === id);
+                return match ? [match] : [];
+            }),
+        );
+    }
+    return clusters.sort((left, right) => right.length - left.length);
+}
+
+/** Collapses dense deck branches into overview nodes. The full graph remains the source of truth;
+ * this is a projection used only while zoomed out. */
+export function clusterKnowledgeGraph(
+    graph: KnowledgeGraphData,
+    minimumBranchSize = 24,
+): KnowledgeGraphData {
+    const structural = graph.nodes.filter((node) => ["root", "area", "deck"].includes(node.kind));
+    const descendantsByDeck = new Map<string, KnowledgeGraphNode[]>();
+    for (const node of graph.nodes) {
+        if (!["concept", "note", "card"].includes(node.kind) || !node.deckPath) continue;
+        descendantsByDeck.set(node.deckPath, [
+            ...(descendantsByDeck.get(node.deckPath) ?? []),
+            node,
+        ]);
+    }
+    const clusteredNodeIds = new Set<string>();
+    const clusterByNode = new Map<string, string>();
+    const clusterNodes: KnowledgeGraphNode[] = [];
+    for (const [deckPath, branch] of descendantsByDeck) {
+        if (branch.length < minimumBranchSize) continue;
+        const concepts = branch.filter((node) => node.kind === "concept");
+        const metricNodes = concepts.length
+            ? concepts
+            : branch.filter((node) => node.kind === "note");
+        const id = `cluster:${graphKey(deckPath)}`;
+        const cards = metricNodes.reduce((sum, node) => sum + node.metrics.cards, 0);
+        const due = metricNodes.reduce((sum, node) => sum + node.metrics.due, 0);
+        const newCards = metricNodes.reduce((sum, node) => sum + node.metrics.newCards, 0);
+        const lapses = metricNodes.reduce((sum, node) => sum + node.metrics.lapses, 0);
+        const retentions = metricNodes
+            .map((node) => node.metrics.retention)
+            .filter((value): value is number => value !== null);
+        const deckNode = structural.find(
+            (node) => node.kind === "deck" && node.deckPath === deckPath,
+        );
+        clusterNodes.push({
+            id,
+            kind: "cluster",
+            label: `${deckNode?.label ?? deckPath} cluster`,
+            subtitle: `${concepts.length} concepts · ${branch.length} nodes`,
+            parentId: deckNode?.id ?? KNOWLEDGE_GRAPH_ROOT_ID,
+            deckPath,
+            clusterNodeIds: branch.map((node) => node.id),
+            metrics: {
+                cards,
+                due,
+                newCards,
+                lapses,
+                retention: retentions.length
+                    ? retentions.reduce((sum, value) => sum + value, 0) / retentions.length
+                    : null,
+            },
+            x: (deckNode?.x ?? 690) + 340,
+            y: deckNode?.y ?? clusterNodes.length * 118,
+        });
+        branch.forEach((node) => {
+            clusteredNodeIds.add(node.id);
+            clusterByNode.set(node.id, id);
+        });
+    }
+    if (!clusterNodes.length) return graph;
+    const nodes = [
+        ...structural,
+        ...graph.nodes.filter(
+            (node) => !structural.includes(node) && !clusteredNodeIds.has(node.id),
+        ),
+        ...clusterNodes,
+    ];
+    const edges = new Map<string, KnowledgeGraphEdge>();
+    for (const edge of graph.edges) {
+        const from = clusterByNode.get(edge.from) ?? edge.from;
+        const to = clusterByNode.get(edge.to) ?? edge.to;
+        if (from === to) continue;
+        const kind = edge.kind === "contains" && to.startsWith("cluster:") ? "contains" : edge.kind;
+        const id = `${kind}:${from}:${to}`;
+        if (!edges.has(id)) edges.set(id, { ...edge, id, from, to, kind });
+    }
+    for (const cluster of clusterNodes) {
+        if (!cluster.parentId) continue;
+        const id = `contains:${cluster.parentId}:${cluster.id}`;
+        edges.set(id, { id, from: cluster.parentId, to: cluster.id, kind: "contains" });
+    }
+    const ids = new Set(nodes.map((node) => node.id));
+    return {
+        nodes,
+        edges: [...edges.values()].filter((edge) => ids.has(edge.from) && ids.has(edge.to)),
+    };
 }
 
 export function visibleKnowledgeGraph(
@@ -294,7 +605,9 @@ export function visibleKnowledgeGraph(
     };
     collapsed.forEach(hideDescendants);
     if (!showSources)
-        graph.nodes.filter((node) => node.kind === "note").forEach((node) => hidden.add(node.id));
+        graph.nodes
+            .filter((node) => node.kind === "note" || node.kind === "card")
+            .forEach((node) => hidden.add(node.id));
 
     if (focusId) {
         const keep = new Set<string>([focusId]);

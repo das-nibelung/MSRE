@@ -74,7 +74,7 @@ export class PluginDataManager {
                   )
                 : [],
             zoom: Math.max(
-                0.35,
+                0.15,
                 Math.min(2.5, Number(this._pluginData.knowledgeGraphView?.zoom) || 1),
             ),
             panX: Number(this._pluginData.knowledgeGraphView?.panX) || 24,
@@ -84,6 +84,8 @@ export class PluginDataManager {
                 typeof this._pluginData.knowledgeGraphView.positions === "object"
                     ? this._pluginData.knowledgeGraphView.positions
                     : {},
+            showCards: this._pluginData.knowledgeGraphView?.showCards !== false,
+            showDiagnostics: this._pluginData.knowledgeGraphView?.showDiagnostics !== false,
         };
         const rawReviewPlan = this._pluginData.reviewPlanState;
         this._pluginData.reviewPlanState = {

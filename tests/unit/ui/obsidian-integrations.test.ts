@@ -3,8 +3,12 @@ import { KnowledgeArea } from "src/data/plugin-data";
 import { CardBrowserRecord } from "src/ui/card-browser/card-browser-model";
 import {
     buildKnowledgeGraph,
+    clusterKnowledgeGraph,
+    diagnoseKnowledgeGraph,
     graphMatches,
+    knowledgeGraphClusters,
     shortestKnowledgePath,
+    virtualizeKnowledgeGraph,
     visibleKnowledgeGraph,
 } from "src/ui/knowledge-graph/knowledge-graph-model";
 import {
@@ -216,6 +220,97 @@ describe("Obsidian knowledge integrations", () => {
         expect(new Set(graph.nodes.map((node) => node.id)).size).toBe(graph.nodes.length);
     });
 
+    it("models typed relations and individual variants from one source note", () => {
+        const graph = buildKnowledgeGraph(
+            [],
+            [
+                record({ id: "forward", front: "Term", notePath: "Knowledge/Term.md" }),
+                record({ id: "reverse", front: "Definition", notePath: "Knowledge/Term.md" }),
+                record({ id: "example", notePath: "Knowledge/Example.md" }),
+            ],
+            ["Medicine/Cardiology"],
+            {
+                concepts: {
+                    "Knowledge/Term.md": "Term",
+                    "Knowledge/Example.md": "Example",
+                },
+                conceptKeys: {
+                    "Knowledge/Term.md": "term",
+                    "Knowledge/Example.md": "example",
+                },
+                relations: [
+                    {
+                        fromPath: "Knowledge/Example.md",
+                        toPath: "Knowledge/Term.md",
+                        type: "example",
+                        source: "manual",
+                    },
+                ],
+                showCardNodes: true,
+            },
+        );
+
+        expect(graph.nodes.filter((node) => node.kind === "card")).toHaveLength(2);
+        expect(graph.edges).toContainEqual(
+            expect.objectContaining({ kind: "example", fromPath: "Knowledge/Example.md" }),
+        );
+    });
+
+    it("diagnoses prerequisite cycles, contradictions and isolated concepts", () => {
+        const graph = buildKnowledgeGraph(
+            [],
+            [
+                record({ id: "a", notePath: "A.md" }),
+                record({ id: "b", notePath: "B.md" }),
+                record({ id: "c", notePath: "C.md" }),
+            ],
+            ["Medicine/Cardiology"],
+            {
+                concepts: { "A.md": "A", "B.md": "B", "C.md": "C" },
+                conceptKeys: { "A.md": "a", "B.md": "b", "C.md": "c" },
+                relations: [
+                    { fromPath: "A.md", toPath: "B.md", type: "prerequisite", source: "manual" },
+                    { fromPath: "B.md", toPath: "A.md", type: "prerequisite", source: "manual" },
+                    { fromPath: "A.md", toPath: "B.md", type: "contradicts", source: "manual" },
+                ],
+            },
+        );
+        const issues = diagnoseKnowledgeGraph(graph);
+
+        expect(issues.some((issue) => issue.kind === "cycle")).toBe(true);
+        expect(issues.some((issue) => issue.kind === "contradiction")).toBe(true);
+        expect(
+            issues.some((issue) => issue.kind === "isolated" && issue.message.startsWith("C")),
+        ).toBe(true);
+        expect(knowledgeGraphClusters(graph)[0]).toHaveLength(2);
+    });
+
+    it("virtualizes large graph canvases while retaining ancestors and visible edges", () => {
+        const records = Array.from({ length: 1_000 }, (_, index) =>
+            record({ id: `card-${index}`, notePath: `Knowledge/${index}.md` }),
+        );
+        const graph = buildKnowledgeGraph([], records, ["Medicine/Cardiology"]);
+        const windowed = virtualizeKnowledgeGraph(
+            graph,
+            { left: 1_300, top: 0, right: 1_700, bottom: 500 },
+            40,
+            80,
+        );
+
+        expect(windowed.nodes.length).toBeLessThan(graph.nodes.length);
+        expect(windowed.nodes.some((node) => node.kind === "root")).toBe(true);
+        expect(
+            windowed.edges.every(
+                (edge) =>
+                    windowed.nodes.some((node) => node.id === edge.from) &&
+                    windowed.nodes.some((node) => node.id === edge.to),
+            ),
+        ).toBe(true);
+        const overview = clusterKnowledgeGraph(graph, 20);
+        expect(overview.nodes.some((node) => node.kind === "cluster")).toBe(true);
+        expect(overview.nodes.length).toBeLessThan(graph.nodes.length);
+    });
+
     it("builds a valid linked JSON Canvas knowledge map", () => {
         const areas: KnowledgeArea[] = [
             {
@@ -240,6 +335,10 @@ describe("Obsidian knowledge integrations", () => {
             {
                 noteLinks: { "Medicine/Heart.md": ["Medicine/Lung.md"] },
                 sourceLimitPerDeck: 5,
+                view: {
+                    focusDeck: "Medicine/Cardiology",
+                    focusSourcePath: "Medicine/Lung.md",
+                },
             },
         );
         const ids = new Set(canvas.nodes.map((node) => node.id));
@@ -250,11 +349,20 @@ describe("Obsidian knowledge integrations", () => {
         ).toBe(true);
         expect(
             canvas.nodes.some(
+                (node) =>
+                    node.type === "file" && node.file === "Medicine/Lung.md" && node.color === "1",
+            ),
+        ).toBe(true);
+        expect(
+            canvas.nodes.some(
                 (node) => node.type === "text" && node.text.includes("deck=Medicine%2FCardiology"),
             ),
         ).toBe(true);
         expect(
-            canvas.nodes.some((node) => node.type === "text" && node.text.includes("Other decks")),
+            canvas.nodes.some(
+                (node) =>
+                    node.type === "text" && node.text.includes("Source: **Medicine/Lung.md**"),
+            ),
         ).toBe(true);
         expect(
             canvas.nodes.some(
