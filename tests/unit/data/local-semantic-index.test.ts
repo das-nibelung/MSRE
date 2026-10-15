@@ -216,6 +216,10 @@ describe("local semantic index", () => {
         const result = await service.refresh(populated, []);
         expect(result.added).toEqual(["note"]);
         expect(service.search("ATP")[0]?.item.id).toBe("note");
+        expect(service.documents()).toEqual([
+            expect.objectContaining({ id: "note", sourcePath: "note.md" }),
+        ]);
+        expect(service.related("note")).toEqual([]);
         expect(service.findNearDuplicateGroups()).toEqual([]);
         expect(service.clusterConcepts()).toEqual([]);
         expect(service.suggest("ATP").tags[0]?.value).toBe("biology");

@@ -25,6 +25,7 @@ module.exports = {
     },
 
     Notice: jest.fn().mockImplementation(),
+    loadPdfJs: jest.fn(),
     TFile,
     /** @param {string} path */
     normalizePath: (path) =>
