@@ -23,11 +23,18 @@ import {
     IFlashcardReviewSequencer,
 } from "src/scheduling/flashcard-review-sequencer";
 import {
+    analyzeDependencyImpact,
     applyStableIdPlanToQueue,
     averageReviewDuration,
+    DependencyImpact,
+    ExcludedPlannedCard,
     explainPlannedCard,
+    PlannedCard,
     planReviewSession,
+    ReviewLoadSimulation,
     ReviewPlanInsight,
+    ReviewSessionPlan,
+    simulateReviewLoad,
 } from "src/scheduling/review-session-planner";
 import { collectKnowledgeDependencies } from "src/ui/obsidian-integrations/knowledge-dependencies";
 import { globalDateProvider } from "src/utils/dates";
@@ -53,6 +60,17 @@ export interface CustomStudyOptions {
     limit: number;
     order: "due-first" | "random";
     aheadDays?: number;
+}
+
+export interface ReviewPlanPreview {
+    generatedAt: number;
+    plan: ReviewSessionPlan;
+    cards: PlannedCard[];
+    rankedCards: PlannedCard[];
+    excluded: ExcludedPlannedCard[];
+    week: ReviewLoadSimulation;
+    month: ReviewLoadSimulation;
+    dependencyImpact: DependencyImpact[];
 }
 
 /** Creates a temporary, deck-scoped queue without changing card schedules. */
@@ -187,6 +205,7 @@ export class ReviewQueueLoader {
     private reviewMode: FlashcardReviewMode;
     private customStudyOptions: CustomStudyOptions | null = null;
     private selectedStableIds: Set<string> | null = null;
+    private plannedStableIds: string[] | null = null;
     private planInsights = new Map<string, ReviewPlanInsight>();
 
     constructor(
@@ -219,6 +238,22 @@ export class ReviewQueueLoader {
 
     setSelectedStableIds(stableIds: Iterable<string> | null): void {
         this.selectedStableIds = stableIds === null ? null : new Set(stableIds);
+        this.plannedStableIds = null;
+    }
+
+    setPlannedSession(cards: readonly PlannedCard[]): void {
+        this.plannedStableIds = cards.flatMap(({ card }) =>
+            card.legacyStableId ? [card.legacyStableId] : [],
+        );
+        this.selectedStableIds = new Set(this.plannedStableIds);
+        this.planInsights.clear();
+        for (const item of cards) {
+            const insight = explainPlannedCard(item);
+            if (item.manualReason) {
+                insight.detail = `${insight.detail} Manual priority: ${item.manualReason}`;
+            }
+            if (insight.stableId) this.planInsights.set(insight.stableId, insight);
+        }
     }
 
     getPlanInsight(stableId: string | null | undefined): ReviewPlanInsight | null {
@@ -227,6 +262,86 @@ export class ReviewQueueLoader {
 
     getPlanInsights(): ReviewPlanInsight[] {
         return [...this.planInsights.values()];
+    }
+
+    /** Builds the exact queue proposal shown before a normal review session starts. */
+    public async buildReviewPlanPreview(): Promise<ReviewPlanPreview> {
+        const collection = this.plugin.dataManager.collectionStore;
+        await collection.restoreExpiredBuriedCards();
+        const snapshot = collection.getCollectionSnapshot();
+        const reviewLog = collection.getReviewLogSnapshot();
+        const settings = this.plugin.dataManager.data.settings;
+        const rootTag = settings.flashcardTags[0] ?? "#flashcards";
+        const deckTree = applyCardLifecycleToQueue(this.osrCore.reviewableDeckTree, (stableId) =>
+            collection.isLegacyCardReviewable(stableId),
+        );
+        let remainingDeckTree = applyCardLifecycleToQueue(
+            this.osrCore.remainingDeckTree,
+            (stableId) => collection.isLegacyCardReviewable(stableId),
+        );
+        if (settings.reviewAheadDays > 0) {
+            remainingDeckTree = applyReviewAheadToQueue(
+                deckTree,
+                rootTag,
+                settings.reviewAheadDays,
+                (deckPath) => collection.getDeckOptionsForPath(deckPath),
+            );
+        }
+        remainingDeckTree = applyDeckOptionsToQueue(
+            remainingDeckTree,
+            rootTag,
+            (deckPath) => collection.getDeckOptionsForPath(deckPath),
+            averageReviewDuration(reviewLog),
+        );
+        const baselineStableIds = new Set(
+            remainingDeckTree
+                .getFlattenedRepItemArray(RepItemState.AnyItem, true)
+                .filter((item): item is Card => item instanceof Card)
+                .flatMap((card) => (card.stableId ? [card.stableId] : [])),
+        );
+        const baselineCardIds = new Set(
+            Object.values(snapshot.cards)
+                .filter(
+                    (card) =>
+                        card.legacyStableId !== null && baselineStableIds.has(card.legacyStableId),
+                )
+                .map((card) => card.id),
+        );
+        const allEdges = collectKnowledgeDependencies(
+            this.plugin.app,
+            Object.values(snapshot.notes)
+                .filter((note) => !note.deletedAt)
+                .map((note) => note.source.path),
+        );
+        const planned = planReviewSession(snapshot, reviewLog, {
+            minutes: settings.reviewSessionMinutes || undefined,
+            aheadDays: settings.reviewAheadDays,
+            aheadDaysForDeck: (deckPath) =>
+                collection.getDeckOptionsForPath(deckPath).reviewAheadDays ?? 0,
+            intelligentBacklog: settings.intelligentBacklog,
+            priorityForDeck: (deckPath) => this.priorityForDeck(deckPath),
+            dependencyEdges: settings.dependencyAwareScheduling ? allEdges : [],
+            dependencyRetentionThreshold: settings.dependencyRetentionThreshold,
+            baselineCardIds,
+        });
+        return {
+            generatedAt: Date.now(),
+            ...planned,
+            week: simulateReviewLoad(snapshot, reviewLog, { days: 7 }),
+            month: simulateReviewLoad(snapshot, reviewLog, { days: 30 }),
+            dependencyImpact: analyzeDependencyImpact(snapshot, reviewLog, allEdges),
+        };
+    }
+
+    private priorityForDeck(deckPath: string): number {
+        const collection = this.plugin.dataManager.collectionStore;
+        const preset = collection.getDeckOptionsForPath(deckPath);
+        const area = this.plugin.dataManager.data.knowledgeAreas.find((candidate) =>
+            candidate.deckPaths.some(
+                (path) => deckPath === path || deckPath.startsWith(`${path}/`),
+            ),
+        );
+        return area?.scheduling?.priority ?? preset.priority ?? 0;
     }
 
     public async loadReviewQueue(): Promise<IFlashcardReviewSequencer> {
@@ -274,14 +389,21 @@ export class ReviewQueueLoader {
         }
 
         if (this.selectedStableIds) {
-            deckTree = applyStableIdSelectionToQueue(deckTree, this.selectedStableIds);
-            remainingDeckTree = applyStableIdSelectionToQueue(
-                remainingDeckTree,
-                this.selectedStableIds,
-            );
-        }
-
-        this.planInsights.clear();
+            if (this.plannedStableIds) {
+                deckTree = applyStableIdPlanToQueue(deckTree, this.plannedStableIds);
+                remainingDeckTree = applyStableIdPlanToQueue(
+                    remainingDeckTree,
+                    this.plannedStableIds,
+                );
+            } else {
+                deckTree = applyStableIdSelectionToQueue(deckTree, this.selectedStableIds);
+                remainingDeckTree = applyStableIdSelectionToQueue(
+                    remainingDeckTree,
+                    this.selectedStableIds,
+                );
+                this.planInsights.clear();
+            }
+        } else this.planInsights.clear();
         if (
             this.reviewMode === FlashcardReviewMode.Review &&
             !this.singleNote &&
@@ -315,7 +437,6 @@ export class ReviewQueueLoader {
                 settings.dependencyAwareScheduling
             ) {
                 const snapshot = collection.getCollectionSnapshot();
-                const areas = this.plugin.dataManager.data.knowledgeAreas;
                 const baselineStableIds = new Set(
                     remainingDeckTree
                         .getFlattenedRepItemArray(RepItemState.AnyItem, true)
@@ -345,15 +466,7 @@ export class ReviewQueueLoader {
                     aheadDaysForDeck: (deckPath) =>
                         collection.getDeckOptionsForPath(deckPath).reviewAheadDays ?? 0,
                     intelligentBacklog: settings.intelligentBacklog,
-                    priorityForDeck: (deckPath) => {
-                        const preset = collection.getDeckOptionsForPath(deckPath);
-                        const area = areas.find((candidate) =>
-                            candidate.deckPaths.some(
-                                (path) => deckPath === path || deckPath.startsWith(`${path}/`),
-                            ),
-                        );
-                        return area?.scheduling?.priority ?? preset.priority ?? 0;
-                    },
+                    priorityForDeck: (deckPath) => this.priorityForDeck(deckPath),
                     dependencyEdges,
                     dependencyRetentionThreshold: settings.dependencyRetentionThreshold,
                     baselineCardIds,

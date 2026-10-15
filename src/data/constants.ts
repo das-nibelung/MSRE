@@ -36,6 +36,7 @@ export const CARD_CREATOR_VIEW_TYPE = "spaced-repetition-card-creator";
 export const KNOWLEDGE_GRAPH_VIEW_TYPE = "spaced-repetition-knowledge-graph";
 export const KNOWLEDGE_COMPILER_VIEW_TYPE = "spaced-repetition-knowledge-compiler";
 export const REMINDER_CENTER_VIEW_TYPE = "spaced-repetition-reminder-center";
+export const REVIEW_PLAN_VIEW_TYPE = "spaced-repetition-review-plan";
 
 // Disables the error hiding workaround (see src/ui/sr-tab-view.tsx)
 // Enables emulated platform detection via the EmulatedPlatform() function

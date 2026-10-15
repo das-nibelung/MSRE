@@ -1,10 +1,12 @@
 import { CollectionData, ReviewLogData } from "src/data/collection/collection-types";
 import { SRAlgorithmType } from "src/scheduling/algorithms/base/isr-algorithm";
 import {
+    analyzeDependencyImpact,
     averageReviewDuration,
     cardDueAt,
     explainPlannedCard,
     planReviewSession,
+    simulateReviewLoad,
 } from "src/scheduling/review-session-planner";
 
 const now = Date.UTC(2026, 9, 11, 12);
@@ -207,6 +209,8 @@ describe("review session planner", () => {
         expect(plan.newCards).toBe(2);
         expect(plan.backlogCards).toBe(1);
         expect(plan.averageResponseMs).toBe(12_000);
+        expect(explainPlannedCard(cards[0], now).kind).toBe("learning");
+        expect(explainPlannedCard(cards[1], now).kind).toBe("new");
     });
 
     test("uses the current time when a plan has no explicit options", () => {
@@ -281,6 +285,7 @@ describe("review session planner", () => {
                         prerequisitePath: "Medicine/Foundation.md",
                         dependentPath: "Medicine/Diagnosis.md",
                         source: "compiler",
+                        confidence: 0.8,
                     },
                 ],
             },
@@ -354,5 +359,198 @@ describe("review session planner", () => {
                 baselineCardIds: new Set(),
             }).cards,
         ).toEqual([]);
+    });
+
+    test("exposes an additive score and explains every excluded card", () => {
+        const selected = card("selected", "Medicine", -4);
+        const limited = card("limited", "Medicine", -1);
+        const future = card("future", "Medicine", 14);
+        const suspended = { ...card("suspended", "Medicine", -2), state: "suspended" as const };
+        const result = planReviewSession(
+            {
+                schemaVersion: 12,
+                revision: 1,
+                updatedAt: now,
+                noteTypes: {},
+                deckOptions: {},
+                decks: {},
+                notes: {},
+                cards: { selected, limited, future, suspended },
+                editHistory: {},
+                conflicts: {},
+            },
+            reviewLog,
+            {
+                now,
+                baselineCardIds: new Set([selected.id]),
+                priorityForDeck: () => 2,
+            },
+        );
+
+        expect(result.cards).toHaveLength(1);
+        const breakdown = result.cards[0].scoreBreakdown;
+        expect(
+            breakdown.importance +
+                breakdown.learning +
+                breakdown.overdue +
+                breakdown.forgetting +
+                breakdown.dependency +
+                breakdown.blocked +
+                breakdown.schedule +
+                breakdown.manual,
+        ).toBeCloseTo(result.cards[0].score);
+        expect(result.excluded.map((item) => item.code)).toEqual(
+            expect.arrayContaining(["daily-limit", "not-due", "suspended"]),
+        );
+        expect(result.rankedCards.map((item) => item.card.id)).toEqual([selected.id]);
+    });
+
+    test("explains scheduled cards, time limits, burial, and an incomplete index", () => {
+        const dueNow = card("due-now", "Medicine", 0);
+        const dueSecond = card("due-second", "Medicine", -1);
+        const dueThird = card("due-third", "Medicine", -2);
+        const buried = { ...card("buried", "Medicine", -1), state: "buried" as const };
+        const missingId = {
+            ...card("missing-id", "Medicine", -1),
+            legacyStableId: null as string | null,
+        };
+        const result = planReviewSession(
+            {
+                schemaVersion: 12,
+                revision: 1,
+                updatedAt: now,
+                noteTypes: {},
+                deckOptions: {},
+                decks: {},
+                notes: {},
+                cards: { dueNow, dueSecond, dueThird, buried, missingId },
+                editHistory: {},
+                conflicts: {},
+            },
+            reviewLog,
+            { now, minutes: 1 },
+        );
+
+        const scheduled = result.rankedCards.find((item) => item.card.id === dueNow.id);
+        expect(scheduled && explainPlannedCard(scheduled, now).kind).toBe("scheduled");
+        expect(result.excluded.map((item) => item.code)).toEqual(
+            expect.arrayContaining(["time-limit", "buried", "missing-stable-id"]),
+        );
+    });
+
+    test("simulates weekly and monthly load from known schedules", () => {
+        const collection: CollectionData = {
+            schemaVersion: 12,
+            revision: 1,
+            updatedAt: now,
+            noteTypes: {},
+            deckOptions: {},
+            decks: {},
+            notes: {},
+            cards: {
+                overdue: card("overdue", "Medicine", -2),
+                tomorrow: card("tomorrow", "Medicine", 1),
+                later: card("later", "Medicine", 20),
+                fresh: card("fresh", "Medicine", null, "new"),
+            },
+            editHistory: {},
+            conflicts: {},
+        };
+
+        const week = simulateReviewLoad(collection, reviewLog, { now, days: 7 });
+        const month = simulateReviewLoad(collection, reviewLog, { now, days: 30 });
+        expect(week.totalCards).toBe(3);
+        expect(week.buckets[0]).toMatchObject({ cards: 2, overdue: 1 });
+        expect(month.totalCards).toBe(4);
+        expect(month.buckets[20].cards).toBe(1);
+    });
+
+    test("measures whether prerequisite reviews improve dependent outcomes", () => {
+        const prerequisite = card("foundation", "Medicine", -1);
+        const dependent = card("diagnosis", "Medicine", -1);
+        const collection: CollectionData = {
+            schemaVersion: 12,
+            revision: 1,
+            updatedAt: now,
+            noteTypes: {},
+            deckOptions: {},
+            decks: {},
+            notes: {
+                [prerequisite.noteId]: {
+                    id: prerequisite.noteId,
+                    noteTypeId: "basic",
+                    fields: {},
+                    tags: [],
+                    source: { kind: "managed", path: "Foundation.md", questionId: null },
+                    createdAt: 0,
+                    updatedAt: 0,
+                },
+                [dependent.noteId]: {
+                    id: dependent.noteId,
+                    noteTypeId: "basic",
+                    fields: {},
+                    tags: [],
+                    source: { kind: "managed", path: "Diagnosis.md", questionId: null },
+                    createdAt: 0,
+                    updatedAt: 0,
+                },
+            },
+            cards: { prerequisite, dependent },
+            editHistory: {},
+            conflicts: {},
+        };
+        const log: ReviewLogData = {
+            schemaVersion: 1,
+            revision: 1,
+            updatedAt: now,
+            entries: {
+                dependentBefore: {
+                    id: "dependent-before",
+                    cardId: dependent.id,
+                    noteId: dependent.noteId,
+                    rating: 1,
+                    reviewedAt: now - 20 * DAY,
+                    durationMs: 10_000,
+                    mode: "review",
+                    previousSchedule: null,
+                    nextSchedule: null,
+                },
+                prerequisite: {
+                    id: "prerequisite",
+                    cardId: prerequisite.id,
+                    noteId: prerequisite.noteId,
+                    rating: 3,
+                    reviewedAt: now - 2 * DAY,
+                    durationMs: 10_000,
+                    mode: "review",
+                    previousSchedule: null,
+                    nextSchedule: null,
+                },
+                dependentAfter: {
+                    id: "dependent-after",
+                    cardId: dependent.id,
+                    noteId: dependent.noteId,
+                    rating: 4,
+                    reviewedAt: now - DAY,
+                    durationMs: 10_000,
+                    mode: "review",
+                    previousSchedule: null,
+                    nextSchedule: null,
+                },
+            },
+        };
+        const [impact] = analyzeDependencyImpact(collection, log, [
+            {
+                prerequisitePath: "Foundation.md",
+                dependentPath: "Diagnosis.md",
+                source: "manual",
+            },
+        ]);
+
+        expect(impact.withPrerequisite.reviews).toBe(1);
+        expect(impact.withoutPrerequisite.reviews).toBe(1);
+        expect(impact.uplift).toBeGreaterThan(0);
+        expect(impact.strength).toBeGreaterThan(0.5);
+        expect(impact.confidence).toBeGreaterThan(0);
     });
 });

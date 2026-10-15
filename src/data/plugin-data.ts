@@ -123,6 +123,14 @@ export interface ReminderRuntimeState {
     skippedUntil: number;
 }
 
+/** Last user-adjusted review plan. Reasons make manual priority changes auditable. */
+export interface ReviewPlanState {
+    updatedAt: number;
+    orderedStableIds: string[];
+    excludedStableIds: string[];
+    manualReasons: Record<string, string>;
+}
+
 export interface PluginData {
     settings: SRSettings;
     buryDate: string;
@@ -145,6 +153,8 @@ export interface PluginData {
     knowledgeGraphView: KnowledgeGraphViewState;
     /** Durable notification history and scheduler state; secrets remain device-local. */
     reminderState: ReminderRuntimeState;
+    /** Local, durable draft of the latest explainable session plan. */
+    reviewPlanState: ReviewPlanState;
     scheduleData: ISerializedScheduleData;
 }
 
@@ -183,6 +193,12 @@ export const DEFAULT_DATA: PluginData = {
         lastSentAt: {},
         snoozedUntil: 0,
         skippedUntil: 0,
+    },
+    reviewPlanState: {
+        updatedAt: 0,
+        orderedStableIds: [],
+        excludedStableIds: [],
+        manualReasons: {},
     },
     scheduleData: {
         version: 1,

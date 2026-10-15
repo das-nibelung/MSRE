@@ -76,6 +76,22 @@ export async function addKnowledgeDependency(
                 : {};
         reasons[prerequisite.path] = reason;
         data["sr-dependency-reasons"] = reasons;
+        const sources =
+            data["sr-dependency-sources"] &&
+            typeof data["sr-dependency-sources"] === "object" &&
+            !Array.isArray(data["sr-dependency-sources"])
+                ? { ...(data["sr-dependency-sources"] as Record<string, unknown>) }
+                : {};
+        sources[prerequisite.path] = "manual";
+        data["sr-dependency-sources"] = sources;
+        const confidences =
+            data["sr-dependency-confidence"] &&
+            typeof data["sr-dependency-confidence"] === "object" &&
+            !Array.isArray(data["sr-dependency-confidence"])
+                ? { ...(data["sr-dependency-confidence"] as Record<string, unknown>) }
+                : {};
+        confidences[prerequisite.path] = 1;
+        data["sr-dependency-confidence"] = confidences;
     });
     return true;
 }
@@ -102,6 +118,17 @@ export async function removeKnowledgeDependency(
             delete reasons[prerequisitePath];
             data["sr-dependency-reasons"] = reasons;
         }
+        for (const property of ["sr-dependency-sources", "sr-dependency-confidence"]) {
+            if (
+                data[property] &&
+                typeof data[property] === "object" &&
+                !Array.isArray(data[property])
+            ) {
+                const values = { ...(data[property] as Record<string, unknown>) };
+                delete values[prerequisitePath];
+                data[property] = values;
+            }
+        }
     });
     return true;
 }
@@ -124,17 +151,42 @@ export function collectKnowledgeDependencies(
             typeof frontmatter["sr-dependency-reasons"] === "object"
                 ? (frontmatter["sr-dependency-reasons"] as Record<string, unknown>)
                 : {};
+        const sources =
+            frontmatter?.["sr-dependency-sources"] &&
+            typeof frontmatter["sr-dependency-sources"] === "object"
+                ? (frontmatter["sr-dependency-sources"] as Record<string, unknown>)
+                : {};
+        const confidences =
+            frontmatter?.["sr-dependency-confidence"] &&
+            typeof frontmatter["sr-dependency-confidence"] === "object"
+                ? (frontmatter["sr-dependency-confidence"] as Record<string, unknown>)
+                : {};
         for (const reference of prerequisiteValues(value)) {
             const prerequisitePath = resolvePath(app, reference, dependentPath);
             if (!prerequisitePath || prerequisitePath === dependentPath) continue;
             const key = `${prerequisitePath}\u0000${dependentPath}`;
             if (seen.has(key)) continue;
             seen.add(key);
+            const rawConfidence =
+                confidences[reference] ??
+                confidences[prerequisitePath] ??
+                frontmatter?.["sr-compiler-confidence"];
+            const rawSource = sources[reference] ?? sources[prerequisitePath];
+            const confidence =
+                typeof rawConfidence === "number" && Number.isFinite(rawConfidence)
+                    ? Math.max(0, Math.min(1, rawConfidence))
+                    : undefined;
             edges.push({
                 prerequisitePath,
                 dependentPath,
                 reason: typeof reasons[reference] === "string" ? reasons[reference] : undefined,
-                source: frontmatter?.["sr-compiler-version"] ? "compiler" : "frontmatter",
+                source:
+                    rawSource === "manual"
+                        ? "manual"
+                        : frontmatter?.["sr-compiler-version"]
+                          ? "compiler"
+                          : "frontmatter",
+                ...(confidence === undefined ? {} : { confidence }),
             });
         }
     }

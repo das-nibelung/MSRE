@@ -85,6 +85,29 @@ export class PluginDataManager {
                     ? this._pluginData.knowledgeGraphView.positions
                     : {},
         };
+        const rawReviewPlan = this._pluginData.reviewPlanState;
+        this._pluginData.reviewPlanState = {
+            updatedAt: typeof rawReviewPlan?.updatedAt === "number" ? rawReviewPlan.updatedAt : 0,
+            orderedStableIds: Array.isArray(rawReviewPlan?.orderedStableIds)
+                ? rawReviewPlan.orderedStableIds.filter(
+                      (value): value is string => typeof value === "string" && value.length > 0,
+                  )
+                : [],
+            excludedStableIds: Array.isArray(rawReviewPlan?.excludedStableIds)
+                ? rawReviewPlan.excludedStableIds.filter(
+                      (value): value is string => typeof value === "string" && value.length > 0,
+                  )
+                : [],
+            manualReasons:
+                rawReviewPlan?.manualReasons && typeof rawReviewPlan.manualReasons === "object"
+                    ? Object.fromEntries(
+                          Object.entries(rawReviewPlan.manualReasons).filter(
+                              ([key, value]) =>
+                                  key.length > 0 && typeof value === "string" && value.length > 0,
+                          ),
+                      )
+                    : {},
+        };
         this._pluginData.reminderState = {
             ...DEFAULT_DATA.reminderState,
             ...(this._pluginData.reminderState ?? {}),

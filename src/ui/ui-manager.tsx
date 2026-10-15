@@ -502,12 +502,32 @@ export class UIManager {
         );
         if (selectedStableIds) reviewQueueLoader.setSelectedStableIds(selectedStableIds);
 
+        if (
+            mode === FlashcardReviewMode.Review &&
+            singleNote === undefined &&
+            selectedStableIds === undefined
+        ) {
+            await this.tabViewManager.openReviewPlan(reviewQueueLoader);
+            this.focusObsidianWindow();
+            return;
+        }
+
+        await this.openPreparedReview(reviewQueueLoader, openInNewTab);
+        this.focusObsidianWindow();
+    }
+
+    public async openPreparedReview(
+        reviewQueueLoader: ReviewQueueLoader,
+        forceNewTab?: boolean,
+    ): Promise<void> {
+        const isMobile = Platform.isMobile || EmulatedPlatform().isMobile;
+        const openInNewTab =
+            forceNewTab ?? (isMobile || this.settingsManager.settings.openViewInNewTab);
         if (openInNewTab) {
             await this.tabViewManager.openSRTabView(reviewQueueLoader);
         } else {
             this.openFlashcardModal(reviewQueueLoader);
         }
-        this.focusObsidianWindow();
     }
 
     public async openCardBrowser(

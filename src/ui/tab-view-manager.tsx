@@ -6,6 +6,7 @@ import {
     KNOWLEDGE_COMPILER_VIEW_TYPE,
     KNOWLEDGE_GRAPH_VIEW_TYPE,
     REMINDER_CENTER_VIEW_TYPE,
+    REVIEW_PLAN_VIEW_TYPE,
     SR_TAB_VIEW,
 } from "src/data/constants";
 import { SettingsManager } from "src/data/settings-manager";
@@ -16,6 +17,7 @@ import { KnowledgeGraphView } from "src/ui/knowledge-graph/knowledge-graph-view"
 import { NativeCreatorRequest, NativeCreatorView } from "src/ui/native-creator/native-creator-view";
 import { SRTabView } from "src/ui/obsidian-ui-components/item-views/sr-tab-view";
 import { ReminderCenterView } from "src/ui/reminders/reminder-center-view";
+import { ReviewPlanView } from "src/ui/review-plan/review-plan-view";
 import { ReviewQueueLoader } from "src/ui/review-queue-loader";
 import { TabViewType } from "src/utils/types";
 
@@ -72,6 +74,10 @@ export default class TabViewManager {
         {
             type: REMINDER_CENTER_VIEW_TYPE,
             viewCreator: (leaf) => new ReminderCenterView(leaf, this.plugin),
+        },
+        {
+            type: REVIEW_PLAN_VIEW_TYPE,
+            viewCreator: (leaf) => new ReviewPlanView(leaf, this.plugin),
         },
     ];
 
@@ -137,6 +143,11 @@ export default class TabViewManager {
 
     public async openReminderCenter(): Promise<void> {
         await this.openTabView(REMINDER_CENTER_VIEW_TYPE, true);
+    }
+
+    public async openReviewPlan(reviewQueueLoader: ReviewQueueLoader): Promise<void> {
+        const leaf = await this.openTabView(REVIEW_PLAN_VIEW_TYPE, true);
+        if (leaf?.view instanceof ReviewPlanView) await leaf.view.configure(reviewQueueLoader);
     }
 
     public refreshReminderCenter(): void {
