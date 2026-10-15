@@ -15,6 +15,7 @@ import {
 } from "src/ui/knowledge-graph/knowledge-graph-model";
 import { openCanvasAreaPicker } from "src/ui/obsidian-integrations/knowledge-area-picker";
 import { generateKnowledgeCanvas } from "src/ui/obsidian-integrations/knowledge-canvas";
+import { collectKnowledgeDependencies } from "src/ui/obsidian-integrations/knowledge-dependencies";
 import { createStudyRecords } from "src/ui/obsidian-integrations/study-records";
 
 const activeKnowledgeGraphViews = new Set<KnowledgeGraphView>();
@@ -105,11 +106,20 @@ export class KnowledgeGraphView extends ItemView {
 
     private createGraph(): KnowledgeGraphData {
         const state = this.plugin.dataManager.data.knowledgeGraphView;
+        const records = createStudyRecords(this.plugin);
+        const dependencies = collectKnowledgeDependencies(
+            this.plugin.app,
+            records.map((record) => record.notePath).filter(Boolean),
+        );
         return buildKnowledgeGraph(
             this.plugin.dataManager.data.knowledgeAreas,
-            createStudyRecords(this.plugin),
+            records,
             this.plugin.dataManager.data.managedDecks,
-            { noteLinks: resolvedLinks(this.plugin), positions: state.positions },
+            {
+                noteLinks: resolvedLinks(this.plugin),
+                dependencies,
+                positions: state.positions,
+            },
         );
     }
 
@@ -213,6 +223,21 @@ export class KnowledgeGraphView extends ItemView {
         svg.classList.add("sr-graph-edges");
         svg.setAttribute("width", "2200");
         svg.setAttribute("height", String(Math.max(1400, graph.nodes.length * 115)));
+        const definitions = activeDocument.createElementNS("http://www.w3.org/2000/svg", "defs");
+        const marker = activeDocument.createElementNS("http://www.w3.org/2000/svg", "marker");
+        marker.setAttribute("id", "sr-graph-prerequisite-arrow");
+        marker.setAttribute("viewBox", "0 0 10 10");
+        marker.setAttribute("refX", "9");
+        marker.setAttribute("refY", "5");
+        marker.setAttribute("markerWidth", "7");
+        marker.setAttribute("markerHeight", "7");
+        marker.setAttribute("orient", "auto-start-reverse");
+        const arrow = activeDocument.createElementNS("http://www.w3.org/2000/svg", "path");
+        arrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+        arrow.classList.add("sr-graph-prerequisite-arrow");
+        marker.appendChild(arrow);
+        definitions.appendChild(marker);
+        svg.appendChild(definitions);
         const byId = new Map(graph.nodes.map((node) => [node.id, node]));
         for (const edge of graph.edges) {
             const from = byId.get(edge.from);
@@ -229,6 +254,12 @@ export class KnowledgeGraphView extends ItemView {
                 `M ${startX} ${startY} C ${startX + bend} ${startY}, ${endX - bend} ${endY}, ${endX} ${endY}`,
             );
             path.classList.add("sr-graph-edge", `is-${edge.kind}`);
+            if (edge.kind === "prerequisite") {
+                path.setAttribute("marker-end", "url(#sr-graph-prerequisite-arrow)");
+                const title = activeDocument.createElementNS("http://www.w3.org/2000/svg", "title");
+                title.textContent = edge.reason || `${from.label} is required before ${to.label}`;
+                path.appendChild(title);
+            }
             if (this.edgeOnPath(edge)) path.classList.add("is-path");
             svg.appendChild(path);
         }

@@ -31,6 +31,38 @@ export function normalizeAiResult(value: unknown): AiAssistantResult {
                         ? card.deckPath.trim()
                         : undefined,
                 rationale: typeof card.rationale === "string" ? card.rationale.trim() : undefined,
+                concept:
+                    typeof card.concept === "string" && card.concept.trim()
+                        ? card.concept.trim().slice(0, 160)
+                        : undefined,
+                sourceQuote:
+                    typeof card.sourceQuote === "string" && card.sourceQuote.trim()
+                        ? card.sourceQuote.trim().slice(0, 500)
+                        : undefined,
+                prerequisitePaths: Array.isArray(card.prerequisitePaths)
+                    ? card.prerequisitePaths
+                          .filter((path): path is string => typeof path === "string")
+                          .map((path) => path.trim().replace(/^\[\[|\]\]$/g, ""))
+                          .filter(Boolean)
+                          .filter((path, index, all) => all.indexOf(path) === index)
+                          .slice(0, 12)
+                    : undefined,
+                prerequisiteCardIndexes: Array.isArray(card.prerequisiteCardIndexes)
+                    ? card.prerequisiteCardIndexes
+                          .map(Number)
+                          .filter(
+                              (index, position, all) =>
+                                  Number.isInteger(index) &&
+                                  index >= 0 &&
+                                  index < MAX_CARDS &&
+                                  all.indexOf(index) === position,
+                          )
+                          .slice(0, 12)
+                    : undefined,
+                confidence:
+                    typeof card.confidence === "number" && Number.isFinite(card.confidence)
+                        ? Math.max(0, Math.min(1, card.confidence))
+                        : undefined,
             },
         ];
     });

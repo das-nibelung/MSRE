@@ -3,6 +3,7 @@ import { PaneType, WorkspaceLeaf } from "obsidian";
 import {
     CARD_BROWSER_VIEW_TYPE,
     CARD_CREATOR_VIEW_TYPE,
+    KNOWLEDGE_COMPILER_VIEW_TYPE,
     KNOWLEDGE_GRAPH_VIEW_TYPE,
     REMINDER_CENTER_VIEW_TYPE,
     SR_TAB_VIEW,
@@ -10,6 +11,7 @@ import {
 import { SettingsManager } from "src/data/settings-manager";
 import SRPlugin from "src/main";
 import { CardBrowserView } from "src/ui/card-browser/card-browser-view";
+import { KnowledgeCompilerView } from "src/ui/knowledge-compiler/knowledge-compiler-view";
 import { KnowledgeGraphView } from "src/ui/knowledge-graph/knowledge-graph-view";
 import { NativeCreatorRequest, NativeCreatorView } from "src/ui/native-creator/native-creator-view";
 import { SRTabView } from "src/ui/obsidian-ui-components/item-views/sr-tab-view";
@@ -58,6 +60,10 @@ export default class TabViewManager {
                 view.configure(this.creatorRequest);
                 return view;
             },
+        },
+        {
+            type: KNOWLEDGE_COMPILER_VIEW_TYPE,
+            viewCreator: (leaf) => new KnowledgeCompilerView(leaf, this.plugin),
         },
         {
             type: KNOWLEDGE_GRAPH_VIEW_TYPE,
@@ -120,6 +126,13 @@ export default class TabViewManager {
     public async openKnowledgeGraph(focusId?: string): Promise<void> {
         const leaf = await this.openTabView(KNOWLEDGE_GRAPH_VIEW_TYPE, true);
         if (focusId && leaf?.view instanceof KnowledgeGraphView) leaf.view.focusNode(focusId);
+    }
+
+    public async openKnowledgeCompiler(sourcePath?: string): Promise<void> {
+        const leaf = await this.openTabView(KNOWLEDGE_COMPILER_VIEW_TYPE, true);
+        if (leaf?.view instanceof KnowledgeCompilerView) {
+            await leaf.view.configureSource(sourcePath);
+        }
     }
 
     public async openReminderCenter(): Promise<void> {

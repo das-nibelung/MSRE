@@ -227,6 +227,10 @@ export default class SRPlugin extends Plugin {
                     await this.uiManager.openKnowledgeGraph(params.focus);
                     return;
                 }
+                if (action === "knowledge-compiler") {
+                    await this.uiManager.openKnowledgeCompiler(params.file);
+                    return;
+                }
                 if (action === "canvas-control") {
                     await controlKnowledgeCanvas(this, params);
                     return;

@@ -106,7 +106,17 @@ describe("Obsidian knowledge integrations", () => {
                 }),
             ],
             ["Medicine/Cardiology"],
-            { noteLinks: { "Medicine/Heart.md": ["Medicine/Lung.md"] } },
+            {
+                noteLinks: { "Medicine/Heart.md": ["Medicine/Lung.md"] },
+                dependencies: [
+                    {
+                        prerequisitePath: "Medicine/Lung.md",
+                        dependentPath: "Medicine/Heart.md",
+                        source: "compiler",
+                        reason: "Respiration supports cardiac function",
+                    },
+                ],
+            },
         );
         const deck = graph.nodes.find((node) => node.id === "deck:Medicine/Cardiology");
 
@@ -124,6 +134,15 @@ describe("Obsidian knowledge integrations", () => {
         expect(
             shortestKnowledgePath(graph, "note:Medicine/Heart.md", "note:Medicine/Lung.md"),
         ).toEqual(["note:Medicine/Heart.md", "note:Medicine/Lung.md"]);
+        expect(graph.edges).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    from: "note:Medicine/Lung.md",
+                    to: "note:Medicine/Heart.md",
+                    kind: "prerequisite",
+                }),
+            ]),
+        );
     });
 
     it("builds a valid linked JSON Canvas knowledge map", () => {

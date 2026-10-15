@@ -29,6 +29,19 @@ export interface PlannedCard {
     dueAt: number | null;
     priority: number;
     score: number;
+    /** Positive when this card was promoted to unlock dependent knowledge. */
+    dependencyBoost: number;
+    /** Human-readable paths whose review depends on this prerequisite. */
+    unlocks: string[];
+    /** Weak prerequisite paths that should be reviewed before this card. */
+    blockedBy: string[];
+}
+
+export interface KnowledgeDependencyEdge {
+    prerequisitePath: string;
+    dependentPath: string;
+    reason?: string;
+    source: "frontmatter" | "compiler" | "manual";
 }
 
 export function averageReviewDuration(reviewLog: ReviewLogData): number {
@@ -66,32 +79,103 @@ export function planReviewSession(
         intelligentBacklog?: boolean;
         priorityForDeck?: (deckPath: string) => number;
         aheadDaysForDeck?: (deckPath: string) => number;
+        dependencyEdges?: KnowledgeDependencyEdge[];
+        dependencyRetentionThreshold?: number;
+        /** Optional queue boundary after daily deck limits; graph prerequisites may cross it. */
+        baselineCardIds?: ReadonlySet<string>;
     } = {},
 ): { plan: ReviewSessionPlan; cards: PlannedCard[] } {
     const now = options.now ?? Date.now();
     const responseMs = averageReviewDuration(reviewLog);
-    const cards = Object.values(collection.cards)
-        .filter((card) => !card.deletedAt && card.state === "active")
-        .flatMap((card): PlannedCard[] => {
-            const dueAt = cardDueAt(card);
-            const aheadDays = Math.max(
-                0,
-                options.aheadDays ?? 0,
-                options.aheadDaysForDeck?.(card.deckPath) ?? 0,
+    const activeCards = Object.values(collection.cards).filter(
+        (card) => !card.deletedAt && card.state === "active",
+    );
+    const notePath = (card: CollectionCard): string =>
+        collection.notes[card.noteId]?.source.path ?? "";
+    const eligible = new Set<string>();
+    const dueById = new Map<string, number | null>();
+    for (const card of activeCards) {
+        const dueAt = cardDueAt(card);
+        dueById.set(card.id, dueAt);
+        const aheadDays = Math.max(
+            0,
+            options.aheadDays ?? 0,
+            options.aheadDaysForDeck?.(card.deckPath) ?? 0,
+        );
+        const horizon = now + aheadDays * DAY;
+        const insideBaseline = !options.baselineCardIds || options.baselineCardIds.has(card.id);
+        if (insideBaseline && (card.queue === "new" || (dueAt !== null && dueAt <= horizon))) {
+            eligible.add(card.id);
+        }
+    }
+
+    const dependencyBoost = new Map<string, number>();
+    const unlocks = new Map<string, Set<string>>();
+    const blockedBy = new Map<string, Set<string>>();
+    const threshold = Math.max(0.7, Math.min(0.99, options.dependencyRetentionThreshold ?? 0.88));
+    const cardsByPath = new Map<string, CollectionCard[]>();
+    for (const card of activeCards) {
+        const path = notePath(card);
+        if (path) cardsByPath.set(path, [...(cardsByPath.get(path) ?? []), card]);
+    }
+    for (const edge of options.dependencyEdges ?? []) {
+        const dependents = cardsByPath.get(edge.dependentPath) ?? [];
+        const prerequisites = cardsByPath.get(edge.prerequisitePath) ?? [];
+        const dependentReady = dependents.some((card) => eligible.has(card.id));
+        if (!dependentReady || prerequisites.length === 0) continue;
+        const weakPrerequisites = prerequisites.filter((card) => {
+            const dueAt = dueById.get(card.id) ?? null;
+            return (
+                card.queue === "new" ||
+                (dueAt !== null && dueAt <= now) ||
+                card.lapses >= 2 ||
+                retrievability(card, now) < threshold
             );
-            const horizon = now + aheadDays * DAY;
-            if (card.queue !== "new" && (dueAt === null || dueAt > horizon)) return [];
+        });
+        if (!weakPrerequisites.length) continue;
+        for (const card of weakPrerequisites) {
+            eligible.add(card.id);
+            const risk = 1 - retrievability(card, now);
+            dependencyBoost.set(card.id, (dependencyBoost.get(card.id) ?? 0) + 420 + risk * 180);
+            const paths = unlocks.get(card.id) ?? new Set<string>();
+            paths.add(edge.dependentPath);
+            unlocks.set(card.id, paths);
+        }
+        for (const card of dependents) {
+            if (!eligible.has(card.id)) continue;
+            const paths = blockedBy.get(card.id) ?? new Set<string>();
+            paths.add(edge.prerequisitePath);
+            blockedBy.set(card.id, paths);
+        }
+    }
+
+    const cards = activeCards
+        .filter((card) => eligible.has(card.id))
+        .map((card): PlannedCard => {
+            const dueAt = cardDueAt(card);
             const priority = options.priorityForDeck?.(card.deckPath) ?? 0;
             const overdueDays = dueAt === null ? 0 : Math.max(0, (now - dueAt) / DAY);
             const memoryRisk = 1 - retrievability(card, now);
             const learningBoost =
                 card.queue === "learning" || card.queue === "relearning" ? 500 : 0;
+            const graphBoost = dependencyBoost.get(card.id) ?? 0;
+            const dependencyPenalty = (blockedBy.get(card.id)?.size ?? 0) * 90;
             const score =
                 priority * 1000 +
                 learningBoost +
+                graphBoost -
+                dependencyPenalty +
                 (options.intelligentBacklog === false ? 0 : overdueDays * 12 + memoryRisk * 100) -
                 (dueAt !== null && dueAt > now ? (dueAt - now) / DAY : 0);
-            return [{ card, dueAt, priority, score }];
+            return {
+                card,
+                dueAt,
+                priority,
+                score,
+                dependencyBoost: graphBoost,
+                unlocks: [...(unlocks.get(card.id) ?? [])],
+                blockedBy: [...(blockedBy.get(card.id) ?? [])],
+            };
         })
         .sort((left, right) => right.score - left.score || (left.dueAt ?? 0) - (right.dueAt ?? 0));
     const availableCards = cards.length;

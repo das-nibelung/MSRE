@@ -34,6 +34,7 @@ export const SR_TAB_VIEW = "spaced-repetition-tab-view";
 export const CARD_BROWSER_VIEW_TYPE = "spaced-repetition-card-browser";
 export const CARD_CREATOR_VIEW_TYPE = "spaced-repetition-card-creator";
 export const KNOWLEDGE_GRAPH_VIEW_TYPE = "spaced-repetition-knowledge-graph";
+export const KNOWLEDGE_COMPILER_VIEW_TYPE = "spaced-repetition-knowledge-compiler";
 export const REMINDER_CENTER_VIEW_TYPE = "spaced-repetition-reminder-center";
 
 // Disables the error hiding workaround (see src/ui/sr-tab-view.tsx)

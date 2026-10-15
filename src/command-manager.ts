@@ -444,6 +444,18 @@ export class CommandManager {
         });
 
         this.plugin.addCommand({
+            id: "compile-current-note",
+            name: "Compile current note into knowledge cards",
+            checkCallback: (checking) => {
+                if (!this.plugin.isInitialized) return false;
+                const file = this.plugin.app.workspace.getActiveFile();
+                if (!(file instanceof TFile) || file.extension !== "md") return false;
+                if (!checking) void this.uiManager.openKnowledgeCompiler(file.path);
+                return true;
+            },
+        });
+
+        this.plugin.addCommand({
             id: "open-study-base",
             name: "Create or open study Base",
             callback: async () => {

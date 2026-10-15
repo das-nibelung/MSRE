@@ -539,6 +539,10 @@ export class UIManager {
         await this.tabViewManager.openKnowledgeGraph(focusId);
     }
 
+    public async openKnowledgeCompiler(sourcePath?: string): Promise<void> {
+        await this.tabViewManager.openKnowledgeCompiler(sourcePath);
+    }
+
     public async openReminderCenter(): Promise<void> {
         await this.tabViewManager.openReminderCenter();
     }

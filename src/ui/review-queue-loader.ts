@@ -27,6 +27,7 @@ import {
     averageReviewDuration,
     planReviewSession,
 } from "src/scheduling/review-session-planner";
+import { collectKnowledgeDependencies } from "src/ui/obsidian-integrations/knowledge-dependencies";
 import { globalDateProvider } from "src/utils/dates";
 import { globalRandomNumberProvider } from "src/utils/numbers";
 
@@ -296,9 +297,36 @@ export class ReviewQueueLoader {
                 averageReviewDuration(collection.getReviewLogSnapshot()),
             );
             const settings = this.plugin.dataManager.data.settings;
-            if (settings.reviewSessionMinutes > 0 || settings.intelligentBacklog) {
+            if (
+                settings.reviewSessionMinutes > 0 ||
+                settings.intelligentBacklog ||
+                settings.dependencyAwareScheduling
+            ) {
                 const snapshot = collection.getCollectionSnapshot();
                 const areas = this.plugin.dataManager.data.knowledgeAreas;
+                const baselineStableIds = new Set(
+                    remainingDeckTree
+                        .getFlattenedRepItemArray(RepItemState.AnyItem, true)
+                        .filter((item): item is Card => item instanceof Card)
+                        .flatMap((card) => (card.stableId ? [card.stableId] : [])),
+                );
+                const baselineCardIds = new Set(
+                    Object.values(snapshot.cards)
+                        .filter(
+                            (card) =>
+                                card.legacyStableId !== null &&
+                                baselineStableIds.has(card.legacyStableId),
+                        )
+                        .map((card) => card.id),
+                );
+                const dependencyEdges = settings.dependencyAwareScheduling
+                    ? collectKnowledgeDependencies(
+                          this.plugin.app,
+                          Object.values(snapshot.notes)
+                              .filter((note) => !note.deletedAt)
+                              .map((note) => note.source.path),
+                      )
+                    : [];
                 const planned = planReviewSession(snapshot, collection.getReviewLogSnapshot(), {
                     minutes: settings.reviewSessionMinutes || undefined,
                     aheadDays: settings.reviewAheadDays,
@@ -314,12 +342,18 @@ export class ReviewQueueLoader {
                         );
                         return area?.scheduling?.priority ?? preset.priority ?? 0;
                     },
+                    dependencyEdges,
+                    dependencyRetentionThreshold: settings.dependencyRetentionThreshold,
+                    baselineCardIds,
                 });
                 const stableIds = planned.cards.flatMap(({ card }) =>
                     card.legacyStableId ? [card.legacyStableId] : [],
                 );
                 if (stableIds.length > 0) {
-                    remainingDeckTree = applyStableIdPlanToQueue(remainingDeckTree, stableIds);
+                    remainingDeckTree = applyStableIdPlanToQueue(
+                        settings.dependencyAwareScheduling ? deckTree : remainingDeckTree,
+                        stableIds,
+                    );
                 }
             }
         }

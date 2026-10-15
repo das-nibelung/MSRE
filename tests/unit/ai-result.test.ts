@@ -65,4 +65,32 @@ describe("normalizeAiResult", () => {
             explanation: "The original used a vague pronoun.",
         });
     });
+
+    test("sanitizes compiler grounding and dependency metadata", () => {
+        const result = normalizeAiResult({
+            cards: [
+                {
+                    front: "Question",
+                    back: "Answer",
+                    type: "unexpected",
+                    rationale: "  rationale  ",
+                    concept: `  ${"x".repeat(180)}  `,
+                    sourceQuote: "  an exact source fragment  ",
+                    prerequisitePaths: ["[[Notes/A.md]]", "Notes/A.md", 3, " "],
+                    prerequisiteCardIndexes: [0, "1", 1, -1, 12, "nope"],
+                    confidence: 2,
+                },
+            ],
+        });
+
+        expect(result.cards[0]).toMatchObject({
+            type: "basic",
+            rationale: "rationale",
+            concept: "x".repeat(160),
+            sourceQuote: "an exact source fragment",
+            prerequisitePaths: ["Notes/A.md"],
+            prerequisiteCardIndexes: [0, 1],
+            confidence: 1,
+        });
+    });
 });

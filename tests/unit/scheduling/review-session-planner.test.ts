@@ -1,4 +1,4 @@
-import { ReviewLogData } from "src/data/collection/collection-types";
+import { CollectionData, ReviewLogData } from "src/data/collection/collection-types";
 import { SRAlgorithmType } from "src/scheduling/algorithms/base/isr-algorithm";
 import {
     averageReviewDuration,
@@ -140,7 +140,7 @@ describe("review session planner", () => {
         };
         const inactive = { ...card("inactive", "Math", -1), state: "suspended" as const };
         const future = card("future", "Law", 5);
-        const collection = {
+        const collection: CollectionData = {
             schemaVersion: 12,
             revision: 1,
             updatedAt: now,
@@ -226,5 +226,123 @@ describe("review session planner", () => {
         );
         expect(plan.finishAt).toBeGreaterThan(0);
         expect(plan.selectedCards).toBe(0);
+    });
+
+    test("promotes a weak future prerequisite before its due dependent card", () => {
+        const prerequisite = { ...card("foundation", "Medicine", 8), lapses: 3 };
+        const dependent = card("diagnosis", "Medicine", -1);
+        const collection: CollectionData = {
+            schemaVersion: 12,
+            revision: 1,
+            updatedAt: now,
+            noteTypes: {},
+            deckOptions: {},
+            decks: {},
+            notes: {
+                [prerequisite.noteId]: {
+                    id: prerequisite.noteId,
+                    noteTypeId: "basic",
+                    fields: {},
+                    tags: [],
+                    source: {
+                        kind: "managed" as const,
+                        path: "Medicine/Foundation.md",
+                        questionId: null,
+                    },
+                    createdAt: 0,
+                    updatedAt: 0,
+                },
+                [dependent.noteId]: {
+                    id: dependent.noteId,
+                    noteTypeId: "basic",
+                    fields: {},
+                    tags: [],
+                    source: {
+                        kind: "managed" as const,
+                        path: "Medicine/Diagnosis.md",
+                        questionId: null,
+                    },
+                    createdAt: 0,
+                    updatedAt: 0,
+                },
+            },
+            cards: { prerequisite, dependent },
+            editHistory: {},
+            conflicts: {},
+        };
+        const { cards } = planReviewSession(
+            collection,
+            { schemaVersion: 1, revision: 1, updatedAt: now, entries: {} },
+            {
+                now,
+                dependencyEdges: [
+                    {
+                        prerequisitePath: "Medicine/Foundation.md",
+                        dependentPath: "Medicine/Diagnosis.md",
+                        source: "compiler",
+                    },
+                ],
+            },
+        );
+
+        expect(cards.map((item) => item.card.id)).toEqual(["foundation", "diagnosis"]);
+        expect(cards[0].dependencyBoost).toBeGreaterThan(0);
+        expect(cards[0].unlocks).toEqual(["Medicine/Diagnosis.md"]);
+        expect(cards[1].blockedBy).toEqual(["Medicine/Foundation.md"]);
+    });
+
+    test("honors the daily-limit baseline and does not pull a strong prerequisite", () => {
+        const prerequisite = { ...card("known", "Medicine", 8), lapses: 0 };
+        const dependent = card("limited", "Medicine", -1);
+        const notes: CollectionData["notes"] = {};
+        for (const [item, path] of [
+            [prerequisite, "Medicine/Known.md"],
+            [dependent, "Medicine/Limited.md"],
+        ] as const) {
+            notes[item.noteId] = {
+                id: item.noteId,
+                noteTypeId: "basic",
+                fields: {},
+                tags: [],
+                source: { kind: "managed", path, questionId: null },
+                createdAt: 0,
+                updatedAt: 0,
+            };
+        }
+        const collection: CollectionData = {
+            schemaVersion: 12,
+            revision: 1,
+            updatedAt: now,
+            noteTypes: {},
+            deckOptions: {},
+            decks: {},
+            notes,
+            cards: { prerequisite, dependent },
+            editHistory: {},
+            conflicts: {},
+        };
+        const edges = [
+            {
+                prerequisitePath: "Medicine/Known.md",
+                dependentPath: "Medicine/Limited.md",
+                source: "manual" as const,
+            },
+        ];
+
+        expect(
+            planReviewSession(collection, reviewLog, {
+                now,
+                dependencyEdges: edges,
+                baselineCardIds: new Set([dependent.id]),
+                dependencyRetentionThreshold: 0.7,
+            }).cards.map((item) => item.card.id),
+        ).toEqual([dependent.id]);
+        expect(
+            planReviewSession(collection, reviewLog, {
+                now,
+                dependencyEdges: edges,
+                baselineCardIds: new Set(),
+            }).cards,
+        ).toEqual([]);
     });
 });

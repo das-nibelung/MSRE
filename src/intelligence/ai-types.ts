@@ -1,6 +1,7 @@
 import type { NativeCardType } from "src/data/native-card-store";
 
 export type AiAssistantTask =
+    | "compile-knowledge"
     | "draft-cards"
     | "improve-card"
     | "split-card"
@@ -22,6 +23,22 @@ export interface AiCardDraft {
     tags?: string[];
     deckPath?: string;
     rationale?: string;
+    /** Stable human-readable concept represented by this atomic card. */
+    concept?: string;
+    /** Short verbatim fragment that grounds the proposal in the source. */
+    sourceQuote?: string;
+    /** Existing vault note paths that must be understood before this card. */
+    prerequisitePaths?: string[];
+    /** Zero-based indexes of other proposed cards that are prerequisites. */
+    prerequisiteCardIndexes?: number[];
+    /** Provider confidence, clamped to 0…1. */
+    confidence?: number;
+}
+
+export interface AiContextNote {
+    path: string;
+    title: string;
+    excerpt: string;
 }
 
 export interface AiAssistantRequest {
@@ -37,6 +54,8 @@ export interface AiAssistantRequest {
         deckPath: string;
     };
     maximumCards: number;
+    /** Read-only candidates selected locally; they may be used only as prerequisite references. */
+    contextNotes?: AiContextNote[];
 }
 
 export interface AiAssistantResult {

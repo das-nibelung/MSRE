@@ -915,6 +915,44 @@ export class SchedulingPage extends SettingsPage {
             })
             .addSetting((setting: Setting) => {
                 setting
+                    .setName("Dependency-aware scheduling")
+                    .setDesc(
+                        "Promote weak prerequisite notes before cards that depend on them. Dependencies stay visible in the sr-prerequisites property.",
+                    )
+                    .addToggle((toggle) =>
+                        toggle
+                            .setValue(this.settingsManager.settings.dependencyAwareScheduling)
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.dependencyAwareScheduling = value;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
+                    .setName("Prerequisite retention floor")
+                    .setDesc(
+                        "A prerequisite below this estimated retention is reviewed before its dependent card.",
+                    )
+                    .addSlider((slider) =>
+                        slider
+                            .setLimits(70, 99, 1)
+                            .setValue(
+                                Math.round(
+                                    this.settingsManager.settings.dependencyRetentionThreshold *
+                                        100,
+                                ),
+                            )
+                            .setDynamicTooltip()
+                            .onChange(async (value) => {
+                                this.settingsManager.settings.dependencyRetentionThreshold =
+                                    value / 100;
+                                await this.settingsManager.save();
+                            }),
+                    );
+            })
+            .addSetting((setting: Setting) => {
+                setting
                     .setName("Bury siblings")
                     .setDesc("Choose whether new, review, or every sibling waits until tomorrow.")
                     .addDropdown((dropdown) =>

@@ -77,7 +77,19 @@ function responseSchema(): Record<string, unknown> {
                 items: {
                     type: "object",
                     additionalProperties: false,
-                    required: ["front", "back", "type", "tags", "deckPath", "rationale"],
+                    required: [
+                        "front",
+                        "back",
+                        "type",
+                        "tags",
+                        "deckPath",
+                        "rationale",
+                        "concept",
+                        "sourceQuote",
+                        "prerequisitePaths",
+                        "prerequisiteCardIndexes",
+                        "confidence",
+                    ],
                     properties: {
                         front: { type: "string" },
                         back: { type: "string" },
@@ -85,6 +97,17 @@ function responseSchema(): Record<string, unknown> {
                         tags: { type: "array", items: { type: "string" } },
                         deckPath: { type: "string" },
                         rationale: { type: "string" },
+                        concept: { type: "string" },
+                        sourceQuote: { type: "string" },
+                        prerequisitePaths: {
+                            type: "array",
+                            items: { type: "string" },
+                        },
+                        prerequisiteCardIndexes: {
+                            type: "array",
+                            items: { type: "integer", minimum: 0, maximum: MAX_CARDS - 1 },
+                        },
+                        confidence: { type: "number", minimum: 0, maximum: 1 },
                     },
                 },
             },
@@ -94,6 +117,13 @@ function responseSchema(): Record<string, unknown> {
 
 function promptFor(request: AiAssistantRequest): { system: string; user: string } {
     const task = {
+        "compile-knowledge": [
+            "Compile SOURCE into a minimal knowledge blueprint, not a summary.",
+            "Extract atomic claims, create one independently gradable card per claim, and order prerequisites before dependents.",
+            "For every card fill concept, a short exact sourceQuote, confidence, prerequisiteCardIndexes, and prerequisitePaths.",
+            "prerequisiteCardIndexes may reference only earlier proposed cards. prerequisitePaths may use only exact paths from RELATED VAULT NOTES.",
+            "Do not turn examples, headings, or rhetorical sentences into standalone cards unless they encode testable knowledge.",
+        ].join(" "),
         "draft-cards": "Create atomic, unambiguous study cards from the source.",
         "improve-card": "Rewrite the current card to be atomic, precise, and easy to grade.",
         "split-card": "Split the material into the smallest useful independent cards.",
@@ -118,6 +148,11 @@ function promptFor(request: AiAssistantRequest): { system: string; user: string 
     const current = request.currentCard
         ? `\nCURRENT CARD\nFront: ${request.currentCard.front}\nBack: ${request.currentCard.back}\nType: ${request.currentCard.type}\nDeck: ${request.currentCard.deckPath}\nTags: ${request.currentCard.tags.join(", ")}`
         : "";
+    const context = request.contextNotes?.length
+        ? `\nRELATED VAULT NOTES (dependency references only)\n${request.contextNotes
+              .map((note) => `- ${note.path} | ${note.title} | ${note.excerpt}`)
+              .join("\n")}`
+        : "";
     return {
         system: [
             "You are the AI co-author inside MSRE, a file-native spaced-repetition plugin.",
@@ -126,9 +161,10 @@ function promptFor(request: AiAssistantRequest): { system: string; user: string 
             `Return no more than ${request.maximumCards} cards. Preserve the source language (${request.locale}).`,
             "Never invent facts absent from the source. Avoid yes/no questions, vague pronouns, and multi-part prompts.",
             "Use replacement for shorten/clarify. Use acceptedAnswers for accepted-answers, hint for generate-hint, explanation for explain-card, and cards for all card-producing tasks.",
+            "For non-compiler card tasks, knowledge metadata may be empty strings, empty arrays, and confidence 0.",
             "Return only JSON with {summary,cards,replacement,acceptedAnswers,hint,explanation}. Use empty strings/arrays for fields not used by the task.",
         ].join("\n"),
-        user: [current, `\nSOURCE\n${request.sourceText}`].join("\n"),
+        user: [current, context, `\nSOURCE\n${request.sourceText}`].join("\n"),
     };
 }
 

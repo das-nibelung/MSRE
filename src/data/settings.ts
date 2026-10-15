@@ -109,6 +109,10 @@ export interface SRSettings {
     reviewUndoDepth: number;
     reviewAheadDays: number;
     intelligentBacklog: boolean;
+    /** Promotes weak prerequisites before cards that depend on them. */
+    dependencyAwareScheduling: boolean;
+    /** Prerequisites below this predicted recall are considered weak. */
+    dependencyRetentionThreshold: number;
     autoPlayCardMedia: boolean;
     accessibleReviewMode: boolean;
     reduceReviewMotion: boolean;
@@ -247,6 +251,8 @@ export const DEFAULT_SETTINGS: SRSettings = {
     reviewUndoDepth: 20,
     reviewAheadDays: 0,
     intelligentBacklog: true,
+    dependencyAwareScheduling: true,
+    dependencyRetentionThreshold: 0.88,
     autoPlayCardMedia: true,
     accessibleReviewMode: false,
     reduceReviewMotion: false,
@@ -355,6 +361,11 @@ export function upgradeSettings(settings: SRSettings) {
     settings.reviewSessionMinutes = Math.max(0, Number(settings.reviewSessionMinutes) || 0);
     settings.reviewUndoDepth = Math.max(1, Math.min(100, Number(settings.reviewUndoDepth) || 20));
     settings.reviewAheadDays = Math.max(0, Math.min(365, Number(settings.reviewAheadDays) || 0));
+    settings.dependencyAwareScheduling = settings.dependencyAwareScheduling !== false;
+    settings.dependencyRetentionThreshold = Math.max(
+        0.7,
+        Math.min(0.99, Number(settings.dependencyRetentionThreshold) || 0.88),
+    );
     settings.automationEnabled = settings.automationEnabled === true;
     settings.automationWriteAccess = settings.automationWriteAccess === true;
     settings.automationQueueEnabled = settings.automationQueueEnabled === true;

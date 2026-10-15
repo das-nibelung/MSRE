@@ -1,4 +1,5 @@
 import { KnowledgeArea } from "src/data/plugin-data";
+import { KnowledgeDependencyEdge } from "src/scheduling/review-session-planner";
 import { CardBrowserRecord } from "src/ui/card-browser/card-browser-model";
 
 export type KnowledgeGraphNodeKind = "root" | "area" | "deck" | "note";
@@ -29,7 +30,8 @@ export interface KnowledgeGraphEdge {
     id: string;
     from: string;
     to: string;
-    kind: "contains" | "link";
+    kind: "contains" | "link" | "prerequisite";
+    reason?: string;
 }
 
 export interface KnowledgeGraphData {
@@ -39,6 +41,7 @@ export interface KnowledgeGraphData {
 
 export interface KnowledgeGraphBuildOptions {
     noteLinks?: Record<string, string[]>;
+    dependencies?: KnowledgeDependencyEdge[];
     positions?: Record<string, { x: number; y: number }>;
 }
 
@@ -184,6 +187,20 @@ export function buildKnowledgeGraph(
             const to = noteNodeIds.get(destination);
             if (to && to !== from) edges.push({ id: `link:${from}:${to}`, from, to, kind: "link" });
         }
+    }
+    for (const dependency of options.dependencies ?? []) {
+        const from = noteNodeIds.get(dependency.prerequisitePath);
+        const to = noteNodeIds.get(dependency.dependentPath);
+        if (!from || !to || from === to) continue;
+        const id = `prerequisite:${from}:${to}`;
+        if (edges.some((edge) => edge.id === id)) continue;
+        edges.push({
+            id,
+            from,
+            to,
+            kind: "prerequisite",
+            reason: dependency.reason,
+        });
     }
     return { nodes, edges };
 }
